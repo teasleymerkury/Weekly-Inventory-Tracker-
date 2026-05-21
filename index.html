@@ -3089,7 +3089,6 @@ function doLogin() {
   if (user === VALID_USER && pass === VALID_PASS) {
     document.getElementById('loginOverlay').classList.add('hidden');
     if (errEl) errEl.style.display = 'none';
-    // Load shared data from Supabase after login (falls back gracefully if not configured)
     loadFromSupabase();
   } else {
     if (errEl) { errEl.textContent = 'Incorrect username or password.'; errEl.style.display = 'block'; }
