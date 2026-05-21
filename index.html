@@ -1,0 +1,3187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Weekly Inventory Recap — Merkury Forecast</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --glass-bg:     rgba(255,255,255,0.13);
+    --glass-bg-h:   rgba(255,255,255,0.09);
+    --glass-border: rgba(255,255,255,0.42);
+    --glass-hi:     rgba(255,255,255,0.60);
+    --glass-shadow: 0 8px 32px rgba(0,0,0,0.20), 0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.58);
+    --tbl-row:      rgba(48,62,100,0.88);
+    --text-1:       rgba(255,255,255,0.95);
+    --text-2:       rgba(255,255,255,0.65);
+    --text-3:       rgba(255,255,255,0.40);
+    --accent:       rgba(255,255,255,0.22);
+    --accent-bdr:   rgba(255,255,255,0.45);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    background: linear-gradient(145deg, #3b4e78 0%, #586c98 45%, #455f88 100%);
+    background-attachment: fixed;
+    color: var(--text-1);
+    min-height: 100vh;
+  }
+
+  .page-wrap { max-width: 1300px; margin: 0 auto; padding: 24px 20px 48px; position: relative; z-index: 1; }
+
+  /* ── Glass panel base ── */
+  .header-bar, .excel-bar, .summary-bar, .product-block {
+    background: var(--glass-bg);
+    backdrop-filter: blur(28px) saturate(1.7);
+    -webkit-backdrop-filter: blur(28px) saturate(1.7);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    position: relative;
+  }
+  /* Top-edge specular streak */
+  .header-bar::before, .excel-bar::before, .summary-bar::before, .product-block::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 8%; width: 84%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.50) 25%, rgba(255,255,255,0.82) 50%, rgba(255,255,255,0.50) 75%, transparent);
+    pointer-events: none; z-index: 3;
+  }
+
+  /* ── Header ── */
+  .header-bar {
+    display: flex; flex-wrap: wrap; align-items: flex-start;
+    justify-content: space-between; gap: 12px;
+    padding: 16px 22px; border-radius: 18px; margin-bottom: 14px;
+  }
+  .header-bar h1 { font-size: 22px; font-weight: 700; color: var(--text-1); letter-spacing: -0.3px; }
+  .header-bar p  { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+  .date-badge {
+    font-size: 12px; font-weight: 500;
+    background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.40);
+    border-radius: 10px; padding: 5px 14px; color: var(--text-1);
+    white-space: nowrap; align-self: flex-start;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.40);
+  }
+
+  .summary-grid { display: none; }
+  .stat-card .lbl { font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
+  .stat-card .val { font-size: 22px; font-weight: 600; color: var(--text-1); }
+
+  /* ── Product blocks ── */
+  .product-block {
+    border-radius: 18px; margin-bottom: 14px; overflow: hidden;
+    cursor: default;
+    transition: transform 0.30s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .product-block:not(.dragging):hover { transform: scale(1.05); z-index: 10; }
+  .product-block.dragging { opacity: 0.40; border-style: dashed; transform: none !important; }
+  .product-block.drag-over { border-color: rgba(255,255,255,0.80); box-shadow: var(--glass-shadow), 0 0 0 2px rgba(255,255,255,0.35); }
+
+  /* Iridescent stagger */
+  #productsContainer .product-block:nth-child(1) { animation-delay: 0s; }
+  #productsContainer .product-block:nth-child(2) { animation-delay: 1.0s; }
+  #productsContainer .product-block:nth-child(3) { animation-delay: 2.0s; }
+  #productsContainer .product-block:nth-child(4) { animation-delay: 3.0s; }
+  #productsContainer .product-block:nth-child(5) { animation-delay: 4.0s; }
+  #productsContainer .product-block:nth-child(6) { animation-delay: 5.0s; }
+
+  /* ── Drag handle ── */
+  .drag-handle {
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 6px 0 2px; cursor: grab; flex-shrink: 0;
+    opacity: 0.38; transition: opacity 0.15s; user-select: none;
+  }
+  .drag-handle:hover { opacity: 0.80; }
+  .drag-handle:active { cursor: grabbing; }
+
+  .product-header-compact {
+    display: flex; align-items: center; gap: 6px;
+    padding: 10px 14px 10px 10px;
+    background: rgba(255,255,255,0.07);
+    border-bottom: 1px solid rgba(255,255,255,0.18);
+    min-height: 42px;
+  }
+  .phc-info { display: flex; align-items: center; gap: 6px; flex: 1; flex-wrap: wrap; min-width: 0; font-size: 12px; }
+  .phc-id   { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.95); white-space: nowrap; }
+  .phc-sep  { color: rgba(255,255,255,0.28); flex-shrink: 0; }
+  .phc-name { font-weight: 600; color: var(--text-1); }
+  .phc-pill {
+    font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 99px;
+    background: rgba(255,255,255,0.18); color: var(--text-1);
+    border: 1px solid rgba(255,255,255,0.35); white-space: nowrap;
+  }
+  .reset-btn {
+    font-size: 11px; cursor: pointer;
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.28);
+    border-radius: 8px; padding: 4px 10px;
+    color: var(--text-2); display: flex; align-items: center; gap: 4px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .reset-btn:hover { background: rgba(255,255,255,0.22); color: var(--text-1); }
+
+  /* ── KPI strip ── */
+  .kpi-strip { display: flex; flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,0.16); }
+  .kpi-item { flex: 1; min-width: 130px; padding: 11px 16px; border-right: 1px solid rgba(255,255,255,0.14); }
+  .kpi-item:last-child { border-right: none; }
+  .kpi-item .k { font-size: 10px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi-item .v { font-size: 17px; font-weight: 700; color: rgba(255,255,255,0.96); margin-top: 2px; }
+
+  /* ── Data grid ── */
+  .scroll-wrap { overflow-x: auto; }
+  table.grid { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+  table.grid th {
+    background: rgba(255,255,255,0.10); color: var(--text-2);
+    font-weight: 600; text-align: right; padding: 6px 10px; white-space: nowrap;
+    border-bottom: 1px solid rgba(255,255,255,0.16); border-right: 1px solid rgba(255,255,255,0.10);
+    font-size: 11px; width: 100px; min-width: 100px; max-width: 100px;
+  }
+  table.grid th.row-lbl {
+    text-align: left; position: sticky; left: 0; z-index: 2;
+    width: 110px; min-width: 110px; max-width: 110px;
+    background: var(--tbl-row); border-right: 1px solid rgba(255,255,255,0.18);
+    backdrop-filter: blur(10px);
+  }
+  table.grid td {
+    text-align: right; padding: 5px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.08); border-right: 1px solid rgba(255,255,255,0.07);
+    white-space: nowrap; color: var(--text-1);
+    background: rgba(210,220,235,0.07);
+    width: 100px; min-width: 100px; max-width: 100px;
+  }
+  table.grid td.row-lbl {
+    text-align: left; font-weight: 600; position: sticky; left: 0; z-index: 1;
+    width: 110px; min-width: 110px; max-width: 110px;
+    background: var(--tbl-row); color: var(--text-2);
+    border-right: 1px solid rgba(255,255,255,0.16);
+    backdrop-filter: blur(10px);
+  }
+  table.grid td.row-lbl.ending { color: var(--text-1); }
+  table.grid td.editable { padding: 0; }
+  table.grid td.editable input {
+    width: 100%; height: 100%; border: none; background: transparent;
+    font-size: 12px; text-align: right; color: var(--text-1); padding: 5px 10px;
+    outline: none; font-family: inherit; cursor: text; box-sizing: border-box; display: block;
+  }
+  table.grid td.editable input::-webkit-inner-spin-button,
+  table.grid td.editable input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  table.grid td.editable input[type=number] { -moz-appearance: textfield; }
+  table.grid td.editable input:focus { background: rgba(255,255,255,0.18); color: #fff; }
+  table.grid tr:last-child td { border-bottom: none; }
+  table.grid td.neg { color: #ffaaaa; font-weight: 600; }
+  table.grid td.wos-cell { font-weight: 600; }
+  table.grid td.editable-row { background: rgba(215,222,238,0.10); }
+  table.grid td.editable-row input { background: rgba(215,222,238,0.10); }
+  table.grid td.editable-row input:focus { background: rgba(255,255,255,0.18); }
+
+  .note { font-size: 11px; color: rgba(255,255,255,0.65); padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,0.10); line-height: 1.5; }
+  .note strong { color: rgba(255,255,255,0.88); }
+
+  .legend {
+    display: flex; gap: 16px; flex-wrap: wrap; padding: 10px 16px;
+    background: rgba(255,255,255,0.05); border-top: 1px solid rgba(255,255,255,0.10);
+    font-size: 11px; color: rgba(255,255,255,0.68); align-items: center;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .dot-warn { background: rgba(251,191,36,0.55);  border: 1px solid rgba(251,191,36,0.80); }
+  .dot-neg  { background: rgba(255,100,100,0.45); border: 1px solid rgba(255,100,100,0.70); }
+  .dot-edit { background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.35); }
+
+  /* ── Excel sync bars ── */
+  .excel-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    border-radius: 14px; padding: 11px 16px; margin-bottom: 12px; font-size: 12px;
+  }
+  .excel-bar .xbl { font-weight: 600; color: var(--text-1); display: flex; align-items: center; gap: 6px; }
+  .excel-bar .xbl svg { flex-shrink: 0; opacity: 0.80; }
+  .excel-status { font-size: 11px; color: var(--text-3); flex: 1; min-width: 120px; }
+  .excel-status.connected { color: rgba(160,255,200,0.92); font-weight: 500; }
+  .excel-status.error     { color: rgba(255,160,160,0.92); font-weight: 500; }
+  .xbtn {
+    font-size: 11px; font-weight: 500; padding: 5px 13px; border-radius: 9px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.32); background: rgba(255,255,255,0.14); color: var(--text-1);
+    transition: background 0.15s; display: flex; align-items: center; gap: 5px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);
+  }
+  .xbtn:hover { background: rgba(255,255,255,0.24); border-color: rgba(255,255,255,0.50); }
+  .xbtn.primary { background: rgba(255,255,255,0.20); border-color: rgba(255,255,255,0.48); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.36); }
+  .xbtn.primary:hover { background: rgba(255,255,255,0.30); }
+  .xbtn.sync    { background: rgba(150,255,200,0.18); border-color: rgba(150,255,200,0.42); color: rgba(200,255,230,1); box-shadow: inset 0 1px 0 rgba(200,255,230,0.26); }
+  .xbtn.sync:hover { background: rgba(150,255,200,0.28); }
+  .xbtn:disabled { opacity: 0.30; cursor: not-allowed; }
+  .autosync-wrap { display: flex; align-items: center; gap: 5px; color: var(--text-3); }
+  .autosync-wrap input[type=checkbox] { cursor: pointer; accent-color: rgba(255,255,255,0.7); }
+
+  /* linked rows */
+  table.grid tr.suof-linked td.row-lbl { color: rgba(200,230,255,0.92); }
+  table.grid tr.ats-linked  td.row-lbl { color: rgba(180,255,220,0.90); }
+  .xls-badge.ats { background: rgba(100,220,200,0.18); color: rgba(180,255,230,0.92); border-color: rgba(140,240,210,0.38); }
+
+  /* ── Past / current week ── */
+  table.grid th.col-past { background: rgba(0,0,0,0.16) !important; color: rgba(255,255,255,0.22) !important; }
+  table.grid td.col-past { background: rgba(0,0,0,0.14) !important; color: rgba(255,255,255,0.26) !important; }
+  table.grid td.col-past.row-lbl { background: rgba(30,40,80,0.92) !important; color: rgba(255,255,255,0.22) !important; }
+  table.grid td.col-past.editable { background: rgba(0,0,0,0.16) !important; }
+  table.grid td.col-past.editable input { background: rgba(0,0,0,0.16) !important; color: rgba(255,255,255,0.22) !important; pointer-events: none; cursor: default; }
+  table.grid td.wos-cell.col-past { background: rgba(0,0,0,0.18) !important; color: rgba(255,255,255,0.22) !important; }
+  table.grid th.col-cur { background: rgba(251,191,36,0.18) !important; color: rgba(255,230,100,1) !important; border-left: 2px solid rgba(251,191,36,0.70) !important; border-right: 1px solid rgba(255,255,255,0.10) !important; }
+  table.grid td.col-cur { background: rgba(251,191,36,0.08) !important; border-left: 2px solid rgba(251,191,36,0.55) !important; }
+  table.grid td.col-cur.editable { background: rgba(251,191,36,0.08) !important; }
+  table.grid td.col-cur.editable input { background: rgba(251,191,36,0.08) !important; }
+  table.grid td.col-cur.editable input:focus { background: rgba(255,255,255,0.18) !important; }
+
+  .xls-badge {
+    display: inline-block; font-size: 9px; font-weight: 700;
+    background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.92);
+    border: 1px solid rgba(255,255,255,0.36); border-radius: 3px;
+    padding: 1px 4px; margin-left: 4px; vertical-align: middle; line-height: 1.4;
+  }
+
+  .page-footer { text-align: center; font-size: 11px; color: var(--text-3); margin-top: 32px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.14); }
+
+  /* ── Visibility toggle ── */
+  .product-block.collapsed .product-body { display: none; }
+  .product-block.collapsed .product-header-compact { border-bottom: none; }
+  .toggle-vis-btn {
+    margin-left: auto; font-size: 11px; cursor: pointer;
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.28);
+    border-radius: 8px; padding: 4px 10px; color: rgba(255,255,255,0.88);
+    display: flex; align-items: center; gap: 4px; transition: background 0.15s;
+    white-space: nowrap; flex-shrink: 0;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+  }
+  .toggle-vis-btn:hover { background: rgba(255,255,255,0.22); color: #fff; }
+  .product-block.collapsed .toggle-vis-btn { color: #fff; border-color: rgba(255,255,255,0.45); background: rgba(255,255,255,0.18); }
+
+  /* ── Summary bar ── */
+  .summary-bar { display: flex; align-items: stretch; border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
+  .summary-bar .s-item { flex: 1; padding: 11px 18px; border-right: 1px solid rgba(255,255,255,0.14); }
+  .summary-bar .s-item:last-child { border-right: none; }
+  .summary-bar .s-lbl { font-size: 10px; color: rgba(255,255,255,0.58); text-transform: uppercase; letter-spacing: 0.5px; }
+  .summary-bar .s-num { font-size: 20px; font-weight: 700; color: rgba(255,255,255,0.96); margin-top: 2px; }
+  .summary-bar .s-action { padding: 10px 14px; border-left: 1px solid rgba(255,255,255,0.14); display: flex; align-items: center; }
+  .add-item-btn {
+    font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 10px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.40); background: rgba(255,255,255,0.18); color: #fff;
+    transition: background 0.15s; display: flex; align-items: center; gap: 5px; white-space: nowrap;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.32);
+  }
+  .add-item-btn:hover { background: rgba(255,255,255,0.28); }
+
+  /* ── Modal ── */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(30,45,80,0.55); backdrop-filter: blur(18px); z-index: 2000; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    background: rgba(255,255,255,0.18);
+    backdrop-filter: blur(36px) saturate(1.8);
+    -webkit-backdrop-filter: blur(36px) saturate(1.8);
+    border: 1px solid rgba(255,255,255,0.45);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.55);
+    border-radius: 22px; padding: 26px 30px; width: 480px; max-width: 96vw;
+  }
+  .modal-box h2 { font-size: 16px; font-weight: 700; margin-bottom: 6px; color: var(--text-1); }
+  .modal-hint { font-size: 11px; color: var(--text-2); margin-bottom: 16px; padding: 8px 12px; background: rgba(255,255,255,0.14); border-left: 3px solid rgba(255,255,255,0.55); border-radius: 0 8px 8px 0; }
+  .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .modal-grid.full { grid-template-columns: 1fr; }
+  .modal-field label { display: block; font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+  .modal-field input { width: 100%; padding: 8px 11px; border: 1px solid rgba(255,255,255,0.30); border-radius: 9px; font-size: 12px; color: var(--text-1); outline: none; font-family: inherit; background: rgba(255,255,255,0.12); }
+  .modal-field input::placeholder { color: var(--text-3); }
+  .modal-field input:focus { border-color: rgba(255,255,255,0.65); box-shadow: 0 0 0 3px rgba(255,255,255,0.12); background: rgba(255,255,255,0.20); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+  .modal-cancel { font-size: 12px; padding: 6px 14px; border-radius: 8px; cursor: pointer; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.28); color: var(--text-1); }
+  .modal-cancel:hover { background: rgba(255,255,255,0.22); }
+  .modal-submit { font-size: 12px; font-weight: 600; padding: 6px 18px; border-radius: 8px; cursor: pointer; background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.45); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.32); }
+  .modal-submit:hover { background: rgba(255,255,255,0.34); }
+
+  /* ── POS cells ── */
+  table.grid td.pos-cell { background: rgba(210,235,220,0.09); }
+  table.grid td.pos-cell input { background: rgba(210,235,220,0.09); }
+  table.grid td.pos-cell input:focus { background: rgba(255,255,255,0.18) !important; }
+  table.grid td.col-past.pos-cell { background: rgba(0,0,0,0.14) !important; }
+
+  /* ── VendorDrill accent ── */
+  .vd-connected { color: rgba(255,230,120,0.95) !important; }
+
+  /* ── App layout ── */
+  html, body { height: 100%; overflow: hidden; }
+  .app-layout { display: flex; height: 100vh; overflow: hidden; }
+  .sidebar {
+    width: 210px; flex-shrink: 0;
+    background: rgba(255,255,255,0.10);
+    backdrop-filter: blur(28px) saturate(1.7);
+    -webkit-backdrop-filter: blur(28px) saturate(1.7);
+    border-right: 1px solid rgba(255,255,255,0.22);
+    display: flex; flex-direction: column;
+    height: 100vh; z-index: 100; overflow: hidden;
+  }
+  .sidebar-logo { padding: 22px 18px 16px; border-bottom: 1px solid rgba(255,255,255,0.15); }
+  .sidebar-logo .logo-title { font-size: 13px; font-weight: 700; color: var(--text-1); }
+  .sidebar-logo .logo-sub   { font-size: 10px; color: var(--text-2); margin-top: 3px; }
+  .sidebar-nav { flex: 1; padding: 10px 10px 0; }
+  .nav-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 9px 12px; border-radius: 11px; cursor: pointer;
+    font-size: 12px; font-weight: 500; color: var(--text-2);
+    margin-bottom: 3px; transition: background 0.15s, color 0.15s;
+    border: 1px solid transparent; user-select: none;
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.10); color: var(--text-1); }
+  .nav-item.active { background: rgba(255,255,255,0.18); color: var(--text-1); border-color: rgba(255,255,255,0.32); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28); }
+  .nav-item svg { flex-shrink: 0; opacity: 0.70; }
+  .nav-item.active svg { opacity: 1; }
+  .main-content { flex: 1; min-width: 0; height: 100vh; overflow-y: auto; overflow-x: hidden; }
+  .page-section { display: none; }
+  .page-section.active { display: block; }
+  .reorder-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 70vh; color: var(--text-2); text-align: center; gap: 14px; }
+  .reorder-placeholder svg { opacity: 0.30; }
+  .reorder-placeholder h2 { font-size: 20px; font-weight: 600; color: var(--text-1); }
+  .reorder-placeholder p  { font-size: 13px; max-width: 360px; line-height: 1.65; }
+
+  /* ── Sync row (horizontal 3-col) ── */
+  .sync-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .sync-col {
+    background: var(--glass-bg);
+    backdrop-filter: blur(28px) saturate(1.7);
+    -webkit-backdrop-filter: blur(28px) saturate(1.7);
+    border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+    border-radius: 14px; padding: 11px 13px;
+    display: flex; flex-direction: column; gap: 7px; font-size: 12px; position: relative;
+  }
+  .sync-col::before {
+    content: ''; position: absolute; top: 0; left: 8%; width: 84%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.50) 25%, rgba(255,255,255,0.82) 50%, rgba(255,255,255,0.50) 75%, transparent);
+    pointer-events: none; z-index: 3;
+  }
+  .sync-col-head { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text-1); font-size: 12px; }
+  .sync-col-head svg { flex-shrink: 0; opacity: 0.80; }
+  .sync-col-status { font-size: 10px; color: var(--text-3); min-height: 14px; line-height: 1.4; }
+  .sync-col-status.connected { color: rgba(160,255,200,0.92); font-weight: 500; }
+  .sync-col-status.error     { color: rgba(255,160,160,0.92); font-weight: 500; }
+  .sync-col-btns { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+
+  /* ── Filter bar ── */
+  .filter-bar {
+    background: var(--glass-bg);
+    backdrop-filter: blur(28px) saturate(1.7);
+    -webkit-backdrop-filter: blur(28px) saturate(1.7);
+    border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+    border-radius: 14px; padding: 10px 16px; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; position: relative;
+  }
+  .filter-bar::before {
+    content: ''; position: absolute; top: 0; left: 8%; width: 84%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.50) 25%, rgba(255,255,255,0.82) 50%, rgba(255,255,255,0.50) 75%, transparent);
+    pointer-events: none; z-index: 3;
+  }
+  .filter-lbl { font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+  .filter-search {
+    flex: 1; min-width: 150px; max-width: 240px; padding: 5px 10px;
+    border: 1px solid rgba(255,255,255,0.28); border-radius: 9px;
+    font-size: 12px; color: var(--text-1); outline: none; font-family: inherit;
+    background: rgba(255,255,255,0.10);
+  }
+  .filter-search:focus { border-color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.18); }
+  .filter-search::placeholder { color: var(--text-3); }
+  .filter-sep { width: 1px; height: 20px; background: rgba(255,255,255,0.18); flex-shrink: 0; }
+  .filter-btn {
+    font-size: 11px; font-weight: 500; padding: 4px 11px; border-radius: 8px;
+    cursor: pointer; border: 1px solid rgba(255,255,255,0.28);
+    background: rgba(255,255,255,0.10); color: var(--text-1);
+    transition: background 0.15s; white-space: nowrap;
+  }
+  .filter-btn:hover  { background: rgba(255,255,255,0.20); }
+  .filter-btn.active { background: rgba(255,255,255,0.22); border-color: rgba(255,255,255,0.50); }
+  .fw-select {
+    padding: 5px 8px; border: 1px solid rgba(255,255,255,0.28); border-radius: 8px;
+    font-size: 11px; color: var(--text-1); outline: none; font-family: inherit;
+    background: rgba(255,255,255,0.10); cursor: pointer;
+  }
+  .fw-select option { background: #3b4e78; color: #fff; }
+  .fw-select:focus { border-color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.18); }
+
+  /* ── Login modal ── */
+  .login-overlay {
+    position: fixed; inset: 0; z-index: 9000;
+    background: rgba(20,32,60,0.75); backdrop-filter: blur(26px);
+    -webkit-backdrop-filter: blur(26px);
+    display: flex; align-items: center; justify-content: center;
+    animation: loginFadeIn 0.4s ease;
+  }
+  .login-overlay.hidden { display: none; }
+  @keyframes loginFadeIn { from { opacity:0; } to { opacity:1; } }
+  .login-box {
+    background: rgba(255,255,255,0.17);
+    backdrop-filter: blur(40px) saturate(2);
+    -webkit-backdrop-filter: blur(40px) saturate(2);
+    border: 1px solid rgba(255,255,255,0.48);
+    box-shadow: 0 32px 80px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.60);
+    border-radius: 26px; padding: 38px 36px; width: 360px; max-width: 92vw;
+    animation: loginSlideUp 0.45s cubic-bezier(0.34,1.56,0.64,1); position: relative; overflow: hidden;
+  }
+  .login-box::before {
+    content: ''; position: absolute; top: 0; left: 10%; width: 80%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55) 30%, rgba(255,255,255,0.90) 50%, rgba(255,255,255,0.55) 70%, transparent);
+  }
+  @keyframes loginSlideUp { from { opacity:0; transform:translateY(28px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+  .login-logo { text-align:center; margin-bottom:26px; }
+  .login-logo .l-title { font-size:22px; font-weight:700; color:var(--text-1); letter-spacing:-0.3px; }
+  .login-logo .l-sub   { font-size:12px; color:var(--text-2); margin-top:4px; }
+  .login-field { margin-bottom: 13px; }
+  .login-field label { display:block; font-size:11px; font-weight:600; color:var(--text-2); margin-bottom:5px; letter-spacing:0.4px; text-transform:uppercase; }
+  .login-field input {
+    width:100%; padding:11px 14px; border:1px solid rgba(255,255,255,0.32);
+    border-radius:12px; font-size:13px; color:var(--text-1); outline:none;
+    font-family:inherit; background:rgba(255,255,255,0.12);
+    transition:border-color 0.15s,box-shadow 0.15s,background 0.15s;
+  }
+  .login-field input::placeholder { color:var(--text-3); }
+  .login-field input:focus { border-color:rgba(255,255,255,0.65); box-shadow:0 0 0 3px rgba(255,255,255,0.12); background:rgba(255,255,255,0.20); }
+  .login-btn {
+    width:100%; padding:12px; border-radius:12px; cursor:pointer;
+    font-size:14px; font-weight:700; color:#fff; font-family:inherit;
+    border:1px solid rgba(255,255,255,0.50);
+    background:linear-gradient(135deg,rgba(255,255,255,0.28) 0%,rgba(255,255,255,0.18) 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.40),0 4px 16px rgba(0,0,0,0.15);
+    transition:background 0.15s,transform 0.12s; margin-top:8px; letter-spacing:0.3px;
+  }
+  .login-btn:hover  { background:linear-gradient(135deg,rgba(255,255,255,0.38) 0%,rgba(255,255,255,0.26) 100%); transform:translateY(-1px); }
+  .login-btn:active { transform:translateY(0); }
+
+  /* ── Reorder popup ── */
+  .rp-overlay {
+    display:none; position:fixed; inset:0;
+    background:rgba(20,32,60,0.50); backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    z-index:3000; align-items:center; justify-content:center;
+  }
+  .rp-overlay.open { display:flex; }
+  .rp-box {
+    background:rgba(255,255,255,0.20);
+    backdrop-filter:blur(40px) saturate(1.9);
+    -webkit-backdrop-filter:blur(40px) saturate(1.9);
+    border:1px solid rgba(255,255,255,0.48);
+    box-shadow:0 20px 56px rgba(0,0,0,0.28),inset 0 1px 0 rgba(255,255,255,0.55);
+    border-radius:20px; padding:22px 26px; width:340px; max-width:94vw;
+    animation:loginSlideUp 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .rp-box h3 { font-size:14px; font-weight:700; margin-bottom:3px; color:var(--text-1); }
+  .rp-box .rp-sub { font-size:11px; color:var(--text-2); margin-bottom:16px; }
+  .rp-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .rp-field label { display:block; font-size:11px; font-weight:600; color:var(--text-2); margin-bottom:4px; }
+  .rp-field input {
+    width:100%; padding:8px 10px; border:1px solid rgba(255,255,255,0.30);
+    border-radius:9px; font-size:12px; color:var(--text-1); outline:none;
+    font-family:inherit; background:rgba(255,255,255,0.12);
+  }
+  .rp-field input:focus { border-color:rgba(255,255,255,0.65); background:rgba(255,255,255,0.20); }
+  .rp-field input::placeholder { color:var(--text-3); }
+  .rp-full { grid-column:1/-1; }
+  .rp-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  .rp-hint { font-size:10px; color:var(--text-3); margin-top:10px; text-align:center; }
+
+  /* Drag placeholder slot */
+  .drag-placeholder { pointer-events:none; transition:none !important; }
+
+  /* Firm receipt locked */
+  table.grid td.fr-locked { background:rgba(100,130,180,0.12) !important; }
+  table.grid td.fr-locked input { cursor:not-allowed !important; color:rgba(255,255,255,0.55) !important; }
+
+
+  /* ── Item-select filter dropdown ── */
+  .filter-dropdown-wrap { position: relative; }
+  .filter-dd-btn {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 12px; border-radius: 9px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.32);
+    background: rgba(255,255,255,0.13); color: var(--text-1);
+    font-size: 12px; font-weight: 500; font-family: inherit;
+    transition: background 0.15s; white-space: nowrap;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+  }
+  .filter-dd-btn:hover { background: rgba(255,255,255,0.22); }
+  .filter-dd-btn .dd-count {
+    background: rgba(255,255,255,0.22); border-radius: 99px;
+    padding: 1px 7px; font-size: 11px; font-weight: 600;
+  }
+  .filter-dd-panel {
+    display: none; position: absolute; top: calc(100% + 6px); left: 0;
+    background: rgba(58,74,114,0.97);
+    backdrop-filter: blur(32px) saturate(1.8);
+    -webkit-backdrop-filter: blur(32px) saturate(1.8);
+    border: 1px solid rgba(255,255,255,0.38);
+    box-shadow: 0 16px 48px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.35);
+    border-radius: 14px; padding: 8px 0; min-width: 280px; z-index: 500;
+  }
+  .filter-dd-panel.open { display: block; }
+  .filter-dd-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 14px 8px; border-bottom: 1px solid rgba(255,255,255,0.14);
+    font-size: 11px; color: var(--text-2);
+  }
+  .filter-dd-header span { font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .filter-dd-actions { display: flex; gap: 8px; }
+  .filter-dd-actions a { color: rgba(160,210,255,0.90); cursor: pointer; text-decoration: none; font-size: 11px; }
+  .filter-dd-actions a:hover { color: #fff; }
+  .filter-dd-list { max-height: 260px; overflow-y: auto; padding: 4px 0; }
+  .filter-dd-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 14px; cursor: pointer; font-size: 12px; color: var(--text-1);
+    transition: background 0.12s; user-select: none;
+  }
+  .filter-dd-item:hover { background: rgba(255,255,255,0.10); }
+  .filter-dd-item input[type=checkbox] { accent-color: rgba(200,220,255,0.9); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
+  .filter-dd-item .fdi-name { font-weight: 500; flex: 1; }
+  .filter-dd-item .fdi-sub  { font-size: 10px; color: var(--text-3); }
+
+
+  /* ── Reorder tab chart ── */
+  .reorder-tab-wrap { padding: 24px 20px 48px; }
+  .reorder-tab-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 18px; flex-wrap: wrap; gap: 10px;
+  }
+  .reorder-tab-header h1 { font-size: 20px; font-weight: 700; color: var(--text-1); }
+  .reorder-tab-header p  { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+  .reorder-empty {
+    text-align: center; padding: 60px 20px; color: var(--text-2);
+    font-size: 13px; line-height: 1.7;
+  }
+  .reorder-empty svg { opacity: 0.28; margin-bottom: 12px; }
+  .reorder-tbl-wrap {
+    background: var(--glass-bg);
+    backdrop-filter: blur(28px) saturate(1.7);
+    -webkit-backdrop-filter: blur(28px) saturate(1.7);
+    border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+    border-radius: 16px; overflow: hidden; position: relative;
+  }
+  .reorder-tbl-wrap::before {
+    content: ''; position: absolute; top: 0; left: 8%; width: 84%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.50) 25%, rgba(255,255,255,0.82) 50%, rgba(255,255,255,0.50) 75%, transparent);
+    pointer-events: none; z-index: 3;
+  }
+  .reorder-tbl-inner { overflow-x: auto; }
+  table.reorder-chart {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  table.reorder-chart thead tr {
+    background: rgba(255,255,255,0.10);
+    border-bottom: 1px solid rgba(255,255,255,0.20);
+  }
+  table.reorder-chart th {
+    padding: 11px 16px; text-align: left; font-size: 11px; font-weight: 700;
+    color: rgba(255,255,255,0.65); text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  table.reorder-chart th.num { text-align: right; }
+  table.reorder-chart tbody tr {
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    transition: background 0.12s;
+  }
+  table.reorder-chart tbody tr:last-child { border-bottom: none; }
+  table.reorder-chart tbody tr:hover { background: rgba(255,255,255,0.07); }
+  table.reorder-chart td {
+    padding: 12px 16px; color: var(--text-1); white-space: nowrap; vertical-align: middle;
+  }
+  table.reorder-chart td.num { text-align: right; font-weight: 600; }
+  table.reorder-chart td.model-cell { font-size: 12px; color: var(--text-2); font-family: monospace; }
+  table.reorder-chart td.desc-cell  { font-weight: 500; max-width: 260px; white-space: normal; line-height: 1.4; }
+  .cp-badge {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 6px;
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.30);
+    color: var(--text-1);
+  }
+  .cp-badge.orange { background: rgba(251,146,60,0.40); border-color: rgba(251,146,60,0.60); }
+  .cp-badge.purple { background: rgba(139,92,246,0.38); border-color: rgba(139,92,246,0.55); }
+  .rt-summary-bar {
+    display: flex; gap: 0; border-bottom: 1px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.06);
+  }
+  .rt-summary-item { flex: 1; padding: 10px 16px; border-right: 1px solid rgba(255,255,255,0.10); }
+  .rt-summary-item:last-child { border-right: none; }
+  .rt-summary-item .rt-lbl { font-size: 10px; color: rgba(255,255,255,0.55); text-transform: uppercase; letter-spacing: 0.5px; }
+  .rt-summary-item .rt-val { font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.96); margin-top: 2px; }
+
+
+  /* ── Delete button ── */
+  .delete-btn {
+    margin-left: 6px; font-size: 11px; cursor: pointer;
+    background: rgba(220,60,60,0.18); border: 1px solid rgba(220,80,80,0.42);
+    border-radius: 8px; padding: 4px 10px; color: rgba(255,160,160,0.95);
+    display: flex; align-items: center; gap: 4px; transition: background 0.15s;
+    white-space: nowrap; flex-shrink: 0;
+    box-shadow: inset 0 1px 0 rgba(255,180,180,0.18);
+  }
+  .delete-btn:hover { background: rgba(220,60,60,0.34); color: #fff; border-color: rgba(255,100,100,0.65); }
+  .product-header-btns { display: flex; align-items: center; flex-shrink: 0; }
+
+  /* ── Inbound Detail page ── */
+  .inbound-tab-wrap { padding: 24px 20px 48px; }
+  .inbound-tab-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 18px; flex-wrap: wrap; gap: 10px;
+  }
+  .inbound-tab-header h1 { font-size: 20px; font-weight: 700; color: var(--text-1); }
+  .inbound-tab-header p  { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+  .inbound-empty {
+    text-align: center; padding: 60px 20px; color: var(--text-2); font-size: 13px; line-height: 1.7;
+  }
+  .inbound-empty svg { opacity: 0.28; margin-bottom: 12px; }
+  .inbound-tbl-wrap {
+    background: var(--glass-bg);
+    backdrop-filter: blur(28px) saturate(1.7);
+    -webkit-backdrop-filter: blur(28px) saturate(1.7);
+    border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+    border-radius: 16px; overflow: hidden; position: relative;
+  }
+  .inbound-tbl-wrap::before {
+    content: ''; position: absolute; top: 0; left: 8%; width: 84%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.50) 25%, rgba(255,255,255,0.82) 50%, rgba(255,255,255,0.50) 75%, transparent);
+    pointer-events: none; z-index: 3;
+  }
+  .inbound-tbl-inner { overflow-x: auto; }
+  .inbound-summary-bar {
+    display: flex; gap: 0; border-bottom: 1px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.06);
+  }
+  .inbound-summary-item { flex: 1; padding: 10px 16px; border-right: 1px solid rgba(255,255,255,0.10); }
+  .inbound-summary-item:last-child { border-right: none; }
+  .inbound-summary-item .ib-lbl { font-size: 10px; color: rgba(255,255,255,0.55); text-transform: uppercase; letter-spacing: 0.5px; }
+  .inbound-summary-item .ib-val { font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.96); margin-top: 2px; }
+  table.inbound-tbl {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  table.inbound-tbl thead tr {
+    background: rgba(255,255,255,0.10);
+    border-bottom: 1px solid rgba(255,255,255,0.20);
+  }
+  table.inbound-tbl th {
+    padding: 11px 14px; text-align: left; font-size: 11px; font-weight: 700;
+    color: rgba(255,255,255,0.65); text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap; border-right: 1px solid rgba(255,255,255,0.08);
+  }
+  table.inbound-tbl th:last-child { border-right: none; }
+  table.inbound-tbl th.num { text-align: right; }
+  table.inbound-tbl tbody tr {
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    transition: background 0.12s;
+  }
+  table.inbound-tbl tbody tr:last-child { border-bottom: none; }
+  table.inbound-tbl tbody tr:hover { background: rgba(255,255,255,0.07); }
+  table.inbound-tbl td {
+    padding: 10px 14px; color: var(--text-1); white-space: nowrap; vertical-align: middle;
+    border-right: 1px solid rgba(255,255,255,0.06); font-size: 12px;
+  }
+  table.inbound-tbl td:last-child { border-right: none; }
+  table.inbound-tbl td.num { text-align: right; font-weight: 600; }
+  table.inbound-tbl td.model-cell { font-size: 12px; color: rgba(180,220,255,0.85); font-weight: 600; }
+  table.inbound-tbl td.desc-cell  { font-weight: 500; max-width: 280px; white-space: normal; line-height: 1.4; }
+  table.inbound-tbl td.date-cell  { font-size: 11px; color: rgba(255,230,120,0.90); font-weight: 500; }
+  table.inbound-tbl td.qty-cell   { text-align: right; font-weight: 700; color: rgba(160,255,200,0.95); }
+  .inbound-search-bar {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.04);
+  }
+  .inbound-search-input {
+    flex: 1; max-width: 280px; padding: 6px 11px;
+    border: 1px solid rgba(255,255,255,0.28); border-radius: 9px;
+    font-size: 12px; color: var(--text-1); outline: none; font-family: inherit;
+    background: rgba(255,255,255,0.10);
+  }
+  .inbound-search-input:focus { border-color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.18); }
+  .inbound-search-input::placeholder { color: var(--text-3); }
+  .inbound-row-count { font-size: 11px; color: var(--text-3); }
+  table.inbound-tbl td.editable-inbound { padding: 4px 8px; }
+  table.inbound-tbl td.editable-inbound input {
+    width: 100%; min-width: 100px; padding: 5px 9px;
+    border: 1px solid rgba(255,255,255,0.22); border-radius: 7px;
+    font-size: 12px; color: var(--text-1); outline: none; font-family: inherit;
+    background: rgba(255,255,255,0.08); transition: border-color 0.15s, background 0.15s;
+  }
+  table.inbound-tbl td.editable-inbound input::placeholder { color: var(--text-3); }
+  table.inbound-tbl td.editable-inbound input:focus {
+    border-color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.18);
+  }
+
+</style>
+</head>
+<body>
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="l-title">Merkury Forecast</div>
+      <div class="l-sub">Weekly Inventory Recap &mdash; Sign in to continue</div>
+    </div>
+    <div class="login-field">
+      <label>Username</label>
+      <input type="text" id="loginUser" placeholder="Enter username" autocomplete="username" />
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPass" placeholder="Enter password" autocomplete="current-password" />
+    </div>
+    <div id="loginErr" style="display:none;font-size:12px;color:rgba(255,130,130,0.95);text-align:center;margin-bottom:6px;padding:7px 12px;background:rgba(255,80,80,0.18);border-radius:9px;border:1px solid rgba(255,100,100,0.40);">Incorrect username or password.</div>
+    <button class="login-btn" onclick="doLogin()">Log In</button>
+  </div>
+</div>
+<div class="app-layout">
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-title">Merkury Forecast</div>
+    <div class="logo-sub">Inventory Dashboard</div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-item active" id="nav-inventory" onclick="showPage('inventory')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M8 3v18M2 9h20"/></svg>
+      Weekly Recap
+    </div>
+    <div class="nav-item" id="nav-reorder" onclick="showPage('reorder')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+      Reorder
+    </div>
+    <div class="nav-item" id="nav-inbound" onclick="showPage('inbound')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      Inbound Detail
+    </div>
+  </nav>
+</aside>
+<div class="main-content">
+<!-- Page: Weekly Recap -->
+<div class="page-section active" id="page-inventory">
+<div class="page-wrap">
+
+  <div class="header-bar">
+    <div>
+      <h1>Weekly Inventory Recap</h1>
+      <p>Merkury Forecast &mdash; Please return to Jessica &amp; Barrett by EOD Thursday</p>
+    </div>
+    <span class="date-badge" id="todayDate"></span>
+  </div>
+
+  <!-- Data Sync Row -->
+  <div class="sync-row">
+    <div class="sync-col">
+      <div class="sync-col-head">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M8 3v18M16 3v18M2 9h20M2 15h20"/></svg>
+        SUOF Excel
+      </div>
+      <span class="sync-col-status" id="excelStatus">Not connected</span>
+      <div class="sync-col-btns">
+        <button class="xbtn primary" id="btnConnect" onclick="connectExcel()">&#128194; Connect</button>
+        <button class="xbtn sync"    id="btnSync"    onclick="syncFromExcel()" disabled>&#128260; Sync</button>
+        <label class="autosync-wrap" title="Auto re-read every 30s">
+          <input type="checkbox" id="chkAuto" onchange="toggleAutoSync(this.checked)" disabled> Auto
+        </label>
+      </div>
+    </div>
+    <div class="sync-col">
+      <div class="sync-col-head">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V21H3V8"/><path d="M23 3H1v5h22V3z"/><path d="M10 12h4"/></svg>
+        ATS &mdash; On Hand &amp; Receipts
+      </div>
+      <span class="sync-col-status" id="atsStatus">Not connected</span>
+      <div class="sync-col-btns">
+        <button class="xbtn primary" id="btnAtsConnect" onclick="connectATS()">&#128194; Connect</button>
+        <button class="xbtn sync"    id="btnAtsSync"    onclick="syncFromATS()" disabled>&#128260; Sync</button>
+        <label class="autosync-wrap" title="Auto re-read every 30s">
+          <input type="checkbox" id="chkAtsAuto" onchange="toggleAutoSyncATS(this.checked)" disabled> Auto
+        </label>
+      </div>
+    </div>
+    <div class="sync-col">
+      <div class="sync-col-head">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        VendorDrill &mdash; Avg Sales &amp; POS
+      </div>
+      <span class="sync-col-status" id="vdStatus">Not connected</span>
+      <div class="sync-col-btns">
+        <button class="xbtn primary" id="btnVdConnect" onclick="connectVD()">&#128194; Connect</button>
+        <button class="xbtn sync"    id="btnVdSync"    onclick="syncFromVD()" disabled>&#128260; Sync</button>
+        <label class="autosync-wrap" title="Auto re-read every 30s">
+          <input type="checkbox" id="chkVdAuto" onchange="toggleAutoSyncVD(this.checked)" disabled> Auto
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="summary-bar" id="summaryBar"></div>
+  <!-- Filter Bar -->
+  <div class="filter-bar" id="filterBar">
+    <span class="filter-lbl">Filter</span>
+    <div class="filter-dropdown-wrap">
+      <button class="filter-dd-btn" id="filterDdBtn" onclick="toggleFilterDropdown()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+        Items <span class="dd-count" id="filterDdCount">All</span>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="filter-dd-panel" id="filterDdPanel">
+        <div class="filter-dd-header">
+          <span>Select Items</span>
+          <div class="filter-dd-actions">
+            <a onclick="filterSelectAll()">Select All</a>
+            <a onclick="filterClearAll()">Clear All</a>
+          </div>
+        </div>
+        <div class="filter-dd-list" id="filterDdList"></div>
+      </div>
+    </div>
+    <div class="filter-sep"></div>
+    <span class="filter-lbl">Range</span>
+    <select class="fw-select" id="fwFrom" onchange="applyFilters()"></select>
+    <span style="font-size:11px;color:var(--text-2);">to</span>
+    <select class="fw-select" id="fwTo" onchange="applyFilters()"></select>
+  </div>
+  <div id="productsContainer"></div>
+
+  <!-- Add Item Modal -->
+  <div class="modal-overlay" id="addItemModal">
+    <div class="modal-box">
+      <h2>Add New Item</h2>
+      <div class="modal-hint" id="modalHint">Connect ATS and/or SUOF Excel first to auto-fill data.</div>
+      <div class="modal-grid">
+        <div class="modal-field">
+          <label>Model # *</label>
+          <input type="text" id="mi-model" placeholder="LH-ML000-999" onblur="autoLookupModel()" onkeydown="if(event.key==='Enter'){autoLookupModel();document.getElementById('mi-sku').focus();}" />
+        <button type="button" class="modal-cancel" onclick="autoLookupModel()" style="margin-top:20px;padding:8px 10px;font-size:11px;" title="Auto-fill from SUOF &amp; ATS">🔍 Find</button>
+        </div>
+        <div class="modal-field">
+          <label>THD SKU</label>
+          <input type="text" id="mi-sku" placeholder="1012345678" />
+        </div>
+      </div>
+      <div class="modal-grid full" style="margin-top:10px;">
+        <div class="modal-field">
+          <label>Description</label>
+          <input type="text" id="mi-desc" placeholder="Product description" />
+        </div>
+      </div>
+      <div class="modal-grid" style="margin-top:10px;">
+        <div class="modal-field">
+          <label>Inner Pack</label>
+          <input type="number" id="mi-inner" placeholder="6" min="1" />
+        </div>
+        <div class="modal-field">
+          <label>Master Pack</label>
+          <input type="number" id="mi-master" placeholder="12" min="1" />
+        </div>
+      </div>
+      <div class="modal-grid" style="margin-top:10px;">
+        <div class="modal-field">
+          <label>On Hand (Merkury)</label>
+          <input type="number" id="mi-onhandmerkury" placeholder="Auto from ATS" min="0" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-cancel" onclick="closeAddItemModal()">Cancel</button>
+        <button class="modal-submit" onclick="submitAddItem()">Add Item</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+    <!-- Page: Reorder -->
+    <div class="page-section" id="page-reorder">
+      <div class="reorder-tab-wrap">
+        <div class="reorder-tab-header">
+          <div>
+            <h1>Reorder Summary</h1>
+            <p>All reorder entries from the Weekly Recap — edit quantities in the product cards</p>
+          </div>
+          <span class="date-badge" id="reorderDate"></span>
+        </div>
+        <div id="reorderChart"></div>
+      </div>
+    </div>
+</div>
+    <!-- Page: Inbound Detail -->
+    <div class="page-section" id="page-inbound">
+      <div class="inbound-tab-wrap">
+        <div class="inbound-tab-header">
+          <div>
+            <h1>Inbound Detail</h1>
+            <p>From ATS report — Inbound tab &mdash; Connect ATS to load data</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span class="date-badge" id="inboundSyncTs" style="display:none;"></span>
+            <button class="xbtn sync" onclick="refreshInboundPage()" style="font-size:12px;padding:6px 14px;">&#128260; Refresh</button>
+          </div>
+        </div>
+        <div id="inboundContent">
+          <div class="inbound-empty">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            <br/>No inbound data yet.<br/>
+            <span style="font-size:12px;">Connect and sync the ATS file, then come back to this page.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+</div>
+</div>
+<!-- Hidden file inputs (triggered by Connect buttons — works in all browsers) -->
+<input type="file" id="inputSuof" accept=".xlsx,.xlsm,.xls" style="display:none" />
+<input type="file" id="inputAts"  accept=".xlsx,.xlsm,.xls" style="display:none" />
+<input type="file" id="inputVd"   accept=".xlsx,.xlsm,.xls" style="display:none" />
+
+<!-- Reorder Cell Popup -->
+<div class="rp-overlay" id="rpOverlay">
+  <div class="rp-box">
+    <h3>Edit Reorder</h3>
+    <div class="rp-sub" id="rpSub">Week — Product</div>
+    <div class="rp-grid">
+      <div class="rp-field">
+        <label>Quantity</label>
+        <input type="number" id="rpQty" placeholder="0" min="0" />
+      </div>
+      <div class="rp-field">
+        <label>Case Pack</label>
+        <input type="text" id="rpCasePack" placeholder="e.g. 1/24" />
+      </div>
+      <div class="rp-field rp-full">
+        <label>Configuration</label>
+        <input type="text" id="rpConfig" placeholder="e.g. Display, PDQ, etc." />
+      </div>
+    </div>
+    <div class="rp-actions">
+      <button class="modal-cancel" onclick="closeRpPopup()">Cancel</button>
+      <button class="modal-submit" onclick="saveRpPopup()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Supabase 配置 ─────────────────────────────────────────────────────────────
+// 從 Supabase Project Settings > API 取得後填入下方
+const SUPABASE_URL  = 'https://unfefsgzqlbpikcfpjig.supabase.co';
+const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuZmVmc2d6cWxicGlrY2ZwamlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODEzMjksImV4cCI6MjA5NDk1NzMyOX0.3PjwJHi3ufUKOLFGFOMdOsQ6iZJO-IeiSftFLznQrg8';
+let supabase = null;
+try {
+  if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && typeof window.supabase !== 'undefined') {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  }
+} catch(e) { console.warn('Supabase init failed:', e); }
+
+// File references for Excel connect buttons (replaces FileSystemFileHandle)
+let excelFile = null;   // SUOF
+let atsFile   = null;   // ATS
+let vdFile    = null;   // VendorDrill
+
+// ─────────────────────────────────────────────────────────────────────────────
+const weeks = [
+  {fw:'FW13 2026',dt:'4/27/2026'},{fw:'FW14 2026',dt:'5/4/2026'},{fw:'FW15 2026',dt:'5/11/2026'},
+  {fw:'FW16 2026',dt:'5/18/2026'},{fw:'FW17 2026',dt:'5/25/2026'},{fw:'FW18 2026',dt:'6/1/2026'},
+  {fw:'FW19 2026',dt:'6/8/2026'},{fw:'FW20 2026',dt:'6/15/2026'},{fw:'FW21 2026',dt:'6/22/2026'},
+  {fw:'FW22 2026',dt:'6/29/2026'},{fw:'FW23 2026',dt:'7/6/2026'},{fw:'FW24 2026',dt:'7/13/2026'},
+  {fw:'FW25 2026',dt:'7/20/2026'},{fw:'FW26 2026',dt:'7/27/2026'},{fw:'FW27 2026',dt:'8/3/2026'},
+  {fw:'FW28 2026',dt:'8/10/2026'},{fw:'FW29 2026',dt:'8/17/2026'},{fw:'FW30 2026',dt:'8/24/2026'},
+  {fw:'FW31 2026',dt:'8/31/2026'},{fw:'FW32 2026',dt:'9/7/2026'},{fw:'FW33 2026',dt:'9/14/2026'},
+  {fw:'FW34 2026',dt:'9/21/2026'},{fw:'FW35 2026',dt:'9/28/2026'},{fw:'FW36 2026',dt:'10/5/2026'},
+  {fw:'FW37 2026',dt:'10/12/2026'},{fw:'FW38 2026',dt:'10/19/2026'},{fw:'FW39 2026',dt:'10/26/2026'},
+  {fw:'FW40 2026',dt:'11/2/2026'},
+  {fw:'FW41 2026',dt:'11/9/2026'},
+  {fw:'FW42 2026',dt:'11/16/2026'},
+  {fw:'FW43 2026',dt:'11/23/2026'},
+  {fw:'FW44 2026',dt:'11/30/2026'},
+  {fw:'FW45 2026',dt:'12/7/2026'},
+  {fw:'FW46 2026',dt:'12/14/2026'},
+  {fw:'FW47 2026',dt:'12/21/2026'},
+  {fw:'FW48 2026',dt:'12/28/2026'},
+  {fw:'FW49 2026',dt:'1/4/2027'},
+  {fw:'FW50 2026',dt:'1/11/2027'},
+  {fw:'FW51 2026',dt:'1/18/2027'},
+  {fw:'FW52 2026',dt:'1/25/2027'},
+  {fw:'FW1 2027',dt:'2/1/2027'},
+  {fw:'FW2 2027',dt:'2/8/2027'},
+  {fw:'FW3 2027',dt:'2/15/2027'},
+  {fw:'FW4 2027',dt:'2/22/2027'},
+  {fw:'FW5 2027',dt:'3/1/2027'},
+  {fw:'FW6 2027',dt:'3/8/2027'},
+  {fw:'FW7 2027',dt:'3/15/2027'},
+  {fw:'FW8 2027',dt:'3/22/2027'},
+  {fw:'FW9 2027',dt:'3/29/2027'},
+  {fw:'FW10 2027',dt:'4/5/2027'},
+  {fw:'FW11 2027',dt:'4/12/2027'},
+  {fw:'FW12 2027',dt:'4/19/2027'},
+  {fw:'FW13 2027',dt:'4/26/2027'},
+  {fw:'FW14 2027',dt:'5/3/2027'},
+  {fw:'FW15 2027',dt:'5/10/2027'},
+  {fw:'FW16 2027',dt:'5/17/2027'},
+  {fw:'FW17 2027',dt:'5/24/2027'},
+  {fw:'FW18 2027',dt:'5/31/2027'},
+  {fw:'FW19 2027',dt:'6/7/2027'},
+  {fw:'FW20 2027',dt:'6/14/2027'},
+  {fw:'FW21 2027',dt:'6/21/2027'},
+  {fw:'FW22 2027',dt:'6/28/2027'},
+  {fw:'FW23 2027',dt:'7/5/2027'},
+  {fw:'FW24 2027',dt:'7/12/2027'},
+  {fw:'FW25 2027',dt:'7/19/2027'},
+  {fw:'FW26 2027',dt:'7/26/2027'},
+  {fw:'FW27 2027',dt:'8/2/2027'},
+  {fw:'FW28 2027',dt:'8/9/2027'},
+  {fw:'FW29 2027',dt:'8/16/2027'},
+  {fw:'FW30 2027',dt:'8/23/2027'},
+  {fw:'FW31 2027',dt:'8/30/2027'},
+  {fw:'FW32 2027',dt:'9/6/2027'},
+  {fw:'FW33 2027',dt:'9/13/2027'},
+  {fw:'FW34 2027',dt:'9/20/2027'},
+  {fw:'FW35 2027',dt:'9/27/2027'},
+  {fw:'FW36 2027',dt:'10/4/2027'},
+  {fw:'FW37 2027',dt:'10/11/2027'},
+  {fw:'FW38 2027',dt:'10/18/2027'},
+  {fw:'FW39 2027',dt:'10/25/2027'},
+  {fw:'FW40 2027',dt:'11/1/2027'},
+  {fw:'FW41 2027',dt:'11/8/2027'},
+  {fw:'FW42 2027',dt:'11/15/2027'},
+  {fw:'FW43 2027',dt:'11/22/2027'},
+  {fw:'FW44 2027',dt:'11/29/2027'},
+  {fw:'FW45 2027',dt:'12/6/2027'},
+  {fw:'FW46 2027',dt:'12/13/2027'},
+  {fw:'FW47 2027',dt:'12/20/2027'},
+  {fw:'FW48 2027',dt:'12/27/2027'},
+  {fw:'FW49 2027',dt:'1/3/2028'},
+  {fw:'FW50 2027',dt:'1/10/2028'},
+  {fw:'FW51 2027',dt:'1/17/2028'},
+  {fw:'FW52 2027',dt:'1/24/2028'}
+];
+
+const products = [
+  {
+    model:'LH-PL023-999', sku:'1012270067',
+    desc:'Astronaut Galaxy Nightlight',
+    inner:6, master:12, avgWeeklySales:4650,
+    onHandMerkury:5150, onHandTHD:49781,
+    firmReceipts:[0,0,0,13440,0,13440,6720,13440,0,0,13440,13440,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    salesRates:[3180,3036,2940,3000,3096,3024,3240,3168,3480,3600,3756,3912,4152,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  },
+  {
+    model:'LH-ML157-199', sku:'1012264235',
+    desc:'9 In. Misting Multicolor Integrated',
+    inner:4, master:8, avgWeeklySales:835,
+    onHandMerkury:7800, onHandTHD:12261,
+    firmReceipts:[0,0,0,0,0,0,0,6240,0,0,0,0,6240,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    salesRates:[696,1112,1216,1248,1240,1280,1264,1352,1368,1288,1312,1360,1360,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  },
+  {
+    model:'LH-ML158-999', sku:'1012317129',
+    desc:'3.15 In. Color Changing 3D Floating',
+    inner:6, master:12, avgWeeklySales:184,
+    onHandMerkury:8184, onHandTHD:9827,
+    firmReceipts:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    salesRates:[120,60,24,36,72,60,96,96,84,96,108,168,240,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  },
+  {
+    model:'LH-ML002-999', sku:'1009579746',
+    desc:'MKY Jellyfish Lamp',
+    inner:6, master:12, avgWeeklySales:3329,
+    onHandMerkury:41611, onHandTHD:89516,
+    firmReceipts:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    salesRates:[1296,1080,1236,1380,1596,1716,1920,2184,2100,2304,2328,2532,2868,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  },
+  {
+    model:'LH-ML003-999', sku:'1009581107',
+    desc:'MKY RGB Battery Puck Light',
+    inner:6, master:24, avgWeeklySales:687,
+    onHandMerkury:13224, onHandTHD:15309,
+    firmReceipts:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    salesRates:[336,264,288,336,456,552,456,600,552,600,720,720,720,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  }
+];
+
+const state = {};
+products.forEach(p => {
+  // Extend hardcoded arrays to cover full weeks range
+  const fr = [...p.firmReceipts];
+  const sr = [...p.salesRates];
+  while (fr.length < weeks.length) fr.push(0);
+  while (sr.length < weeks.length) sr.push(0);
+  state[p.sku] = {
+    firmReceipts: fr,
+    reorders: new Array(weeks.length).fill(0),
+    reorderData: new Array(weeks.length).fill(null).map(() => ({qty:0,casePack:'',config:''})),
+    salesRates: sr,
+    posUnits:          new Array(weeks.length).fill(0),
+    avgWeeklySalesVD:  null,
+    vdConnected:       false,
+    suofFromExcel:     null,
+    atsConnected: false,
+    onHandMerkury: p.onHandMerkury
+  };
+});
+
+function wosColor(v) {
+  if (v === null || v === undefined || isNaN(v)) return '';
+  const min = 2, mid = 6, max = 8;
+  let r, g, b;
+  if (v <= min) { r=220; g=53; b=53; }
+  else if (v <= mid) {
+    const t = (v - min) / (mid - min);
+    r = Math.round(220 + (251-220)*t);
+    g = Math.round(53 + (191-53)*t);
+    b = Math.round(53 + (36-53)*t);
+  } else if (v <= max) {
+    const t = (v - mid) / (max - mid);
+    r = Math.round(251 + (76-251)*t);
+    g = Math.round(191 + (175-191)*t);
+    b = Math.round(36 + (74-36)*t);
+  } else { r=76; g=175; b=74; }
+  const luminance = 0.299*r + 0.587*g + 0.114*b;
+  const textColor = luminance > 160 ? '#5a3e00' : '#fff';
+  return `background:rgb(${r},${g},${b});color:${textColor};`;
+}
+
+// Returns the index of the current fiscal week based on today's date.
+// Relies on parseDt() defined in the ATS sync section (hoisted via function declaration).
+function getCurrentWeekIdx() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let idx = 0;
+  for (let i = 0; i < weeks.length; i++) {
+    const parts = weeks[i].dt.split('/');
+    const ws = new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+    if (today >= ws) idx = i; else break;
+  }
+  return idx;
+}
+
+function calcRows(p) {
+  const s = state[p.sku];
+  const curIdx = getCurrentWeekIdx();
+  // Auto-detect "new" items: if no sales rate or firm receipt data exists before
+  // the current week, treat the item as newly tracked (don't backfill past weeks).
+  // This is migration-safe: works even if trackingStartIdx wasn't saved.
+  const hasHistoricalData = (
+    s.salesRates.slice(0, curIdx).some(v => v > 0) ||
+    s.firmReceipts.slice(0, curIdx).some(v => v > 0)
+  );
+  const explicitStart = (s.trackingStartIdx != null && s.trackingStartIdx > 0)
+    ? s.trackingStartIdx : null;
+  const trackStart = explicitStart != null ? explicitStart
+                   : (hasHistoricalData ? 0 : curIdx);
+  const endInv = new Array(weeks.length).fill(0);
+  const suof = [], wos = [];
+
+  if (s.atsConnected) {
+    // Pivot: current week Ending INV = live ATS on-hand value
+    endInv[curIdx] = s.onHandMerkury;
+    // Forward calculation from current week
+    for (let i = curIdx + 1; i < weeks.length; i++) {
+      endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - (s.salesRates[i-1] || 0));
+    }
+    // Backward calculation for past weeks — only back to trackingStartIdx
+    for (let i = curIdx - 1; i >= trackStart; i--) {
+      endInv[i] = endInv[i+1] - (s.reorders[i] || 0) - (s.firmReceipts[i] || 0) + (s.salesRates[i] || 0);
+    }
+    // Weeks before trackingStartIdx stay 0 (item wasn't tracked yet)
+  } else {
+    // Non-ATS: start from trackingStartIdx with onHandMerkury
+    endInv[trackStart] = s.onHandMerkury;
+    for (let i = trackStart + 1; i < weeks.length; i++) {
+      endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - (s.salesRates[i-1] || 0));
+    }
+    // Weeks before trackStart stay 0
+  }
+
+  for (let i = 0; i < weeks.length; i++) {
+    const sr = s.salesRates[i] || 0;
+    const suofVal = (s.suofFromExcel && s.suofFromExcel[i] != null) ? s.suofFromExcel[i] : sr;
+    suof.push(suofVal);
+    wos.push(sr > 0 ? Math.max(endInv[i] / sr, 0) : null);
+  }
+
+  return { endInv, suof, wos, curIdx };
+}
+
+function fmt(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return Math.round(n).toLocaleString();
+}
+function fmtInput(n) {
+  const num = parseFloat(String(n).replace(/,/g, ''));
+  if (isNaN(num)) return '0';
+  return Math.round(num).toLocaleString();
+}
+function fmtWos(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return n.toFixed(1);
+}
+
+function renderSummary() {
+  const bar = document.getElementById('summaryBar');
+  const total = products.length;
+  const hidden = products.filter(p => {
+    const b = document.getElementById('block-' + p.sku);
+    return b && b.classList.contains('collapsed');
+  }).length;
+  const visible = total - hidden;
+  bar.innerHTML = `
+    <div class="s-item">
+      <div class="s-lbl">Items tracked</div>
+      <div class="s-num">${total}</div>
+    </div>
+    <div class="s-item">
+      <div class="s-lbl">Showing</div>
+      <div class="s-num">${visible} <span style="font-size:12px;font-weight:400;color:#999;">of ${total}</span></div>
+    </div>
+    <div class="s-action">
+      <button class="add-item-btn" onclick="openAddItemModal()">&#43; Add Item</button>
+    </div>
+  `;
+}
+
+function buildProduct(p) {
+  const s = state[p.sku];
+  const rows = calcRows(p);
+  const currentWos = p.avgWeeklySales > 0 ? (s.onHandMerkury / p.avgWeeklySales).toFixed(1) : '—';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'product-block';
+  wrap.id = 'block-' + p.sku;
+
+  const displayAvg = (state[p.sku].avgWeeklySalesVD != null)
+    ? state[p.sku].avgWeeklySalesVD
+    : p.avgWeeklySales;
+
+  wrap.innerHTML = `
+    <div class="product-header-compact">
+      <div class="drag-handle" title="Grab and Drag"><svg width="12" height="16" viewBox="0 0 12 16" fill="#ffffff"><circle cx="3.5" cy="2.5" r="2.2"/><circle cx="8.5" cy="2.5" r="2.2"/><circle cx="3.5" cy="8"   r="2.2"/><circle cx="8.5" cy="8"   r="2.2"/><circle cx="3.5" cy="13.5" r="2.2"/><circle cx="8.5" cy="13.5" r="2.2"/></svg></div>
+      <div class="phc-info">
+        <span class="phc-id">${p.sku} / ${p.model}</span>
+        <span class="phc-sep">·</span>
+        <span class="phc-name">${p.desc}</span>
+        <span class="phc-sep">·</span>
+        <span class="phc-pill">Inner: ${p.inner}</span>
+        <span class="phc-pill">Master: ${p.master}</span>
+        <button class="reset-btn" onclick="resetProduct('${p.sku}')">&#8635; Reset</button>
+      </div>
+      <div class="product-header-btns">
+        <button class="delete-btn" onclick="deleteProduct('${p.sku}')" title="Remove this item permanently">&#128465; Delete</button>
+        <button class="toggle-vis-btn" id="toggle-btn-${p.sku}" onclick="toggleProductVisibility('${p.sku}')">&#9660; Hide</button>
+      </div>
+    </div>
+    <div class="product-body" id="body-${p.sku}">
+    <div class="kpi-strip">
+      <div class="kpi-item">
+        <div class="k">Avg weekly sales${state[p.sku].avgWeeklySalesVD != null ? ' <span class="xls-badge" style="background:#fef9e7;color:#b45309;border-color:#fcd34d;">VD</span>' : ''}</div>
+        <div class="v" id="kpi-avgsales-${p.sku}">${displayAvg.toLocaleString()}</div>
+      </div>
+      <div class="kpi-item"><div class="k">On hand (Merkury)</div><div class="v" id="kpi-merkury-${p.sku}">${s.onHandMerkury.toLocaleString()}</div></div>
+      <div class="kpi-item"><div class="k">On hand (THD)</div><div class="v">${p.onHandTHD.toLocaleString()}</div></div>
+      <div class="kpi-item"><div class="k">Current WOS</div><div class="v" id="kpi-wos-${p.sku}">${currentWos}</div></div>
+    </div>
+  `;
+
+  const scrollWrap = document.createElement('div');
+  scrollWrap.className = 'scroll-wrap';
+  const table = document.createElement('table');
+  table.className = 'grid';
+
+  // Header
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  const thLabel = document.createElement('th');
+  thLabel.className = 'row-lbl';
+  thLabel.textContent = 'Row';
+  headerRow.appendChild(thLabel);
+  weeks.forEach((w, i) => {
+    const th = document.createElement('th');
+    if (i < rows.curIdx) th.className = 'col-past';
+    else if (i === rows.curIdx) th.className = 'col-cur';
+    const dtStyle = i < rows.curIdx ? 'color:#ddd' : 'color:#bbb';
+    th.innerHTML = `<div>${w.fw}</div><div style="font-weight:400;font-size:10px;margin-top:2px;${dtStyle}">${w.dt}</div>`;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  // Body
+  const tbody = document.createElement('tbody');
+  const rowDefs = [
+    { key:'endInv',      label:'Ending INV',    editable:false, isEnding:true },
+    { key:'reorder',     label:'Reorder',       editable:true },
+    { key:'firmReceipt', label:'Firm receipt',  editable:true, isFirmReceipt:true },
+    { key:'salesRate',   label:'Sales rate',    editable:true },
+    { key:'suof',        label:'SUOF',          editable:false, isSuof:true },
+    { key:'wos',         label:'WOS',           editable:false, isWos:true },
+    { key:'posUnits',    label:'POS Sales Units', editable:true, isPos:true }
+  ];
+
+  rowDefs.forEach(rd => {
+    const tr = document.createElement('tr');
+    const tdLabel = document.createElement('td');
+    tdLabel.className = 'row-lbl' + (rd.isEnding ? ' ending' : '');
+    if (rd.isSuof) {
+      tdLabel.id = `suof-lbl-${p.sku}`;
+      tdLabel.innerHTML = `SUOF${state[p.sku].suofFromExcel ? '<span class="xls-badge">XLS</span>' : ''}`;
+      tr.className = state[p.sku].suofFromExcel ? 'suof-linked' : '';
+      tr.id = `suof-row-${p.sku}`;
+    } else if (rd.isFirmReceipt) {
+      tdLabel.id = `fr-lbl-${p.sku}`;
+      tdLabel.innerHTML = `Firm receipt${state[p.sku].atsConnected ? '<span class="xls-badge ats">ATS</span>' : ''}`;
+      tr.className = state[p.sku].atsConnected ? 'ats-linked' : '';
+      tr.id = `fr-row-${p.sku}`;
+    } else {
+      tdLabel.textContent = rd.label;
+    }
+    tr.appendChild(tdLabel);
+
+    weeks.forEach((w, i) => {
+      const td = document.createElement('td');
+      const isPast = i < rows.curIdx;
+      const isCur  = i === rows.curIdx;
+      const colCls = isPast ? 'col-past' : (isCur ? 'col-cur' : '');
+      if (rd.editable) {
+        const extraCls = rd.isPos ? ' pos-cell' : '';
+        td.className = 'editable editable-row' + extraCls + (colCls ? ' ' + colCls : '');
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.inputMode = 'numeric';
+        const rawVal = rd.key === 'firmReceipt' ? (s.firmReceipts[i] || 0)
+                     : rd.key === 'reorder'     ? (s.reorders[i] || 0)
+                     : rd.key === 'posUnits'    ? (s.posUnits[i] || 0)
+                     : (s.salesRates[i] || 0);
+        inp.value = fmtInput(rawVal);
+        inp.dataset.sku = p.sku;
+        inp.dataset.row = rd.key;
+        inp.dataset.idx = i;
+        if (isPast) {
+          inp.readOnly = true;
+          inp.title = 'Past week — read only';
+        }
+        if (rd.isFirmReceipt) {
+          inp.readOnly = true;
+          inp.title = 'Firm receipt — synced from ATS only (read-only)';
+          td.classList.add('fr-locked');
+        }
+        // Always attach listeners — guard in handleChange prevents past-week mutations
+        inp.addEventListener('focus', function() {
+          if (this.readOnly) return;
+          this.value = this.value.replace(/,/g, '');
+          this.select();
+        });
+        inp.addEventListener('blur', function() {
+          const v = parseFloat(this.value.replace(/,/g, '')) || 0;
+          this.value = fmtInput(v);
+        });
+        if (rd.key === 'reorder') {
+          inp.readOnly = true;
+          inp.style.cursor = 'pointer';
+          inp.title = 'Click to edit reorder details';
+          td.style.cursor = 'pointer';
+          td.addEventListener('click', function() {
+            if (isPast) return;
+            openRpPopup(p.sku, i);
+          });
+        } else {
+          inp.addEventListener('input', function() { handleChange(this); });
+        }
+        td.appendChild(inp);
+      } else {
+        td.id = `cell-${p.sku}-${rd.key}-${i}`;
+        if (rd.isWos) {
+          const v = rows.wos[i];
+          td.textContent = fmtWos(v);
+          // Only apply col-past for WOS — wosColor owns the styling for current/future
+          td.className = 'wos-cell' + (isPast ? ' col-past' : '');
+          if (!isPast) td.style.cssText = wosColor(v);
+        } else {
+          const v = rows.endInv[i];
+          td.textContent = rd.key === 'endInv' ? fmt(v) : fmt(rows.suof[i]);
+          const isStockout = rd.key === 'endInv' && v === 0 && !isPast;
+          td.className = (isStockout ? 'neg' : '') + (colCls ? ' ' + colCls : '');
+        }
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  scrollWrap.appendChild(table);
+  // append scroll-wrap, legend, note into the collapsible product-body
+  const bodyDiv = wrap.querySelector('.product-body');
+  bodyDiv.appendChild(scrollWrap);
+
+
+
+
+
+  // Apply stored reorder colors
+  const s2 = state[p.sku];
+  if (s2 && s2.reorderData) {
+    wrap.querySelectorAll('input[data-row="reorder"]').forEach(inp => {
+      const i = parseInt(inp.dataset.idx);
+      const d = s2.reorderData[i];
+      if (d && d.casePack) applyReorderColor(inp.closest('td'), d.casePack);
+    });
+  }
+  return wrap;
+}
+
+function handleChange(input) {
+  const sku = input.dataset.sku;
+  const row = input.dataset.row;
+  const idx = parseInt(input.dataset.idx);
+  if (idx < getCurrentWeekIdx()) return;  // safety guard — never mutate past weeks
+  const val = parseFloat(input.value.replace(/,/g, '')) || 0;
+  if (row === 'firmReceipt') state[sku].firmReceipts[idx] = val;
+  if (row === 'reorder')    state[sku].reorders[idx] = val;
+  if (row === 'salesRate')  state[sku].salesRates[idx] = val;
+  if (row === 'posUnits')   state[sku].posUnits[idx] = val;
+  updateCalcs(sku);
+  saveState();
+}
+
+function updateCalcs(sku) {
+  const p = products.find(x => x.sku === sku);
+  const rows = calcRows(p);
+  weeks.forEach((w, i) => {
+    const isPast = i < rows.curIdx;
+    const colCls = isPast ? 'col-past' : (i === rows.curIdx ? 'col-cur' : '');
+    const ei = document.getElementById(`cell-${sku}-endInv-${i}`);
+    const su = document.getElementById(`cell-${sku}-suof-${i}`);
+    const wo = document.getElementById(`cell-${sku}-wos-${i}`);
+    if (ei) {
+      ei.textContent = fmt(rows.endInv[i]);
+      const stockout = rows.endInv[i] === 0 && !isPast ? 'neg' : '';
+      ei.className = (stockout + ' ' + colCls).trim();
+    }
+    if (su) {
+      su.textContent = fmt(rows.suof[i]);
+      su.className = colCls;
+    }
+    if (wo) {
+      wo.textContent = fmtWos(rows.wos[i]);
+      // Only col-past for WOS — wosColor owns current/future styling
+      wo.className = 'wos-cell' + (isPast ? ' col-past' : '');
+      wo.style.cssText = isPast ? '' : wosColor(rows.wos[i]);
+    }
+  });
+  const effectiveAvg = state[sku].avgWeeklySalesVD != null ? state[sku].avgWeeklySalesVD : p.avgWeeklySales;
+  const wosEl = document.getElementById(`kpi-wos-${sku}`);
+  if (wosEl) wosEl.textContent = effectiveAvg > 0 ? (state[sku].onHandMerkury / effectiveAvg).toFixed(1) : '—';
+  const avgEl = document.getElementById(`kpi-avgsales-${sku}`);
+  if (avgEl) avgEl.textContent = effectiveAvg.toLocaleString();
+  const merkuryEl = document.getElementById(`kpi-merkury-${sku}`);
+  if (merkuryEl) merkuryEl.textContent = state[sku].onHandMerkury.toLocaleString();
+  renderSummary();
+}
+
+function resetProduct(sku) {
+  const p = products.find(x => x.sku === sku);
+  state[sku].firmReceipts = [...p.firmReceipts];
+  state[sku].reorders     = new Array(weeks.length).fill(0);
+  state[sku].salesRates   = [...p.salesRates];
+  state[sku].posUnits     = new Array(weeks.length).fill(0);
+  state[sku].onHandMerkury = p.onHandMerkury;
+  state[sku].atsConnected       = false;
+  state[sku].avgWeeklySalesVD   = null;
+  state[sku].vdConnected        = false;
+  const block = document.getElementById(`block-${sku}`);
+  block.querySelectorAll('input[data-row]').forEach(inp => {
+    const row = inp.dataset.row;
+    const idx = parseInt(inp.dataset.idx);
+    if (row === 'firmReceipt') inp.value = fmtInput(p.firmReceipts[idx]);
+    else if (row === 'reorder') inp.value = fmtInput(0);
+    else if (row === 'posUnits') inp.value = fmtInput(0);
+    else if (row === 'salesRate') inp.value = fmtInput(p.salesRates[idx]);
+  });
+  updateFirmReceiptLabel(sku);
+  updateCalcs(sku);
+}
+
+
+// ── ATS sync ─────────────────────────────────────────────────────────────────
+
+// ATS sheet: col A (0) = model number, col K (10) = ATS NOW, col Q (16) = PO Detail ETA
+const ATS_MODEL_COL  = 0;
+const ATS_NOW_COL    = 10;
+const ATS_ETA_COL    = 16;
+
+// Model number → THD SKU (matches HTML state keys)
+const modelToSku = {
+  'LH-PL023-999': '1012270067',
+  'LH-ML157-199': '1012264235',
+  'LH-ML158-999': '1012317129',
+  'LH-ML002-999': '1009579746',
+  'LH-ML003-999': '1009581107'
+};
+
+function parseDt(dtStr) {
+  // "4/27/2026" → Date (local, midnight)
+  const [m, d, y] = dtStr.split('/').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// Given a JS Date, find which week index in the weeks[] array it falls into.
+// Returns the index of the last week whose start date ≤ the given date.
+function findWeekIdx(date) {
+  let idx = -1;
+  for (let i = 0; i < weeks.length; i++) {
+    if (date >= parseDt(weeks[i].dt)) idx = i;
+    else break;
+  }
+  return idx;
+}
+
+// Parse "ETA 07/13/2026 (13440) &\nETA 07/06/2026 (13440) &\n..."
+// Returns array of {weekIdx, qty}, merging quantities that land in the same week.
+function parseEtaField(etaStr) {
+  if (!etaStr) return [];
+  const weekMap = {};
+  const parts = String(etaStr).split(/\s*&[\r\n]?\s*/);
+  for (const part of parts) {
+    const m = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
+    if (!m) continue;
+    const date = new Date(parseInt(m[3]), parseInt(m[1]) - 1, parseInt(m[2]));
+    const qty  = parseInt(m[4]);
+    const wIdx = findWeekIdx(date);
+    if (wIdx < 0) continue;
+    weekMap[wIdx] = (weekMap[wIdx] || 0) + qty;
+  }
+  return Object.entries(weekMap).map(([idx, qty]) => ({ weekIdx: parseInt(idx), qty }));
+}
+
+let autoSyncAtsTimer = null;
+let lastAtsData     = null;  // cached for auto-filling new items
+let lastAtsItemInfo  = null;  // 'Item Info' tab — Inner/Master packs
+let lastInboundData  = null;  // 'Inbound' tab raw rows
+
+function connectATS() {
+  document.getElementById('inputAts').click();
+}
+
+async function syncFromATS() {
+  if (!atsFile) return;
+  const btnSync = document.getElementById('btnAtsSync');
+  btnSync.textContent = '⏳ Syncing…';
+  btnSync.disabled = true;
+  try {
+    const buffer = await atsFile.arrayBuffer();
+    const wb     = XLSX.read(buffer, { type: 'array', raw: true });
+
+    const ws = wb.Sheets['ATS'];
+    if (!ws) throw new Error('"ATS" sheet not found in the workbook.');
+
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+    lastAtsData = data;  // cache for new item auto-fill
+
+    // Also cache Item Info tab for Inner/Master lookups
+    const wsItemInfo = wb.Sheets['Item Info'] || wb.Sheets['Item info'] || wb.Sheets['item info'] || wb.Sheets['ItemInfo'];
+    if (wsItemInfo) {
+      lastAtsItemInfo = XLSX.utils.sheet_to_json(wsItemInfo, { header: 1, defval: null, raw: true });
+    }
+
+    // Cache Inbound tab
+    const wsInbound = wb.Sheets['Inbound'] || wb.Sheets['inbound'] || wb.Sheets['INBOUND'];
+    if (wsInbound) {
+      lastInboundData = XLSX.utils.sheet_to_json(wsInbound, { header: 1, defval: null, raw: false });
+      // Re-render inbound page if it's currently visible
+      const inboundPage = document.getElementById('page-inbound');
+      if (inboundPage && inboundPage.classList.contains('active')) renderInboundPage();
+    } else {
+      lastInboundData = null;
+    }
+
+    let synced = 0;
+    const skusUpdated = [];
+    // Data starts at row index 2 (row 3 in sheet), headers are row index 1
+    for (let ri = 2; ri < data.length; ri++) {
+      const row = data[ri];
+      if (!row || row[ATS_MODEL_COL] == null) continue;
+      const model = String(row[ATS_MODEL_COL]).trim();
+      const sku   = modelToSku[model];
+      if (!sku || !state[sku]) continue;
+
+      // 1. On Hand (Merkury) ← ATS NOW
+      const atsNow = row[ATS_NOW_COL];
+      if (atsNow != null && !isNaN(atsNow)) {
+        state[sku].onHandMerkury = Math.round(Number(atsNow));
+      }
+
+      // 2. Firm Receipts ← PO Detail ETA (parsed dates mapped to FW weeks)
+      const newFirmReceipts = new Array(weeks.length).fill(0);
+      const etaEntries = parseEtaField(row[ATS_ETA_COL]);
+      for (const { weekIdx, qty } of etaEntries) {
+        newFirmReceipts[weekIdx] = qty;
+      }
+      state[sku].firmReceipts = newFirmReceipts;
+      state[sku].atsConnected = true;
+
+      // Update firm receipt input cells in the DOM
+      const block = document.getElementById(`block-${sku}`);
+      if (block) {
+        block.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
+          const idx = parseInt(inp.dataset.idx);
+          inp.value = fmtInput(newFirmReceipts[idx] || 0);
+        });
+      }
+
+      updateFirmReceiptLabel(sku);
+      updateCalcs(sku);
+      skusUpdated.push(sku);
+      synced++;
+    }
+
+    if (synced === 0) throw new Error('No matching model numbers found in ATS sheet.');
+
+    renderSummary();
+    saveState();
+
+    // ── Upsert to Supabase ────────────────────────────────────────────────────
+    if (supabase) {
+      try {
+        const metaUpserts = skusUpdated.map(sku => ({
+          sku,
+          on_hand_merkury: state[sku].onHandMerkury
+        }));
+        const weeklyUpserts = [];
+        skusUpdated.forEach(sku => {
+          state[sku].firmReceipts.forEach((fr, week_idx) => {
+            weeklyUpserts.push({ sku, week_idx, firm_receipt: fr || 0 });
+          });
+        });
+        if (metaUpserts.length)  await supabase.from('sku_meta').upsert(metaUpserts,  { onConflict: 'sku' });
+        if (weeklyUpserts.length) await supabase.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
+      } catch(sbErr) { console.warn('Supabase ATS upsert failed:', sbErr.message); }
+    }
+
+    const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    setAtsStatus('connected', `✓ Connected — ${atsFile.name} — last synced ${ts} (${synced} SKU${synced !== 1 ? 's' : ''})`);
+    btnSync.textContent = '🔄 Sync Now';
+    btnSync.disabled    = false;
+    document.getElementById('chkAtsAuto').disabled      = false;
+    document.getElementById('btnAtsConnect').textContent = '📂 Change File';
+
+  } catch (e) {
+    setAtsStatus('error', '⚠ Sync failed: ' + e.message);
+    btnSync.textContent = '🔄 Sync Now';
+    btnSync.disabled    = false;
+  }
+}
+
+function updateFirmReceiptLabel(sku) {
+  const lbl = document.getElementById(`fr-lbl-${sku}`);
+  const row = document.getElementById(`fr-row-${sku}`);
+  if (!lbl) return;
+  const linked = state[sku].atsConnected;
+  lbl.innerHTML = `Firm receipt${linked ? '<span class="xls-badge ats">ATS</span>' : ''}`;
+  if (row) row.className = linked ? 'ats-linked' : '';
+}
+
+function setAtsStatus(type, msg) {
+  const el = document.getElementById('atsStatus');
+  el.className = 'excel-status' + (type ? ' ' + type : '');
+  el.textContent = msg;
+}
+
+function toggleAutoSyncATS(on) {
+  clearInterval(autoSyncAtsTimer);
+  if (on) autoSyncAtsTimer = setInterval(syncFromATS, 30000);
+}
+
+// ── Inbound Detail page ───────────────────────────────────────────────────────
+async function refreshInboundPage() {
+  if (!atsFile) {
+    document.getElementById('inboundContent').innerHTML =
+      '<div class="inbound-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg><br/>No ATS file connected.<br/><span style="font-size:12px;">Connect the ATS file on the Weekly Recap page first.</span></div>';
+    return;
+  }
+  try {
+    const buffer = await atsFile.arrayBuffer();
+    const wb     = XLSX.read(buffer, { type: 'array', raw: false });
+    const wsInbound = wb.Sheets['Inbound'] || wb.Sheets['inbound'] || wb.Sheets['INBOUND'];
+    if (!wsInbound) {
+      document.getElementById('inboundContent').innerHTML =
+        '<div class="inbound-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg><br/>"Inbound" tab not found in ATS file.</div>';
+      return;
+    }
+    lastInboundData = XLSX.utils.sheet_to_json(wsInbound, { header: 1, defval: null, raw: false });
+    renderInboundPage();
+  } catch(e) {
+    document.getElementById('inboundContent').innerHTML =
+      `<div class="inbound-empty" style="color:rgba(255,160,160,0.92);">⚠ Error reading Inbound tab: ${e.message}</div>`;
+  }
+}
+
+const INBOUND_EDIT_KEY = 'merkury_inbound_edits_v1';
+
+function _loadInboundEdits() {
+  try { return JSON.parse(localStorage.getItem(INBOUND_EDIT_KEY) || '{}'); } catch(e) { return {}; }
+}
+function _saveInboundEdit(rowKey, field, value) {
+  const data = _loadInboundEdits();
+  if (!data[rowKey]) data[rowKey] = {};
+  data[rowKey][field] = value;
+  localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(data));
+}
+
+function renderInboundPage() {
+  const container = document.getElementById('inboundContent');
+  if (!lastInboundData || lastInboundData.length === 0) {
+    container.innerHTML = '<div class="inbound-empty">No data in Inbound tab.</div>';
+    return;
+  }
+
+  // ── Find header row (first row with ≥3 non-blank cells) ──────────────────────
+  let headerRowIdx = 0;
+  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
+    if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
+      headerRowIdx = i; break;
+    }
+  }
+  const headerRow = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
+
+  // ── Column finder ─────────────────────────────────────────────────────────────
+  function findCol(...terms) {
+    for (const term of terms) {
+      const idx = headerRow.findIndex(h => h.toLowerCase().includes(term.toLowerCase()));
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  }
+
+  const colProductId   = findCol('product id',   'productid',  'model',      'item no', 'item number', 'item #');
+  const colProductText = findCol('product id (text)', 'product name', 'description', 'item desc', 'item description');
+  const colPoId        = findCol('purchase order id', 'po id', 'po number', 'order id', 'po#', 'po no');
+  const colDelivDate   = findCol('planned delivery date', 'delivery date', 'eta', 'arrival date', 'ship date');
+  const colQty         = findCol('delivery notification quantity', 'notification quantity', 'delivery qty', 'quantity', 'units', 'qty');
+
+  // Build the column definitions we actually want to show
+  const colDefs = [
+    { idx: colProductId,   label: 'Product ID',           cls: 'model-cell' },
+    { idx: colProductText, label: 'Product ID (Text)',     cls: 'desc-cell'  },
+    { idx: colPoId,        label: 'Purchase Order ID',     cls: ''           },
+    { idx: colDelivDate,   label: 'Planned Delivery Date', cls: 'date-cell'  },
+    { idx: colQty,         label: 'Delivery Notification Qty', cls: 'qty-cell' },
+  ].filter(c => c.idx !== -1);
+
+  // ── Build set of known model numbers from the main page ───────────────────────
+  const knownModels = new Set(Object.keys(modelToSku).map(m => m.toLowerCase().trim()));
+
+  // ── Collect & filter data rows ────────────────────────────────────────────────
+  const dataRows = [];
+  for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
+    const row = lastInboundData[r];
+    if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
+
+    // Filter to only items that appear on the main Weekly Recap page
+    if (colProductId !== -1) {
+      const pid = String(row[colProductId] || '').trim().toLowerCase();
+      if (pid && !knownModels.has(pid)) continue;
+    }
+
+    dataRows.push(row);
+  }
+
+  // ── Load persisted editable values ────────────────────────────────────────────
+  const editData = _loadInboundEdits();
+
+  // ── Summary ───────────────────────────────────────────────────────────────────
+  let totalQty = 0;
+  if (colQty !== -1) {
+    for (const row of dataRows) {
+      const v = Number(String(row[colQty] || '').replace(/[,$]/g, ''));
+      if (!isNaN(v)) totalQty += v;
+    }
+  }
+
+  let html = `<div class="inbound-summary-bar">
+    <div class="inbound-summary-item"><div class="ib-lbl">Inbound Rows</div><div class="ib-val">${dataRows.length.toLocaleString()}</div></div>`;
+  if (totalQty > 0) html += `<div class="inbound-summary-item"><div class="ib-lbl">Total Units</div><div class="ib-val">${totalQty.toLocaleString()}</div></div>`;
+  html += `</div>`;
+
+  // ── Search bar ────────────────────────────────────────────────────────────────
+  html += `<div class="inbound-search-bar">
+    <input class="inbound-search-input" id="inboundSearch" type="text" placeholder="Search inbound…" oninput="filterInboundTable(this.value)" />
+    <span class="inbound-row-count" id="inboundRowCount">${dataRows.length} rows</span>
+  </div>`;
+
+  // ── Table ─────────────────────────────────────────────────────────────────────
+  html += `<div class="inbound-tbl-inner"><table class="inbound-tbl" id="inboundTable"><thead><tr>`;
+  for (const col of colDefs) html += `<th>${col.label}</th>`;
+  html += `<th>Case Pack</th><th>Case Configuration</th></tr></thead><tbody id="inboundTbody">`;
+
+  for (let ri = 0; ri < dataRows.length; ri++) {
+    const row = dataRows[ri];
+    // Build a stable row key from PO ID + Product ID
+    const pid  = colProductId !== -1 ? String(row[colProductId] || '').trim() : '';
+    const poid = colPoId      !== -1 ? String(row[colPoId]      || '').trim() : '';
+    const rowKey = `${poid}|${pid}|${ri}`;
+
+    const saved = editData[rowKey] || {};
+
+    html += `<tr data-rowkey="${rowKey}">`;
+    for (const col of colDefs) {
+      const raw = row[col.idx];
+      const val = raw != null ? String(raw).trim() : '';
+      let display = val;
+      // Format quantity numbers with commas
+      if (col.cls === 'qty-cell' && val !== '' && !isNaN(Number(val.replace(/[,$]/g,'')))) {
+        display = Number(val.replace(/[,$]/g,'')).toLocaleString();
+      }
+      html += `<td class="${col.cls}">${display}</td>`;
+    }
+
+    // Editable: Case Pack
+    const cpVal   = saved.casePack   || '';
+    const cfgVal  = saved.caseConfig || '';
+    html += `<td class="editable-inbound"><input type="text" value="${cpVal.replace(/"/g,'&quot;')}" placeholder="e.g. 1/6" data-rowkey="${rowKey}" data-field="casePack" onchange="saveInboundEdit(this)" /></td>`;
+    html += `<td class="editable-inbound"><input type="text" value="${cfgVal.replace(/"/g,'&quot;')}" placeholder="e.g. Display, PDQ" data-rowkey="${rowKey}" data-field="caseConfig" onchange="saveInboundEdit(this)" /></td>`;
+    html += `</tr>`;
+  }
+
+  if (dataRows.length === 0) {
+    html += `<tr><td colspan="${colDefs.length + 2}" style="text-align:center;padding:40px 20px;color:var(--text-3);font-size:13px;">No inbound rows matched the products on the Weekly Recap page.</td></tr>`;
+  }
+
+  html += `</tbody></table></div>`;
+  container.innerHTML = html;
+
+  // Timestamp badge
+  const tsEl = document.getElementById('inboundSyncTs');
+  if (tsEl) {
+    const ts = new Date().toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    tsEl.textContent = 'Loaded ' + ts;
+    tsEl.style.display = '';
+  }
+}
+
+function saveInboundEdit(input) {
+  const rowKey = input.dataset.rowkey;
+  const field  = input.dataset.field;
+  _saveInboundEdit(rowKey, field, input.value.trim());
+}
+
+function filterInboundTable(query) {
+  const tbody = document.getElementById('inboundTbody');
+  if (!tbody) return;
+  const q = query.toLowerCase().trim();
+  let visible = 0;
+  tbody.querySelectorAll('tr').forEach(tr => {
+    const show = !q || tr.textContent.toLowerCase().includes(q);
+    tr.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const countEl = document.getElementById('inboundRowCount');
+  if (countEl) countEl.textContent = q ? `${visible} filtered` : `${visible} rows`;
+}
+
+// ── Excel sync ───────────────────────────────────────────────────────────────
+let autoSyncTimer      = null;
+let lastSuofData       = null;  // cached for auto-filling new items
+let lastSuofStartWeek  = 0;
+
+// SKU Pipeline sheet column indices (0-based, col A = 0)
+const XL_SKU_COL    = 7;   // column H  = SKU Nbr
+const XL_WEEK01_COL = 22;  // column W  = Week 01 (FW13 2026 = weeks[0])
+const XL_NUM_WEEKS  = 13;  // Week 01 … Week 13
+
+function connectExcel() {
+  document.getElementById('inputSuof').click();
+}
+
+async function syncFromExcel() {
+  if (!excelFile) return;
+  const btnSync = document.getElementById('btnSync');
+  btnSync.textContent = '⏳ Syncing…';
+  btnSync.disabled = true;
+  try {
+    const buffer = await excelFile.arrayBuffer();
+    const wb     = XLSX.read(buffer, { type: 'array', cellDates: false });
+
+    const ws = wb.Sheets['SKU Pipeline'];
+    if (!ws) throw new Error('"SKU Pipeline" sheet not found in the workbook.');
+
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+    lastSuofData = data;  // cache for new item auto-fill
+
+    // Detect which weeks array index Week 01 maps to.
+    // Row index 1 (row 2 in sheet) has "Fiscal Week XX of YYYY" in col D (index 3).
+    let startWeekIdx = 0;
+    const currentWeekCell = data[1] ? data[1][3] : null;
+    if (currentWeekCell) {
+      const m = String(currentWeekCell).match(/Fiscal Week (\d+) of (\d+)/i);
+      if (m) {
+        const fw = parseInt(m[1]), yr = parseInt(m[2]);
+        const label = `FW${fw} ${yr}`;
+        const found = weeks.findIndex(w => w.fw === label);
+        if (found !== -1) startWeekIdx = found;
+      }
+    }
+    lastSuofStartWeek = startWeekIdx;  // cache for new item auto-fill
+
+    let synced = 0;
+    const skusUpdated = [];
+    // Data rows start at row index 10 (row 11 in sheet)
+    for (let ri = 10; ri < data.length; ri++) {
+      const row = data[ri];
+      if (!row || row[XL_SKU_COL] == null) continue;
+      const sku = String(row[XL_SKU_COL]).trim();
+      if (!state[sku]) continue;
+
+      // Build suofFromExcel array aligned to weeks[]
+      const suofArr = new Array(weeks.length).fill(null);
+      for (let w = 0; w < XL_NUM_WEEKS; w++) {
+        const wIdx = startWeekIdx + w;
+        if (wIdx >= weeks.length) break;
+        const val = row[XL_WEEK01_COL + w];
+        suofArr[wIdx] = (val != null && !isNaN(val)) ? Math.round(Number(val)) : 0;
+      }
+      state[sku].suofFromExcel = suofArr;
+      skusUpdated.push({ sku, suofArr });
+      synced++;
+    }
+
+    if (synced === 0) throw new Error('No matching SKUs found in SKU Pipeline sheet.');
+
+    // Refresh all product displays
+    products.forEach(p => {
+      updateCalcs(p.sku);
+      updateSuofLabel(p.sku);
+    });
+    renderSummary();
+
+    // ── Upsert to Supabase ────────────────────────────────────────────────────
+    if (supabase) {
+      try {
+        const weeklyUpserts = [];
+        skusUpdated.forEach(({ sku, suofArr }) => {
+          suofArr.forEach((forecast, week_idx) => {
+            if (forecast != null) {
+              weeklyUpserts.push({ sku, week_idx, suof_forecast: forecast });
+            }
+          });
+        });
+        if (weeklyUpserts.length) await supabase.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
+      } catch(sbErr) { console.warn('Supabase SUOF upsert failed:', sbErr.message); }
+    }
+
+    const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    setExcelStatus('connected', `✓ Connected — ${excelFile.name} — last synced ${ts} (${synced} SKU${synced!==1?'s':''})`);
+    document.getElementById('btnSync').textContent  = '🔄 Sync Now';
+    document.getElementById('btnSync').disabled     = false;
+    document.getElementById('chkAuto').disabled     = false;
+    document.getElementById('btnConnect').textContent = '📂 Change File';
+
+  } catch (e) {
+    setExcelStatus('error', '⚠ Sync failed: ' + e.message);
+    document.getElementById('btnSync').textContent = '🔄 Sync Now';
+    document.getElementById('btnSync').disabled    = false;
+  }
+}
+
+function updateSuofLabel(sku) {
+  const lbl = document.getElementById(`suof-lbl-${sku}`);
+  const row = document.getElementById(`suof-row-${sku}`);
+  if (!lbl) return;
+  const linked = !!state[sku].suofFromExcel;
+  lbl.innerHTML = `SUOF${linked ? '<span class="xls-badge">XLS</span>' : ''}`;
+  if (row) row.className = linked ? 'suof-linked' : '';
+}
+
+function setExcelStatus(type, msg) {
+  const el = document.getElementById('excelStatus');
+  el.className = 'excel-status' + (type ? ' ' + type : '');
+  el.textContent = msg;
+}
+
+function toggleAutoSync(on) {
+  clearInterval(autoSyncTimer);
+  if (on) autoSyncTimer = setInterval(syncFromExcel, 30000);
+}
+
+
+
+// ── Delete product ────────────────────────────────────────────────────────────
+function deleteProduct(sku) {
+  const p = products.find(x => x.sku === sku);
+  const name = p ? p.desc || p.model : sku;
+  if (!confirm('Delete "' + name + '"?\nThis will permanently remove the item and all its data.')) return;
+  // Remove from products array
+  const idx = products.findIndex(x => x.sku === sku);
+  if (idx >= 0) products.splice(idx, 1);
+  // Remove state
+  delete state[sku];
+  // Remove DOM block
+  const block = document.getElementById('block-' + sku);
+  if (block) block.remove();
+  // Also remove from modelToSku
+  for (const m of Object.keys(modelToSku)) {
+    if (modelToSku[m] === sku) delete modelToSku[m];
+  }
+  // Update UI
+  buildFilterDropdown();
+  renderSummary();
+  renderReorderTab();
+  saveState();
+}
+
+// ── Product visibility toggle ─────────────────────────────────────────────────
+function toggleProductVisibility(sku) {
+  const block = document.getElementById('block-' + sku);
+  const btn   = document.getElementById('toggle-btn-' + sku);
+  if (!block) return;
+  const isCollapsed = block.classList.toggle('collapsed');
+  btn.innerHTML = isCollapsed ? '&#9654; Show' : '&#9660; Hide';
+  // Hidden items sink to bottom, visible items float to top
+  const container = document.getElementById('productsContainer');
+  const allBlocks = [...container.querySelectorAll('.product-block')];
+  const visible = allBlocks.filter(b => !b.classList.contains('collapsed'));
+  const hidden  = allBlocks.filter(b =>  b.classList.contains('collapsed'));
+  [...visible, ...hidden].forEach(b => container.appendChild(b));
+  renderSummary();
+  saveState();
+}
+
+
+// ── VendorDrill sync ──────────────────────────────────────────────────────────
+// VendorDrill Template (US).xlsm — Sales tab
+//
+// Sheet structure is a pivot table:
+//   Row: "1012270067-ASTRONAUT GALAXY NIGHTLIGHT"   ← SKU header (col A)
+//   Row: "⊟ LH-PL023-999"                           ← model row  (col A)
+//   Row: "Fiscal Week 12 of 2026"  |  4380  |  …    ← weekly data
+//   Row: "Fiscal Week 13 of 2026"  |  3970  |  …
+//   …
+//   Row: (next SKU header)
+//
+// AVG Weekly Sales = average of the 3 most recent COMPLETED weeks per SKU
+// POS Sales Units  = weekly units mapped into our fiscal-week grid
+
+let autoSyncVdTimer = null;
+let lastVdData      = null;
+
+function setVdStatus(type, msg) {
+  const el = document.getElementById('vdStatus');
+  el.className = 'excel-status' + (type ? ' ' + type : '');
+  el.textContent = msg;
+}
+
+// Parse the pivot-table Sales tab.
+// Returns { [sku]: { weeklyUnits: [{fw, yr, units}] } }
+function parseVDSalesTab(data) {
+  const result = {};
+  let curSku   = null;
+
+  for (let ri = 0; ri < data.length; ri++) {
+    const row   = data[ri] || [];
+    // Strip ONLY outline/grouping glyphs (⊟ ⊞), preserve dashes in model/SKU strings
+    const cellA = String(row[0] || '').replace(/[\u229F\u229E\u25A0\u25A1\u2229\uFEFF]/g, '').trim();
+
+    // ── SKU header: digits followed immediately by a dash or space ────────
+    // e.g. "1012270067-ASTRONAUT GALAXY NIGHTLIGHT"  or  "1012317129-29 3.15 IN..."
+    const skuM = cellA.match(/^(\d{7,12})[-\s]/);
+    if (skuM) {
+      curSku = skuM[1];
+      if (!result[curSku]) result[curSku] = { weeklyUnits: [] };
+      continue;
+    }
+
+    // ── Model row: "LH-PL023-999", "LH-ML002-999", etc. ─────────────────
+    const modelM = cellA.match(/^(LH-[A-Z]{2}\d*-[A-Z0-9]+)/i);
+    if (modelM) {
+      const model = modelM[1].toUpperCase();
+      const mappedSku = modelToSku[model];
+      if (mappedSku) {
+        curSku = mappedSku;
+        if (!result[curSku]) result[curSku] = { weeklyUnits: [] };
+      }
+      continue;
+    }
+
+    // ── Week row: "Fiscal Week 13 of 2026" ───────────────────────────────
+    const weekM = cellA.match(/Fiscal\s+Week\s+(\d+)\s+of\s+(\d+)/i);
+    if (weekM && curSku) {
+      const fw    = parseInt(weekM[1]);
+      const yr    = parseInt(weekM[2]);
+      const raw   = String(row[1] || '').replace(/[$,\s]/g, '');
+      const units = parseFloat(raw);
+      if (!isNaN(units) && units >= 0) {
+        result[curSku].weeklyUnits.push({ fw, yr, units: Math.round(units) });
+      }
+    }
+  }
+
+  return result;
+}
+
+function connectVD() {
+  document.getElementById('inputVd').click();
+}
+
+async function syncFromVD() {
+  if (!vdFile) return;
+  const btn = document.getElementById('btnVdSync');
+  btn.textContent = '⏳ Syncing…';
+  btn.disabled = true;
+
+  try {
+    const buffer = await vdFile.arrayBuffer();
+    const wb     = XLSX.read(buffer, { type: 'array', raw: true });
+
+    const ws = wb.Sheets['Sales'];
+    if (!ws) throw new Error('"Sales" sheet not found in the VendorDrill workbook.');
+
+    const data  = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+    lastVdData  = data;
+
+    const parsed = parseVDSalesTab(data);
+    const curIdx = getCurrentWeekIdx();
+
+    // VendorDrill and HTML use the SAME fiscal week numbering.
+    // "Fiscal Week N of YYYY" in VD  =  HTML "FW N YYYY"  (offset = 0)
+    //
+    // Avg Weekly Sales uses the 3 VD weeks immediately preceding the current
+    // HTML week: (curFW − 1), (curFW − 2), (curFW − 3).
+
+    const curFWMatch = weeks[curIdx].fw.match(/FW(\d+)\s+(\d{4})/);
+    const htmlCurFW  = parseInt(curFWMatch[1]);
+    const htmlCurYr  = parseInt(curFWMatch[2]);
+
+    // 3 VD weeks for avg: 1, 2, and 3 weeks before current HTML week
+    const avgVdWeeks = [htmlCurFW - 1, htmlCurFW - 2, htmlCurFW - 3];
+
+    let synced = 0;
+    const skusUpdated = [];
+    for (const sku of Object.keys(parsed)) {
+      if (!state[sku]) continue;
+
+      const { weeklyUnits } = parsed[sku];
+
+      // 1. POS Sales Units — direct mapping: VD FW N → HTML FW N (same number)
+      const newPosUnits = new Array(weeks.length).fill(0);
+      weeklyUnits.forEach(({ fw, yr, units }) => {
+        const label = `FW${fw} ${yr}`;
+        const idx   = weeks.findIndex(w => w.fw === label);
+        if (idx >= 0) newPosUnits[idx] = units;
+      });
+      state[sku].posUnits    = newPosUnits;
+      state[sku].vdConnected = true;
+
+      // Update POS input cells in the DOM
+      const block = document.getElementById('block-' + sku);
+      if (block) {
+        block.querySelectorAll('input[data-row="posUnits"]').forEach(inp => {
+          const i = parseInt(inp.dataset.idx);
+          inp.value = fmtInput(newPosUnits[i] || 0);
+        });
+        // For items with no manual sales rates set, seed from POS units
+        const noManualSales = state[sku].salesRates.every(v => !v);
+        if (noManualSales) {
+          state[sku].salesRates = [...newPosUnits];
+          block.querySelectorAll('input[data-row="salesRate"]').forEach(inp => {
+            const i = parseInt(inp.dataset.idx);
+            inp.value = fmtInput(newPosUnits[i] || 0);
+          });
+        }
+      }
+
+      // 2. Avg Weekly Sales = (VD FW[cur-1] + VD FW[cur-2] + VD FW[cur-3]) / 3
+      //    Missing weeks = 0; always divide by 3
+      let avgSum = 0;
+      avgVdWeeks.forEach(vdFW => {
+        const entry = weeklyUnits.find(w => w.fw === vdFW && w.yr === htmlCurYr);
+        avgSum += entry ? entry.units : 0;
+      });
+      state[sku].avgWeeklySalesVD = Math.round(avgSum / 3);
+
+      updateCalcs(sku);
+      skusUpdated.push({ sku, newPosUnits });
+      synced++;
+    }
+
+    if (synced === 0) throw new Error('No matching SKUs found in the Sales tab. Ensure THD SKU numbers appear in column A (e.g. "1012270067-PRODUCT NAME").');
+
+    renderSummary();
+
+    // ── Upsert to Supabase ────────────────────────────────────────────────────
+    if (supabase) {
+      try {
+        const metaUpserts = skusUpdated.map(({ sku }) => ({
+          sku,
+          avg_weekly_sales_vd: state[sku].avgWeeklySalesVD
+        }));
+        const weeklyUpserts = [];
+        skusUpdated.forEach(({ sku, newPosUnits }) => {
+          newPosUnits.forEach((pos, week_idx) => {
+            weeklyUpserts.push({
+              sku, week_idx,
+              pos_units:  pos || 0,
+              sales_rate: state[sku].salesRates[week_idx] || 0
+            });
+          });
+        });
+        if (metaUpserts.length)   await supabase.from('sku_meta').upsert(metaUpserts,   { onConflict: 'sku' });
+        if (weeklyUpserts.length) await supabase.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
+      } catch(sbErr) { console.warn('Supabase VD upsert failed:', sbErr.message); }
+    }
+
+    const ts = new Date().toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit', second:'2-digit' });
+    setVdStatus('connected', `✓ Connected — ${vdFile.name} — last synced ${ts} (${synced} SKU${synced!==1?'s':''})`);
+    btn.textContent = '🔄 Sync Now';
+    btn.disabled    = false;
+    document.getElementById('chkVdAuto').disabled      = false;
+    document.getElementById('btnVdConnect').textContent = '📂 Change File';
+
+  } catch (e) {
+    setVdStatus('error', '⚠ Sync failed: ' + e.message);
+    btn.textContent = '🔄 Sync Now';
+    btn.disabled    = false;
+  }
+}
+
+function toggleAutoSyncVD(on) {
+  clearInterval(autoSyncVdTimer);
+  if (on) autoSyncVdTimer = setInterval(syncFromVD, 30000);
+}
+
+
+// ── Auto-lookup helpers for Add Item modal ────────────────────────────────────
+
+// Search lastSuofData (SKU Pipeline tab) for the given model number anywhere in a row.
+// Returns { sku, desc } or null.
+function lookupSuofByModel(modelNum) {
+  if (!lastSuofData) return null;
+  const target = modelNum.trim().toUpperCase();
+  for (let ri = 5; ri < lastSuofData.length; ri++) {
+    const row = lastSuofData[ri];
+    if (!row) continue;
+    for (let ci = 0; ci < Math.min(row.length, 40); ci++) {
+      const cell = String(row[ci] || '').trim().toUpperCase();
+      if (cell === target) {
+        const sku  = row[XL_SKU_COL] ? String(row[XL_SKU_COL]).trim() : '';
+        // Look for description: prefer a long text string in nearby columns
+        let desc = '';
+        for (let dc = 0; dc < Math.min(row.length, 30); dc++) {
+          if (dc === ci || dc === XL_SKU_COL) continue;
+          const v = row[dc];
+          if (v && typeof v === 'string' && v.length > 4 && !/^\d+$/.test(v.trim())) {
+            desc = v.trim();
+            break;
+          }
+        }
+        return { sku, desc };
+      }
+    }
+  }
+  return null;
+}
+
+// Search lastAtsItemInfo (Item Info tab) for the model number.
+// Dynamically finds Inner / Master columns from header row.
+// Returns { inner, master } or null.
+function lookupAtsItemInfo(modelNum) {
+  if (!lastAtsItemInfo) return null;
+  const target = modelNum.trim().toUpperCase();
+  // Find header row (first row that contains "inner" or "master" keywords)
+  let headerRow = -1, innerCol = -1, masterCol = -1;
+  for (let ri = 0; ri < Math.min(lastAtsItemInfo.length, 10); ri++) {
+    const row = lastAtsItemInfo[ri];
+    if (!row) continue;
+    let found = false;
+    for (let ci = 0; ci < row.length; ci++) {
+      const h = String(row[ci] || '').toLowerCase();
+      if (h.includes('inner'))  { innerCol  = ci; found = true; }
+      if (h.includes('master')) { masterCol = ci; found = true; }
+    }
+    if (found) { headerRow = ri; break; }
+  }
+  // Search data rows for the model number
+  const startRow = headerRow >= 0 ? headerRow + 1 : 0;
+  for (let ri = startRow; ri < lastAtsItemInfo.length; ri++) {
+    const row = lastAtsItemInfo[ri];
+    if (!row) continue;
+    // Check column A (0) and any column that might hold a model number
+    for (let ci = 0; ci <= Math.min(row.length - 1, 5); ci++) {
+      const cell = String(row[ci] || '').replace(/[⊟⊞]/g,'').trim().toUpperCase();
+      if (cell === target) {
+        return {
+          inner:  innerCol  >= 0 ? (parseInt(row[innerCol])  || null) : null,
+          master: masterCol >= 0 ? (parseInt(row[masterCol]) || null) : null
+        };
+      }
+    }
+  }
+  return null;
+}
+
+// Called on blur of Model# field — auto-fills SKU, Description, Inner, Master
+function autoLookupModel() {
+  const model = document.getElementById('mi-model').value.trim().toUpperCase();
+  if (!model) return;
+  document.getElementById('mi-model').value = model;
+
+  // SUOF lookup → SKU + Description
+  const suofMatch = lookupSuofByModel(model);
+  if (suofMatch) {
+    if (suofMatch.sku) {
+      const skuEl = document.getElementById('mi-sku');
+      if (skuEl && !skuEl.value.trim()) { skuEl.value = suofMatch.sku; skuEl.classList.add('auto-filled'); }
+    }
+    if (suofMatch.desc) {
+      const descEl = document.getElementById('mi-desc');
+      if (descEl && !descEl.value.trim()) { descEl.value = suofMatch.desc; descEl.classList.add('auto-filled'); }
+    }
+  }
+
+  // ATS Item Info lookup → Inner + Master
+  const atsMatch = lookupAtsItemInfo(model);
+  if (atsMatch) {
+    if (atsMatch.inner != null) {
+      const innerEl = document.getElementById('mi-inner');
+      if (innerEl && !innerEl.value.trim()) { innerEl.value = atsMatch.inner; innerEl.classList.add('auto-filled'); }
+    }
+    if (atsMatch.master != null) {
+      const masterEl = document.getElementById('mi-master');
+      if (masterEl && !masterEl.value.trim()) { masterEl.value = atsMatch.master; masterEl.classList.add('auto-filled'); }
+    }
+  }
+
+  // Show lookup feedback in hint area
+  const hints = [];
+  if (suofMatch && suofMatch.sku)  hints.push('SKU found in SUOF');
+  if (suofMatch && suofMatch.desc) hints.push('Name found in SUOF');
+  if (atsMatch && (atsMatch.inner || atsMatch.master)) hints.push('Pack sizes found in ATS');
+  if (hints.length) {
+    const hintEl = document.getElementById('modalHint');
+    if (hintEl) hintEl.textContent = '✓ Auto-filled: ' + hints.join(' · ');
+  }
+}
+
+// ── Add Item modal ────────────────────────────────────────────────────────────
+function openAddItemModal() {
+  // Clear fields
+  ['mi-model','mi-sku','mi-desc','mi-inner','mi-master','mi-onhandmerkury'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.value = ''; el.classList.remove('auto-filled'); }
+  });
+  // Update hint
+  const hints = [];
+  if (lastAtsData)  hints.push('ATS connected — On Hand & Firm Receipts will auto-fill');
+  if (lastSuofData) hints.push('SUOF connected — SUOF forecast will auto-fill');
+  const missingFiles = [];
+  if (!lastSuofData) missingFiles.push('SUOF (for SKU # and Description)');
+  if (!lastAtsData)  missingFiles.push('ATS (for On Hand and Inner/Master)');
+  if (!lastVdData)   missingFiles.push('VendorDrill (for Sales Rate)');
+  document.getElementById('modalHint').textContent = hints.length
+    ? hints.join(' | ')
+    : missingFiles.length
+      ? '⚠ Connect first to auto-fill: ' + missingFiles.join(', ')
+      : 'Fill in the item details below.';
+  document.getElementById('addItemModal').classList.add('open');
+  document.getElementById('mi-model').focus();
+}
+
+function closeAddItemModal() {
+  document.getElementById('addItemModal').classList.remove('open');
+}
+
+// Close modal when clicking overlay background
+document.getElementById('addItemModal').addEventListener('click', function(e) {
+  if (e.target === this) closeAddItemModal();
+});
+
+function submitAddItem() {
+  const model  = document.getElementById('mi-model').value.trim().toUpperCase();
+  const sku    = document.getElementById('mi-sku').value.trim();
+  const desc   = document.getElementById('mi-desc').value.trim();
+  const inner  = parseInt(document.getElementById('mi-inner').value) || 1;
+  const master = parseInt(document.getElementById('mi-master').value) || 1;
+  const avgSales  = 0;
+  const onHandTHD = 0;
+  const onHandMerkuryInput = parseInt(document.getElementById('mi-onhandmerkury').value);
+
+  // Validate required fields
+  if (!model) {
+    alert('Model # is required.');
+    return;
+  }
+  if (products.find(p => p.model === model)) {
+    alert(`Model # ${model} is already in the list.`);
+    return;
+  }
+
+  // Build base firmReceipts and onHandMerkury — try ATS first
+  let firmReceipts   = new Array(weeks.length).fill(0);
+  let onHandMerkury  = isNaN(onHandMerkuryInput) ? 0 : onHandMerkuryInput;
+  let atsConnected   = false;
+
+  if (lastAtsData) {
+    for (let ri = 2; ri < lastAtsData.length; ri++) {
+      const row = lastAtsData[ri];
+      if (!row || row[ATS_MODEL_COL] == null) continue;
+      if (String(row[ATS_MODEL_COL]).trim().toUpperCase() !== model) continue;
+      const atsNow = row[ATS_NOW_COL];
+      if (atsNow != null && !isNaN(atsNow)) onHandMerkury = Math.round(Number(atsNow));
+      const etaEntries = parseEtaField(row[ATS_ETA_COL]);
+      for (const { weekIdx, qty } of etaEntries) firmReceipts[weekIdx] = qty;
+      atsConnected = true;
+      break;
+    }
+  }
+
+  // Build salesRates — zeros (user fills manually, or pulled via SUOF display)
+  const salesRates = new Array(weeks.length).fill(0);
+
+  // Create product object
+  const newP = { model, sku, desc, inner, master, avgWeeklySales: avgSales,
+                 onHandMerkury, onHandTHD, firmReceipts, salesRates };
+  products.push(newP);
+
+  // Register model→SKU mapping for future ATS syncs
+  modelToSku[model] = sku;
+
+  // Init state
+  state[sku] = {
+    firmReceipts:  [...firmReceipts],
+    reorders:      new Array(weeks.length).fill(0),
+    salesRates:    [...salesRates],
+    posUnits:      new Array(weeks.length).fill(0),
+    suofFromExcel: null,
+    atsConnected,
+    onHandMerkury
+  };
+
+  // Pull VendorDrill data if connected (avgWeeklySalesVD + posUnits)
+  if (lastVdData) {
+    try {
+      const parsed = parseVDSalesTab(lastVdData);
+      const curIdx2 = getCurrentWeekIdx();
+      const curFWMatch2 = weeks[curIdx2].fw.match(/FW(\d+)\s+(\d{4})/);
+      const htmlCurFW2  = parseInt(curFWMatch2[1]);
+      const htmlCurYr2  = parseInt(curFWMatch2[2]);
+      const avgVdWeeks2 = [htmlCurFW2 - 1, htmlCurFW2 - 2, htmlCurFW2 - 3];
+      const vdSku = sku || model;  // try sku first, fall back to model
+      for (const checkSku of [sku, model]) {
+        if (!checkSku || !parsed[checkSku]) continue;
+        const { weeklyUnits } = parsed[checkSku];
+        const newPosUnits2 = new Array(weeks.length).fill(0);
+        weeklyUnits.forEach(({ fw, yr, units }) => {
+          const label2 = 'FW' + fw + ' ' + yr;
+          const idx2 = weeks.findIndex(w => w.fw === label2);
+          if (idx2 >= 0) newPosUnits2[idx2] = units;
+        });
+        let avgSum2 = 0;
+        avgVdWeeks2.forEach(vdFW => {
+          const entry2 = weeklyUnits.find(w => w.fw === vdFW && w.yr === htmlCurYr2);
+          avgSum2 += entry2 ? entry2.units : 0;
+        });
+        // Will be applied to state[sku] after state is created below
+        state[vdSku] = state[vdSku] || {};
+        state[vdSku]._vdPosUnits    = newPosUnits2;
+        state[vdSku]._vdAvgSales    = Math.round(avgSum2 / 3);
+        state[vdSku]._vdConnected   = true;
+        // Also seed salesRates from POS units so Ending INV projects correctly
+        state[vdSku]._vdSalesRates  = newPosUnits2;
+        break;
+      }
+    } catch(e) { /* VD parse failed — ignore */ }
+  }
+
+  // Pull SUOF from cache if available
+  if (lastSuofData) {
+    for (let ri = 10; ri < lastSuofData.length; ri++) {
+      const row = lastSuofData[ri];
+      if (!row || row[XL_SKU_COL] == null) continue;
+      if (String(row[XL_SKU_COL]).trim() !== sku) continue;
+      const suofArr = new Array(weeks.length).fill(null);
+      for (let w = 0; w < XL_NUM_WEEKS; w++) {
+        const wIdx = lastSuofStartWeek + w;
+        if (wIdx >= weeks.length) break;
+        const val = row[XL_WEEK01_COL + w];
+        suofArr[wIdx] = (val != null && !isNaN(val)) ? Math.round(Number(val)) : 0;
+      }
+      state[sku].suofFromExcel = suofArr;
+      break;
+    }
+  }
+
+  // Render the new block
+  const container = document.getElementById('productsContainer');
+  const block = buildProduct(newP);
+  container.appendChild(block);
+  renderSummary();
+  closeAddItemModal();
+
+  // Rebuild filter dropdown to include new item
+  buildFilterDropdown();
+  renderReorderTab();
+  saveState();
+  // Scroll to the new item
+  setTimeout(() => block.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
+}
+
+
+
+// ── Reorder popup ─────────────────────────────────────────────────────────────
+let rpCurrentSku = null, rpCurrentIdx = null;
+
+function openRpPopup(sku, idx) {
+  rpCurrentSku = sku; rpCurrentIdx = idx;
+  const p = products.find(x => x.sku === sku);
+  const d = state[sku].reorderData[idx];
+  document.getElementById('rpSub').textContent = weeks[idx].fw + ' — ' + (p ? p.desc : sku);
+  document.getElementById('rpQty').value      = d ? (d.qty || '') : '';
+  document.getElementById('rpCasePack').value = d ? (d.casePack || '') : '';
+  document.getElementById('rpConfig').value   = d ? (d.config || '') : '';
+  document.getElementById('rpOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('rpQty').focus(), 50);
+}
+
+function closeRpPopup() {
+  document.getElementById('rpOverlay').classList.remove('open');
+  rpCurrentSku = null; rpCurrentIdx = null;
+}
+
+function saveRpPopup() {
+  if (rpCurrentSku === null) return;
+  const qty      = parseInt(document.getElementById('rpQty').value) || 0;
+  const casePack = document.getElementById('rpCasePack').value.trim();
+  const config   = document.getElementById('rpConfig').value.trim();
+  state[rpCurrentSku].reorderData[rpCurrentIdx] = { qty, casePack, config };
+  state[rpCurrentSku].reorders[rpCurrentIdx] = qty;
+  // Update the cell input display
+  const block = document.getElementById('block-' + rpCurrentSku);
+  if (block) {
+    block.querySelectorAll('input[data-row="reorder"]').forEach(inp => {
+      if (parseInt(inp.dataset.idx) === rpCurrentIdx) {
+        inp.value = qty ? qty.toLocaleString() : '0';
+        // Apply color rule: casePack contains /24 → orange
+        const td = inp.closest('td');
+        if (td) applyReorderColor(td, casePack);
+      }
+    });
+  }
+  updateCalcs(rpCurrentSku);
+  saveState();
+  renderReorderTab();
+  closeRpPopup();
+}
+
+function applyReorderColor(td, casePack) {
+  // Reset
+  td.style.background = '';
+  td.style.color = '';
+  if (!casePack) return;
+  const cp = casePack.trim().toLowerCase();
+  if (cp.includes('/24') || cp === '1/24') {
+    td.style.background = 'rgba(251,146,60,0.45)';
+    td.style.color = '#fff';
+  } else if (cp.includes('/12') || cp === '1/12') {
+    td.style.background = 'rgba(139,92,246,0.40)';
+    td.style.color = '#fff';
+  }
+}
+
+document.getElementById('rpOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeRpPopup();
+});
+
+
+
+// ── localStorage persistence ─────────────────────────────────────────────────
+const STORE_KEY = 'merkury_inv_v3';
+
+// ── Supabase persistence helpers ──────────────────────────────────────────────
+
+// Fire-and-forget: upsert reorder data to Supabase sku_weekly
+async function saveStateSupabase() {
+  if (!supabase) return;
+  try {
+    const weeklyUpserts = [];
+    products.forEach(p => {
+      const s = state[p.sku];
+      if (!s || !s.reorderData) return;
+      s.reorderData.forEach((d, week_idx) => {
+        if (d && (d.qty || d.casePack || d.config)) {
+          weeklyUpserts.push({
+            sku:               p.sku,
+            week_idx,
+            reorder_qty:       d.qty || 0,
+            reorder_case_pack: d.casePack || '',
+            reorder_config:    d.config   || ''
+          });
+        }
+      });
+    });
+    if (weeklyUpserts.length) {
+      await supabase.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
+    }
+  } catch(e) { console.warn('Supabase saveState failed:', e.message); }
+}
+
+// Load from Supabase and apply on top of in-memory state; re-render everything
+async function loadFromSupabase() {
+  if (!supabase) return;
+  try {
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }] =
+      await Promise.all([
+        supabase.from('sku_meta').select('*'),
+        supabase.from('sku_weekly').select('*')
+      ]);
+
+    if (metaErr)   throw metaErr;
+    if (weeklyErr) throw weeklyErr;
+
+    // Apply sku_meta
+    if (metaRows) {
+      metaRows.forEach(row => {
+        const sku = row.sku;
+        if (!state[sku]) return;
+        if (row.on_hand_merkury != null) {
+          state[sku].onHandMerkury = row.on_hand_merkury;
+          const p = products.find(x => x.sku === sku);
+          if (p) p.onHandMerkury = row.on_hand_merkury;
+        }
+        if (row.avg_weekly_sales_vd != null) {
+          state[sku].avgWeeklySalesVD = parseFloat(row.avg_weekly_sales_vd);
+          state[sku].vdConnected = true;
+        }
+      });
+    }
+
+    // Pre-pass: mark SKUs that have SUOF or ATS data from Supabase
+    if (weeklyRows) {
+      const skusWithSuof = new Set(weeklyRows.filter(r => r.suof_forecast != null).map(r => r.sku));
+      const skusWithAts  = new Set(weeklyRows.filter(r => r.firm_receipt  != null && r.firm_receipt > 0).map(r => r.sku));
+      skusWithSuof.forEach(sku => {
+        if (state[sku] && !state[sku].suofFromExcel)
+          state[sku].suofFromExcel = new Array(weeks.length).fill(null);
+      });
+      skusWithAts.forEach(sku => {
+        if (state[sku]) state[sku].atsConnected = true;
+      });
+
+      // Apply sku_weekly
+      weeklyRows.forEach(row => {
+        const { sku, week_idx } = row;
+        if (!state[sku] || week_idx < 0 || week_idx >= weeks.length) return;
+        if (row.firm_receipt  != null) state[sku].firmReceipts[week_idx] = row.firm_receipt;
+        if (row.suof_forecast != null && state[sku].suofFromExcel)
+          state[sku].suofFromExcel[week_idx] = row.suof_forecast;
+        if (row.pos_units  != null) state[sku].posUnits[week_idx]  = row.pos_units;
+        if (row.sales_rate != null && row.sales_rate > 0)
+          state[sku].salesRates[week_idx] = row.sales_rate;
+        if (row.reorder_qty != null) {
+          state[sku].reorders[week_idx] = row.reorder_qty;
+          if (row.reorder_qty > 0 || row.reorder_case_pack || row.reorder_config) {
+            state[sku].reorderData[week_idx] = {
+              qty:      row.reorder_qty || 0,
+              casePack: row.reorder_case_pack || '',
+              config:   row.reorder_config   || ''
+            };
+          }
+        }
+      });
+    }
+
+    // Re-render all product blocks to reflect Supabase data
+    products.forEach(p => {
+      const s = state[p.sku];
+      const block = document.getElementById('block-' + p.sku);
+      if (block) {
+        block.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
+          inp.value = fmtInput(s.firmReceipts[parseInt(inp.dataset.idx)] || 0);
+        });
+        block.querySelectorAll('input[data-row="posUnits"]').forEach(inp => {
+          inp.value = fmtInput(s.posUnits[parseInt(inp.dataset.idx)] || 0);
+        });
+        block.querySelectorAll('input[data-row="salesRate"]').forEach(inp => {
+          inp.value = fmtInput(s.salesRates[parseInt(inp.dataset.idx)] || 0);
+        });
+        block.querySelectorAll('input[data-row="reorder"]').forEach(inp => {
+          const idx = parseInt(inp.dataset.idx);
+          inp.value = fmtInput(s.reorders[idx] || 0);
+          const d = s.reorderData[idx];
+          if (d && d.casePack) applyReorderColor(inp.closest('td'), d.casePack);
+        });
+      }
+      updateCalcs(p.sku);
+      updateFirmReceiptLabel(p.sku);
+      updateSuofLabel(p.sku);
+    });
+    renderSummary();
+    renderReorderTab();
+
+    // Show connection badges if data came from Supabase
+    const atsSku = Object.keys(state).find(s => state[s].atsConnected);
+    if (atsSku) setAtsStatus('connected', '✓ Data loaded from Supabase');
+    const suofSku = Object.keys(state).find(s => state[s].suofFromExcel);
+    if (suofSku) setExcelStatus('connected', '✓ Data loaded from Supabase');
+    const vdSku = Object.keys(state).find(s => state[s].vdConnected);
+    if (vdSku) setVdStatus('connected', '✓ Data loaded from Supabase');
+
+  } catch(e) {
+    console.warn('Supabase loadFromSupabase failed:', e.message);
+  }
+}
+
+function saveState() {
+  try {
+    const snapshot = {
+      state: {},
+      productOrder: products.map(p => p.model),
+      // Save full product metadata so user-added items persist
+      productMeta: products.map(p => ({
+        model: p.model, sku: p.sku, desc: p.desc,
+        inner: p.inner, master: p.master,
+        avgWeeklySales: p.avgWeeklySales,
+        onHandMerkury: p.onHandMerkury,
+        onHandTHD: p.onHandTHD
+      })),
+      collapsed: {}
+    };
+    products.forEach(p => {
+      const s = state[p.sku];
+      snapshot.state[p.sku] = {
+        firmReceipts:      s.firmReceipts,
+        reorders:          s.reorders,
+        reorderData:       s.reorderData,
+        salesRates:        s.salesRates,
+        posUnits:          s.posUnits,
+        avgWeeklySalesVD:  s.avgWeeklySalesVD,
+        vdConnected:       s.vdConnected,
+        suofFromExcel:     s.suofFromExcel,
+        atsConnected:      s.atsConnected,
+        onHandMerkury:     s.onHandMerkury
+      };
+      const b = document.getElementById('block-' + p.sku);
+      snapshot.collapsed[p.sku] = b ? b.classList.contains('collapsed') : false;
+    });
+    localStorage.setItem(STORE_KEY, JSON.stringify(snapshot));
+  } catch(e) { /* storage full or unavailable */ }
+  // Also persist reorder data to Supabase (fire-and-forget)
+  saveStateSupabase().catch(e => console.warn('Supabase saveState:', e));
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return false;
+    const snap = JSON.parse(raw);
+    if (!snap || !snap.state) return false;
+    // Restore any user-added products not in the hardcoded list
+    if (snap.productMeta) {
+      snap.productMeta.forEach(meta => {
+        if (!products.find(p => p.model === meta.model)) {
+          // New product added by user — restore it
+          const newP = {
+            model: meta.model, sku: meta.sku || meta.model,
+            desc: meta.desc || '', inner: meta.inner || 1,
+            master: meta.master || 1,
+            avgWeeklySales: meta.avgWeeklySales || 0,
+            onHandMerkury: meta.onHandMerkury || 0,
+            onHandTHD: meta.onHandTHD || 0,
+            firmReceipts: new Array(weeks.length).fill(0),
+            salesRates: new Array(weeks.length).fill(0)
+          };
+          products.push(newP);
+          modelToSku[newP.model] = newP.sku;
+          // Init blank state — will be filled by saved.state below
+          const fr = new Array(weeks.length).fill(0);
+          const sr = new Array(weeks.length).fill(0);
+          state[newP.sku] = {
+            firmReceipts: fr, reorders: new Array(weeks.length).fill(0),
+            reorderData: new Array(weeks.length).fill(null).map(() => ({qty:0,casePack:'',config:''})),
+            salesRates: sr, posUnits: new Array(weeks.length).fill(0),
+            avgWeeklySalesVD: null, vdConnected: false, suofFromExcel: null,
+            atsConnected: false, onHandMerkury: newP.onHandMerkury
+          };
+        }
+      });
+    }
+    products.forEach(p => {
+      const saved = snap.state[p.sku];
+      if (!saved) return;
+      const s = state[p.sku];
+      const pad = (arr, len) => { const a = arr ? [...arr] : []; while(a.length < len) a.push(0); return a; };
+      const padNull = (arr, len) => { const a = arr ? [...arr] : []; while(a.length < len) a.push(null); return a; };
+      const padRD = (arr, len) => { const a = arr ? [...arr] : []; while(a.length < len) a.push({qty:0,casePack:'',config:''}); return a; };
+      s.firmReceipts     = pad(saved.firmReceipts, weeks.length);
+      s.reorders         = pad(saved.reorders, weeks.length);
+      s.reorderData      = padRD(saved.reorderData, weeks.length);
+      s.salesRates       = pad(saved.salesRates, weeks.length);
+      s.posUnits         = pad(saved.posUnits, weeks.length);
+      s.avgWeeklySalesVD = saved.avgWeeklySalesVD != null ? saved.avgWeeklySalesVD : null;
+      s.vdConnected      = !!saved.vdConnected;
+      s.suofFromExcel    = saved.suofFromExcel ? padNull(saved.suofFromExcel, weeks.length) : null;
+      s.atsConnected       = !!saved.atsConnected;
+      s.onHandMerkury      = saved.onHandMerkury != null ? saved.onHandMerkury : p.onHandMerkury;
+      s.trackingStartIdx   = saved.trackingStartIdx != null ? saved.trackingStartIdx : 0;
+    });
+    return snap;
+  } catch(e) { return false; }
+}
+
+// ── Filter & date range (item-select dropdown) ───────────────────────────────
+// filterSelected: set of SKUs to SHOW (null = show all)
+let filterSelected = null;
+
+function initFilterBar() {
+  // Populate FW range selects
+  const from = document.getElementById('fwFrom');
+  const to   = document.getElementById('fwTo');
+  weeks.forEach((w, i) => {
+    from.appendChild(new Option(w.fw, i));
+    to.appendChild(new Option(w.fw, i));
+  });
+  from.value = 0;
+  to.value   = Math.min(27, weeks.length - 1);
+  buildFilterDropdown();
+}
+
+function buildFilterDropdown() {
+  const list = document.getElementById('filterDdList');
+  if (!list) return;
+  list.innerHTML = '';
+  products.forEach(p => {
+    const checked = filterSelected === null || filterSelected.has(p.sku);
+    const item = document.createElement('label');
+    item.className = 'filter-dd-item';
+    item.innerHTML = `
+      <input type="checkbox" value="${p.sku}" ${checked ? 'checked' : ''} onchange="onFilterCheck(this)" />
+      <span>
+        <div class="fdi-name">${p.desc || p.model}</div>
+        <div class="fdi-sub">${p.sku}${p.model ? ' &nbsp;·&nbsp; ' + p.model : ''}</div>
+      </span>`;
+    list.appendChild(item);
+  });
+  updateFilterCount();
+}
+
+function onFilterCheck(cb) {
+  if (filterSelected === null) {
+    // First deselect — initialize the set with everything checked except this
+    filterSelected = new Set(products.map(p => p.sku));
+  }
+  if (cb.checked) filterSelected.add(cb.value);
+  else            filterSelected.delete(cb.value);
+  // If all checked again → reset to null (show all)
+  if (filterSelected.size === products.length) filterSelected = null;
+  updateFilterCount();
+  applyFilters();
+}
+
+function filterSelectAll() {
+  filterSelected = null;
+  document.querySelectorAll('#filterDdList input[type=checkbox]').forEach(cb => cb.checked = true);
+  updateFilterCount();
+  applyFilters();
+}
+
+function filterClearAll() {
+  filterSelected = new Set();
+  document.querySelectorAll('#filterDdList input[type=checkbox]').forEach(cb => cb.checked = false);
+  updateFilterCount();
+  applyFilters();
+}
+
+function updateFilterCount() {
+  const countEl = document.getElementById('filterDdCount');
+  if (!countEl) return;
+  if (filterSelected === null) {
+    countEl.textContent = 'All';
+  } else {
+    countEl.textContent = filterSelected.size + ' / ' + products.length;
+  }
+}
+
+function toggleFilterDropdown() {
+  const panel = document.getElementById('filterDdPanel');
+  if (panel) panel.classList.toggle('open');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+  const wrap = document.querySelector('.filter-dropdown-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    const panel = document.getElementById('filterDdPanel');
+    if (panel) panel.classList.remove('open');
+  }
+});
+
+function applyFilters() {
+  const fromIdx = parseInt(document.getElementById('fwFrom').value);
+  const toIdx   = parseInt(document.getElementById('fwTo').value);
+
+  products.forEach(p => {
+    const block = document.getElementById('block-' + p.sku);
+    if (!block) return;
+    const visible = filterSelected === null || filterSelected.has(p.sku);
+    block.style.display = visible ? '' : 'none';
+  });
+}
+
+
+// ── Drag-and-drop reordering (smooth floating clone) ─────────────────────────
+function initDragDrop() {
+  const container = document.getElementById('productsContainer');
+  let dragSrc = null, floatClone = null, placeholder = null;
+  let offsetY = 0, offsetX = 0;
+
+  container.addEventListener('pointerdown', e => {
+    if (!e.target.closest('.drag-handle')) return;
+    dragSrc = e.target.closest('.product-block');
+    if (!dragSrc) return;
+    e.preventDefault();
+
+    const rect = dragSrc.getBoundingClientRect();
+    offsetY = e.clientY - rect.top;
+    offsetX = e.clientX - rect.left;
+
+    // Placeholder — same height as the card, dashed outline
+    placeholder = document.createElement('div');
+    placeholder.className = 'drag-placeholder';
+    placeholder.style.cssText = 'height:' + rect.height + 'px;margin-bottom:14px;border:2px dashed rgba(255,255,255,0.38);border-radius:18px;background:rgba(255,255,255,0.05);box-sizing:border-box;';
+    dragSrc.parentNode.insertBefore(placeholder, dragSrc.nextSibling);
+
+    // Floating clone follows cursor
+    floatClone = dragSrc.cloneNode(true);
+    floatClone.style.cssText = 'position:fixed;z-index:5000;pointer-events:none;width:' + rect.width + 'px;left:' + (e.clientX - offsetX) + 'px;top:' + (e.clientY - offsetY) + 'px;opacity:0.93;transform:scale(1.015);box-shadow:0 24px 64px rgba(0,0,0,0.38);transition:none;border-radius:18px;overflow:hidden;';
+    document.body.appendChild(floatClone);
+
+    // Hide original in-list card
+    dragSrc.style.visibility = 'hidden';
+    container.setPointerCapture && container.setPointerCapture(e.pointerId);
+  });
+
+  document.addEventListener('pointermove', e => {
+    if (!floatClone || !dragSrc) return;
+
+    floatClone.style.left = (e.clientX - offsetX) + 'px';
+    floatClone.style.top  = (e.clientY - offsetY) + 'px';
+
+    // Auto-scroll the main-content scroller
+    const scroller = document.querySelector('.main-content');
+    const sr = scroller ? scroller.getBoundingClientRect() : {top:0,bottom:window.innerHeight};
+    const ZONE = 90, MAX_SPEED = 14;
+    if (e.clientY < sr.top + ZONE) {
+      (scroller || window).scrollBy(0, -Math.round(MAX_SPEED * (1 - (e.clientY - sr.top) / ZONE)));
+    } else if (e.clientY > sr.bottom - ZONE) {
+      (scroller || window).scrollBy(0, Math.round(MAX_SPEED * (1 - (sr.bottom - e.clientY) / ZONE)));
+    }
+
+    // Find best insert position: cursor midpoint against each visible card
+    const blocks = [...container.querySelectorAll('.product-block:not(.drag-placeholder)')].filter(b => b !== dragSrc);
+    let inserted = false;
+    for (const b of blocks) {
+      const br = b.getBoundingClientRect();
+      if (e.clientY < br.top + br.height / 2) {
+        container.insertBefore(placeholder, b);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) container.appendChild(placeholder);
+  });
+
+  const endDrag = () => {
+    if (!dragSrc) return;
+    // Drop: move real card to placeholder position
+    container.insertBefore(dragSrc, placeholder);
+    dragSrc.style.visibility = '';
+    floatClone.remove();
+    placeholder.remove();
+    dragSrc = null; floatClone = null; placeholder = null;
+  };
+  document.addEventListener('pointerup',     endDrag);
+  document.addEventListener('pointercancel', endDrag);
+}
+
+
+
+// ── Reorder tab chart ─────────────────────────────────────────────────────────
+function renderReorderTab() {
+  const container = document.getElementById('reorderChart');
+  if (!container) return;
+
+  // Collect all entries where qty > 0
+  const rows = [];
+  products.forEach(p => {
+    const s = state[p.sku];
+    if (!s || !s.reorderData) return;
+    s.reorderData.forEach((d, i) => {
+      if (!d || !d.qty) return;
+      rows.push({
+        model:       p.model || '',
+        desc:        p.desc  || '',
+        qty:         d.qty,
+        casePack:    d.casePack || '',
+        config:      d.config   || '',
+        weekLabel:   weeks[i] ? weeks[i].fw : '',
+        weekDate:    weeks[i] ? weeks[i].dt : ''
+      });
+    });
+  });
+
+  // Sort by delivery date
+  rows.sort((a, b) => {
+    const parseD = dt => { if (!dt) return 0; const [m,d,y] = dt.split('/'); return new Date(y,m-1,d).getTime(); };
+    return parseD(a.weekDate) - parseD(b.weekDate);
+  });
+
+  if (rows.length === 0) {
+    container.innerHTML = '<div class="reorder-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg><div>No reorder entries yet.</div><div style="margin-top:6px;font-size:12px;color:var(--text-3);">Click any Reorder cell in the Weekly Recap to enter a quantity.</div></div>';
+    return;
+  }
+
+  const totalQty = rows.reduce((s, r) => s + r.qty, 0);
+  const skuCount = new Set(rows.map(r => r.model)).size;
+
+  function cpClass(cp) {
+    if (!cp) return '';
+    const c = cp.toLowerCase();
+    if (c.includes('/24')) return 'orange';
+    if (c.includes('/12')) return 'purple';
+    return '';
+  }
+
+  const rowsHtml = rows.map(r => {
+    const cls = cpClass(r.casePack);
+    const cpHtml = r.casePack
+      ? '<span class="cp-badge ' + cls + '">' + r.casePack + '</span>'
+      : '<span style="color:var(--text-3);">—</span>';
+    return '<tr>' +
+      '<td class="model-cell">' + (r.model || '—') + '</td>' +
+      '<td class="desc-cell">'  + (r.desc  || '—') + '</td>' +
+      '<td class="num">'        + r.qty.toLocaleString() + '</td>' +
+      '<td>'                    + cpHtml + '</td>' +
+      '<td>'                    + (r.config || '<span style="color:var(--text-3);">—</span>') + '</td>' +
+      '<td>'                    + (r.weekDate || r.weekLabel) + '</td>' +
+    '</tr>';
+  }).join('');
+
+  container.innerHTML =
+    '<div class="reorder-tbl-wrap">' +
+      '<div class="rt-summary-bar">' +
+        '<div class="rt-summary-item"><div class="rt-lbl">Total Reorder Entries</div><div class="rt-val">' + rows.length + '</div></div>' +
+        '<div class="rt-summary-item"><div class="rt-lbl">Total Units</div><div class="rt-val">' + totalQty.toLocaleString() + '</div></div>' +
+        '<div class="rt-summary-item"><div class="rt-lbl">SKUs with Reorders</div><div class="rt-val">' + skuCount + '</div></div>' +
+      '</div>' +
+      '<div class="reorder-tbl-inner">' +
+        '<table class="reorder-chart">' +
+          '<thead><tr>' +
+            '<th>Model Number</th>' +
+            '<th>Product Description</th>' +
+            '<th class="num">Quantity</th>' +
+            '<th>Case Pack</th>' +
+            '<th>Configuration</th>' +
+            '<th>Warehouse Delivery Date</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rowsHtml + '</tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>';
+}
+
+// ── Login modal ───────────────────────────────────────────────────────────────
+function doLogin() {
+  const user = document.getElementById('loginUser').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const VALID_USER = 'Teasley@merkuryinnovations.com';
+  const VALID_PASS = '$Dab11211';
+  const errEl = document.getElementById('loginErr');
+  if (user === VALID_USER && pass === VALID_PASS) {
+    document.getElementById('loginOverlay').classList.add('hidden');
+    if (errEl) errEl.style.display = 'none';
+    // Load shared data from Supabase after login (falls back gracefully if not configured)
+    loadFromSupabase();
+  } else {
+    if (errEl) { errEl.textContent = 'Incorrect username or password.'; errEl.style.display = 'block'; }
+    document.getElementById('loginPass').value = '';
+    document.getElementById('loginPass').focus();
+  }
+}
+// Allow Enter key in password field
+document.getElementById('loginPass').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('loginUser').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('loginPass').focus();
+});
+
+// ── Page navigation ───────────────────────────────────────────────────────────
+function showPage(page) {
+  document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const section = document.getElementById('page-' + page);
+  const navBtn  = document.getElementById('nav-' + page);
+  if (section) section.classList.add('active');
+  if (navBtn)  navBtn.classList.add('active');
+  if (page === 'reorder') renderReorderTab();
+  if (page === 'inbound') {
+    if (lastInboundData) renderInboundPage();
+    else refreshInboundPage();
+  }
+}
+
+
+// Init
+document.getElementById('todayDate').textContent = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
+
+// Restore persisted data before building DOM
+const savedSnap = loadState();
+
+renderSummary();
+const container = document.getElementById('productsContainer');
+
+// If we have a saved order, re-order products array first
+if (savedSnap && savedSnap.productOrder) {
+  const ordered = [];
+  savedSnap.productOrder.forEach(model => {
+    const p = products.find(x => x.model === model);
+    if (p) ordered.push(p);
+  });
+  products.forEach(p => { if (!ordered.includes(p)) ordered.push(p); });
+  products.length = 0; ordered.forEach(p => products.push(p));
+}
+
+products.forEach(p => {
+  const block = buildProduct(p);
+  container.appendChild(block);
+  // Restore collapsed state
+  if (savedSnap && savedSnap.collapsed && savedSnap.collapsed[p.sku]) {
+    block.classList.add('collapsed');
+    const btn = document.getElementById('toggle-btn-' + p.sku);
+    if (btn) btn.innerHTML = '&#9654; Show';
+  }
+});
+
+initFilterBar();
+buildFilterDropdown();  // rebuild with any restored items
+applyFilters();
+initDragDrop();
+renderReorderTab();
+
+// ── File input change handlers (fire on file selection) ──────────────────────
+document.getElementById('inputSuof').addEventListener('change', async function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  excelFile = file;
+  await syncFromExcel();
+  this.value = '';  // reset so same file can be re-selected next time
+});
+document.getElementById('inputAts').addEventListener('change', async function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  atsFile = file;
+  await syncFromATS();
+  this.value = '';
+});
+document.getElementById('inputVd').addEventListener('change', async function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  vdFile = file;
+  await syncFromVD();
+  this.value = '';
+});
+const rdEl = document.getElementById('reorderDate');
+if (rdEl) rdEl.textContent = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
+</script>
+</body>
+</html>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
