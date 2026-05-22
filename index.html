@@ -960,10 +960,10 @@
 // 從 Supabase Project Settings > API 取得後填入下方
 const SUPABASE_URL  = 'https://unfefsgzqlbpikcfpjig.supabase.co';
 const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuZmVmc2d6cWxicGlrY2ZwamlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODEzMjksImV4cCI6MjA5NDk1NzMyOX0.3PjwJHi3ufUKOLFGFOMdOsQ6iZJO-IeiSftFLznQrg8';
-let supabase = null;
+let sbClient = null;
 try {
   if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && typeof window.supabase !== 'undefined') {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
   }
 } catch(e) { console.warn('Supabase init failed:', e); }
 
@@ -1633,7 +1633,7 @@ async function syncFromATS() {
     saveState();
 
     // ── Upsert to Supabase ────────────────────────────────────────────────────
-    if (supabase) {
+    if (sbClient) {
       try {
         const metaUpserts = skusUpdated.map(sku => ({
           sku,
@@ -1645,8 +1645,8 @@ async function syncFromATS() {
             weeklyUpserts.push({ sku, week_idx, firm_receipt: fr || 0 });
           });
         });
-        if (metaUpserts.length)  await supabase.from('sku_meta').upsert(metaUpserts,  { onConflict: 'sku' });
-        if (weeklyUpserts.length) await supabase.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
+        if (metaUpserts.length)  await sbClient.from('sku_meta').upsert(metaUpserts,  { onConflict: 'sku' });
+        if (weeklyUpserts.length) await sbClient.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
       } catch(sbErr) { console.warn('Supabase ATS upsert failed:', sbErr.message); }
     }
 
@@ -1947,7 +1947,7 @@ async function syncFromExcel() {
     renderSummary();
 
     // ── Upsert to Supabase ────────────────────────────────────────────────────
-    if (supabase) {
+    if (sbClient) {
       try {
         const weeklyUpserts = [];
         skusUpdated.forEach(({ sku, suofArr }) => {
@@ -1957,7 +1957,7 @@ async function syncFromExcel() {
             }
           });
         });
-        if (weeklyUpserts.length) await supabase.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
+        if (weeklyUpserts.length) await sbClient.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
       } catch(sbErr) { console.warn('Supabase SUOF upsert failed:', sbErr.message); }
     }
 
@@ -2200,7 +2200,7 @@ async function syncFromVD() {
     renderSummary();
 
     // ── Upsert to Supabase ────────────────────────────────────────────────────
-    if (supabase) {
+    if (sbClient) {
       try {
         const metaUpserts = skusUpdated.map(({ sku }) => ({
           sku,
@@ -2216,8 +2216,8 @@ async function syncFromVD() {
             });
           });
         });
-        if (metaUpserts.length)   await supabase.from('sku_meta').upsert(metaUpserts,   { onConflict: 'sku' });
-        if (weeklyUpserts.length) await supabase.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
+        if (metaUpserts.length)   await sbClient.from('sku_meta').upsert(metaUpserts,   { onConflict: 'sku' });
+        if (weeklyUpserts.length) await sbClient.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
       } catch(sbErr) { console.warn('Supabase VD upsert failed:', sbErr.message); }
     }
 
@@ -2591,7 +2591,7 @@ const STORE_KEY = 'merkury_inv_v3';
 
 // Fire-and-forget: upsert reorder data to Supabase sku_weekly
 async function saveStateSupabase() {
-  if (!supabase) return;
+  if (!sbClient) return;
   try {
     const weeklyUpserts = [];
     products.forEach(p => {
@@ -2610,19 +2610,19 @@ async function saveStateSupabase() {
       });
     });
     if (weeklyUpserts.length) {
-      await supabase.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
+      await sbClient.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
     }
   } catch(e) { console.warn('Supabase saveState failed:', e.message); }
 }
 
 // Load from Supabase and apply on top of in-memory state; re-render everything
 async function loadFromSupabase() {
-  if (!supabase) return;
+  if (!sbClient) return;
   try {
     const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }] =
       await Promise.all([
-        supabase.from('sku_meta').select('*'),
-        supabase.from('sku_weekly').select('*')
+        sbClient.from('sku_meta').select('*'),
+        sbClient.from('sku_weekly').select('*')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -3083,8 +3083,8 @@ function renderReorderTab() {
 function doLogin() {
   const user = document.getElementById('loginUser').value.trim();
   const pass = document.getElementById('loginPass').value;
-  const VALID_USER = 'merkury';
-  const VALID_PASS = 'Merkury2026';
+  const VALID_USER = 'Teasley@merkuryinnovations.com';
+  const VALID_PASS = '$Dab11211';
   const errEl = document.getElementById('loginErr');
   if (user === VALID_USER && pass === VALID_PASS) {
     document.getElementById('loginOverlay').classList.add('hidden');
