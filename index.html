@@ -414,35 +414,53 @@
   }
   .login-overlay.hidden { display: none; }
 
-  /* Big background typography */
+  /* Background typography layer */
   .login-bg-text {
     position: absolute; inset: 0;
-    display: flex; flex-direction: column;
-    justify-content: space-between;
-    align-items: center;
     overflow: hidden; pointer-events: none; user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, 'Arial Black', 'Segoe UI', sans-serif;
   }
-  .login-bg-line {
-    font-size: 19vw; font-weight: 900; color: #000;
-    white-space: nowrap; line-height: 0.88;
-    letter-spacing: -0.03em; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* "MERKURY" — huge, top-left, overflows right */
+  .login-bg-1 {
+    position: absolute; top: -0.06em; left: -0.06em;
+    font-size: 38vw; font-weight: 900; color: #000;
+    white-space: nowrap; line-height: 1; letter-spacing: -0.03em;
+  }
+  /* "INNOVATIONS" — huge, top-right, overflows left */
+  .login-bg-2 {
+    position: absolute; top: -0.06em; right: -0.06em;
+    font-size: 38vw; font-weight: 900; color: #000;
+    white-space: nowrap; line-height: 1; letter-spacing: -0.03em;
+  }
+  /* "MERKURY INNOVATIONS" — medium, offset left so KURY shows at left edge */
+  .login-bg-3 {
+    position: absolute; bottom: 13vw; left: 0;
+    font-size: 13vw; font-weight: 900; color: #000;
+    white-space: nowrap; line-height: 0.9; letter-spacing: -0.02em;
+    margin-left: -2.15em; /* shifts ~3 chars off left edge so K is at x=0 */
+  }
+  /* "WEEKLY INVENTORY" — bottom */
+  .login-bg-4 {
+    position: absolute; bottom: 0; left: 0;
+    font-size: 13vw; font-weight: 900; color: #000;
+    white-space: nowrap; line-height: 0.9; letter-spacing: -0.02em;
   }
 
   /* Circle login form */
   .login-box {
     position: relative; z-index: 2;
-    width: min(340px, 58vmin);
-    height: min(340px, 58vmin);
+    width: min(320px, 54vmin);
+    height: min(320px, 54vmin);
     border-radius: 50%;
     background: #000;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    padding: 20px 48px;
+    padding: 20px 44px;
     transform-origin: center center;
     flex-shrink: 0;
   }
 
-  /* Ball expand + screen-fill animation */
+  /* Ball expand animation on login */
   @keyframes ballExpand {
     0%   { transform: scale(1); }
     100% { transform: scale(30); }
@@ -461,12 +479,12 @@
   }
   .login-field input {
     width: 100%; padding: 9px 12px;
-    border: none; border-radius: 5px;
+    border: none; border-radius: 4px;
     font-size: 13px; color: #000; outline: none;
     font-family: inherit; background: #fff;
     transition: box-shadow 0.15s;
   }
-  .login-field input:focus { box-shadow: 0 0 0 2px rgba(255,255,255,0.6); }
+  .login-field input:focus { box-shadow: 0 0 0 2px rgba(255,255,255,0.5); }
   .login-btn {
     width: 100%; padding: 10px 0; border: none; cursor: pointer;
     font-size: 15px; font-weight: 700; color: #fff;
@@ -739,8 +757,10 @@
 <body>
 <div class="login-overlay" id="loginOverlay">
   <div class="login-bg-text">
-    <div class="login-bg-line">MERKURY INNOVATIONS</div>
-    <div class="login-bg-line">WEEKLY INVENTORY</div>
+    <div class="login-bg-1">MERKURY</div>
+    <div class="login-bg-2">INNOVATIONS</div>
+    <div class="login-bg-3">MERKURY INNOVATIONS</div>
+    <div class="login-bg-4">WEEKLY INVENTORY</div>
   </div>
   <div class="login-box" id="loginBox">
     <div class="login-field">
@@ -3104,6 +3124,41 @@ function renderReorderTab() {
     '</div>';
 }
 
+// ── Auto-logout after 15 min inactivity ──────────────────────────────────────
+const INACTIVITY_MS = 15 * 60 * 1000; // 15 minutes
+let inactivityTimer = null;
+
+function resetInactivityTimer() {
+  clearTimeout(inactivityTimer);
+  inactivityTimer = setTimeout(autoLogout, INACTIVITY_MS);
+}
+
+function autoLogout() {
+  // Show login overlay again (reset ball state first)
+  const box = document.getElementById('loginBox');
+  box.classList.remove('expanding');
+  box.style.animation = 'none';
+  box.offsetHeight; // force reflow
+  box.style.animation = '';
+
+  const overlay = document.getElementById('loginOverlay');
+  overlay.style.opacity = '0';
+  overlay.classList.remove('hidden');
+  overlay.style.transition = 'opacity 0.5s ease';
+  requestAnimationFrame(() => { overlay.style.opacity = '1'; });
+
+  document.getElementById('loginUser').value = '';
+  document.getElementById('loginPass').value = '';
+  clearTimeout(inactivityTimer);
+}
+
+function startInactivityWatch() {
+  ['mousemove','mousedown','keydown','touchstart','scroll','click'].forEach(evt => {
+    document.addEventListener(evt, resetInactivityTimer, { passive: true });
+  });
+  resetInactivityTimer();
+}
+
 // ── Login modal ───────────────────────────────────────────────────────────────
 function doLogin() {
   const user = document.getElementById('loginUser').value.trim();
@@ -3111,7 +3166,8 @@ function doLogin() {
   const VALID_USER = 'Teasley@merkuryinnovations.com';
   const VALID_PASS = '$Dab11211';
   const errEl = document.getElementById('loginErr');
-  if (user === VALID_USER && pass === VALID_PASS) {
+  // Case-insensitive username comparison
+  if (user.toLowerCase() === VALID_USER.toLowerCase() && pass === VALID_PASS) {
     if (errEl) errEl.style.display = 'none';
     // Ball expands to fill screen, then overlay fades out to reveal dashboard
     const box = document.getElementById('loginBox');
@@ -3125,6 +3181,7 @@ function doLogin() {
         overlay.style.opacity = '';
         overlay.style.transition = '';
         loadFromSupabase();
+        startInactivityWatch(); // start 15-min countdown after login
       }, 460);
     }, { once: true });
   } else {
