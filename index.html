@@ -404,12 +404,10 @@
   .fw-select option { background: #3b4e78; color: #fff; }
   .fw-select:focus { border-color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.18); }
 
-  /* ── Login modal ── */
   /* ── Login overlay ── */
   .login-overlay {
     position: fixed; inset: 0; z-index: 9000;
     background: #fff;
-    display: flex; align-items: center; justify-content: center;
     overflow: hidden;
   }
   .login-overlay.hidden { display: none; }
@@ -420,50 +418,59 @@
     overflow: hidden; pointer-events: none; user-select: none;
     font-family: -apple-system, BlinkMacSystemFont, 'Arial Black', 'Segoe UI', sans-serif;
   }
-  /* "MERKURY" — huge, top-left, overflows right */
-  .login-bg-1 {
-    position: absolute; top: -0.06em; left: -0.06em;
-    font-size: 38vw; font-weight: 900; color: #000;
-    white-space: nowrap; line-height: 1; letter-spacing: -0.03em;
-  }
-  /* "INNOVATIONS" — huge, top-right, overflows left */
-  .login-bg-2 {
-    position: absolute; top: -0.06em; right: -0.06em;
-    font-size: 38vw; font-weight: 900; color: #000;
-    white-space: nowrap; line-height: 1; letter-spacing: -0.03em;
-  }
-  /* "MERKURY INNOVATIONS" — medium, offset left so KURY shows at left edge */
-  .login-bg-3 {
-    position: absolute; bottom: 13vw; left: 0;
-    font-size: 13vw; font-weight: 900; color: #000;
-    white-space: nowrap; line-height: 0.9; letter-spacing: -0.02em;
-    margin-left: -2.15em; /* shifts ~3 chars off left edge so K is at x=0 */
-  }
-  /* "WEEKLY INVENTORY" — bottom */
-  .login-bg-4 {
-    position: absolute; bottom: 0; left: 0;
-    font-size: 13vw; font-weight: 900; color: #000;
-    white-space: nowrap; line-height: 0.9; letter-spacing: -0.02em;
+
+  /* "MER" — vertical left side, 90° CW rotation via writing-mode */
+  .login-bg-mer {
+    position: absolute;
+    left: -0.05em; top: 55vh;
+    writing-mode: vertical-rl; text-orientation: mixed;
+    font-size: 14vw; font-weight: 900; color: #000;
+    line-height: 1; letter-spacing: -0.02em;
   }
 
-  /* Circle login form */
+  /* "SNO" — vertical right side (ONS rotated 270° CW = SNO top-to-bottom) */
+  .login-bg-sno {
+    position: absolute;
+    right: -0.05em; top: -10vh;
+    writing-mode: vertical-rl; text-orientation: mixed;
+    font-size: 14vw; font-weight: 900; color: #000;
+    line-height: 1; letter-spacing: -0.02em;
+  }
+
+  /* "KURY  INNOVATI" — horizontal, ~51% down */
+  .login-bg-kury {
+    position: absolute;
+    left: -1.8vw; top: 51vh;
+    font-size: 14vw; font-weight: 900; color: #000;
+    white-space: nowrap; line-height: 1; letter-spacing: -0.02em;
+  }
+
+  /* "WEEKLY INVENTORY" — horizontal, ~73% down */
+  .login-bg-weekly {
+    position: absolute;
+    left: 0.3vw; top: 72.65vh;
+    font-size: 10.41vw; font-weight: 900; color: #000;
+    white-space: nowrap; line-height: 1; letter-spacing: -0.02em;
+  }
+
+  /* Black circle login form — positioned per PPT coordinates */
   .login-box {
-    position: relative; z-index: 2;
-    width: min(320px, 54vmin);
-    height: min(320px, 54vmin);
+    position: absolute;
+    left: 31.94vw; top: 17.80vh;
+    width: 21vw; height: 21vw;
     border-radius: 50%;
     background: #000;
     display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    padding: 20px 44px;
+    align-items: flex-start; justify-content: center;
+    padding: 0 8% 0 14%;
     transform-origin: center center;
-    flex-shrink: 0;
+    z-index: 2;
   }
 
   /* Ball expand animation on login */
   @keyframes ballExpand {
     0%   { transform: scale(1); }
-    100% { transform: scale(30); }
+    100% { transform: scale(40); }
   }
   .login-box.expanding {
     animation: ballExpand 0.55s cubic-bezier(0.4, 0, 0.7, 1) forwards;
@@ -757,10 +764,10 @@
 <body>
 <div class="login-overlay" id="loginOverlay">
   <div class="login-bg-text">
-    <div class="login-bg-1">MERKURY</div>
-    <div class="login-bg-2">INNOVATIONS</div>
-    <div class="login-bg-3">MERKURY INNOVATIONS</div>
-    <div class="login-bg-4">WEEKLY INVENTORY</div>
+    <div class="login-bg-mer">MER</div>
+    <div class="login-bg-sno">SNO</div>
+    <div class="login-bg-kury">KURY  INNOVATI</div>
+    <div class="login-bg-weekly">WEEKLY INVENTORY</div>
   </div>
   <div class="login-box" id="loginBox">
     <div class="login-field">
