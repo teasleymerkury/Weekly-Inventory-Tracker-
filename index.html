@@ -419,58 +419,37 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Arial Black', 'Segoe UI', sans-serif;
   }
 
-  /* "MER" — vertical left side, 90° CW rotation via writing-mode */
-  .login-bg-mer {
+  /* Badge ring SVG around the circle */
+  .login-ring {
     position: absolute;
-    left: -0.05em; top: 55vh;
-    writing-mode: vertical-rl; text-orientation: mixed;
-    font-size: 14vw; font-weight: 900; color: #000;
-    line-height: 1; letter-spacing: -0.02em;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 340px; height: 340px;
+    pointer-events: none;
+    overflow: visible;
+    z-index: 1;
   }
 
-  /* "SNO" — vertical right side (ONS rotated 270° CW = SNO top-to-bottom) */
-  .login-bg-sno {
-    position: absolute;
-    right: -0.05em; top: -10vh;
-    writing-mode: vertical-rl; text-orientation: mixed;
-    font-size: 14vw; font-weight: 900; color: #000;
-    line-height: 1; letter-spacing: -0.02em;
-  }
-
-  /* "KURY  INNOVATI" — horizontal, ~51% down */
-  .login-bg-kury {
-    position: absolute;
-    left: -1.8vw; top: 51vh;
-    font-size: 14vw; font-weight: 900; color: #000;
-    white-space: nowrap; line-height: 1; letter-spacing: -0.02em;
-  }
-
-  /* "WEEKLY INVENTORY" — horizontal, ~73% down */
-  .login-bg-weekly {
-    position: absolute;
-    left: 0.3vw; top: 72.65vh;
-    font-size: 10.41vw; font-weight: 900; color: #000;
-    white-space: nowrap; line-height: 1; letter-spacing: -0.02em;
-  }
-
-  /* Black circle login form — positioned per PPT coordinates */
+  /* Black circle — 336px (240px × 1.4), perfectly centered */
   .login-box {
     position: absolute;
-    left: 31.94vw; top: 17.80vh;
-    width: 21vw; height: 21vw;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 311px; height: 311px;
     border-radius: 50%;
     background: #000;
+    overflow: hidden;
     display: flex; flex-direction: column;
-    align-items: flex-start; justify-content: center;
-    padding: 0 8% 0 14%;
+    align-items: center; justify-content: center;
+    padding: 0 14%;
     transform-origin: center center;
     z-index: 2;
   }
 
   /* Ball expand animation on login */
   @keyframes ballExpand {
-    0%   { transform: scale(1); }
-    100% { transform: scale(40); }
+    0%   { transform: translate(-50%, -50%) scale(1); }
+    100% { transform: translate(-50%, -50%) scale(50); }
   }
   .login-box.expanding {
     animation: ballExpand 0.55s cubic-bezier(0.4, 0, 0.7, 1) forwards;
@@ -478,29 +457,30 @@
 
   @keyframes loginSlideUp { from { opacity:0; transform:translateY(28px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
 
-  .login-field { margin-bottom: 14px; width: 100%; }
+  .login-field { margin-bottom: 10px; width: 100%; }
   .login-field label {
-    display: block; font-size: 10px; font-weight: 700;
-    color: #fff; margin-bottom: 5px; letter-spacing: 1.2px;
+    display: block; font-size: 8px; font-weight: 700;
+    color: rgba(255,255,255,0.70); margin-bottom: 4px; letter-spacing: 1.5px;
     text-transform: uppercase;
   }
   .login-field input {
-    width: 100%; padding: 9px 12px;
-    border: none; border-radius: 4px;
-    font-size: 13px; color: #000; outline: none;
-    font-family: inherit; background: #fff;
-    transition: box-shadow 0.15s;
+    width: 100%; padding: 7px 9px;
+    border: 1px solid rgba(255,255,255,0.50); border-radius: 3px;
+    font-size: 12px; color: #fff; outline: none;
+    font-family: inherit; background: rgba(255,255,255,0.08);
+    transition: border-color 0.15s;
   }
-  .login-field input:focus { box-shadow: 0 0 0 2px rgba(255,255,255,0.5); }
+  .login-field input::placeholder { color: rgba(255,255,255,0.25); }
+  .login-field input:focus { border-color: rgba(255,255,255,0.90); background: rgba(255,255,255,0.12); }
   .login-btn {
-    width: 100%; padding: 10px 0; border: none; cursor: pointer;
-    font-size: 15px; font-weight: 700; color: #fff;
+    width: 100%; padding: 7px 0; border: none; cursor: pointer;
+    font-size: 11px; font-weight: 700; color: #fff;
     font-family: inherit; background: transparent;
-    margin-top: 10px; letter-spacing: 0.4px; text-align: center;
+    margin-top: 6px; letter-spacing: 0.8px; text-align: center;
     transition: opacity 0.15s;
   }
-  .login-btn:hover { opacity: 0.75; }
-  .login-btn:active { opacity: 0.5; }
+  .login-btn:hover { opacity: 0.70; }
+  .login-btn:active { opacity: 0.45; }
 
   /* ── Reorder popup ── */
   .rp-overlay {
@@ -763,12 +743,23 @@
 </head>
 <body>
 <div class="login-overlay" id="loginOverlay">
-  <div class="login-bg-text">
-    <div class="login-bg-mer">MER</div>
-    <div class="login-bg-sno">SNO</div>
-    <div class="login-bg-kury">KURY  INNOVATI</div>
-    <div class="login-bg-weekly">WEEKLY INVENTORY</div>
-  </div>
+  <!-- Badge ring: MERKURY INNOVATIONS top arc, WEEKLY INVENTORY bottom arc -->
+  <svg class="login-ring" xmlns="http://www.w3.org/2000/svg" viewBox="-170 -170 340 340">
+    <defs>
+      <path id="ringTop" d="M -150,0 A 150,150 0 0,1 150,0"/>
+      <path id="ringBot" d="M 150,0 A 150,150 0 0,1 -150,0"/>
+    </defs>
+    <circle cx="0" cy="0" r="162" fill="none" stroke="#000" stroke-width="0.8"/>
+    <circle cx="0" cy="0" r="128" fill="none" stroke="#000" stroke-width="0.8"/>
+    <text font-size="35" font-weight="900" fill="#000"
+          font-family="'Arial Black', Arial, sans-serif" letter-spacing="3.6">
+      <textPath href="#ringTop" startOffset="50%" text-anchor="middle">MERKURY INNOVATIONS</textPath>
+    </text>
+    <text font-size="35" font-weight="900" fill="#000"
+          font-family="'Arial Black', Arial, sans-serif" letter-spacing="3.6">
+      <textPath href="#ringBot" startOffset="50%" text-anchor="middle">YROTNEVNI YLKEEW</textPath>
+    </text>
+  </svg>
   <div class="login-box" id="loginBox">
     <div class="login-field">
       <label>Username</label>
