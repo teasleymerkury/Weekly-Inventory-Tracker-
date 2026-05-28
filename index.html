@@ -3324,4 +3324,8 @@ function doLogin() {
 }
 // Allow Enter key in password field
 document.getElementById('loginPass').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter'
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('loginUser').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
