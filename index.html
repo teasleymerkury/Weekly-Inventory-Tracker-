@@ -407,49 +407,123 @@
   /* ── Login overlay ── */
   .login-overlay {
     position: fixed; inset: 0; z-index: 9000;
-    background: #fff;
+    background: #000;
     overflow: hidden;
   }
   .login-overlay.hidden { display: none; }
 
-  /* Background typography layer */
-  .login-bg-text {
+  /* ── Liquid font animation ── */
+  @keyframes liquidFlow {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  /* ── Typographic background ── */
+  .login-bg {
     position: absolute; inset: 0;
-    overflow: hidden; pointer-events: none; user-select: none;
-    font-family: -apple-system, BlinkMacSystemFont, 'Arial Black', 'Segoe UI', sans-serif;
+    display: flex; flex-direction: column;
+    pointer-events: none; user-select: none;
+    font-family: 'Arial Black', 'Arial Bold', Arial, sans-serif;
+    font-weight: 900; line-height: 1;
+    padding-top: 25vh;
   }
-
-  /* Badge ring SVG around the circle */
-  .login-ring {
+  .login-bg span {
+    text-shadow: 3px 3px 6px rgba(255,255,255,0.4);
+    background: linear-gradient(
+      120deg,
+      #000000 0%,
+      #0d0d2b 15%,
+      #001f5b 28%,
+      #003580 38%,
+      #005fa3 48%,
+      #00b4d8 58%,
+      #90e0ef 66%,
+      #ffffff 72%,
+      #90e0ef 78%,
+      #005fa3 88%,
+      #0d0d2b 95%,
+      #000000 100%
+    );
+    background-size: 300% 300%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: liquidFlow 5s ease-in-out infinite;
+  }
+  .bg-row { display: flex; align-items: center; flex: 1; white-space: nowrap; }
+  .bg-top {
+    justify-content: space-between;
+    font-size: 9.45vw;
+    padding: 0 0.5vw;
+    align-items: flex-end;
+    padding-bottom: 0.5vw;
+    margin-top: -22vh;
+  }
+  .bg-mid {
+    position: relative;
+    justify-content: flex-start;
+    font-size: 9vw;
+    padding: 0 0.5vw;
+    align-items: flex-end;
+  }
+  .bg-mid span:first-child {
+    font-size: 11vw;
+    margin-left: -2vw;
+  }
+  .bg-mid span:last-child {
     position: absolute;
-    left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    width: 340px; height: 340px;
-    pointer-events: none;
-    overflow: visible;
-    z-index: 1;
+    left: calc(50% - 8vw);
+    font-size: 11vw;
   }
+  .bg-bot {
+    justify-content: center;
+    font-size: 9vw;
+    flex: 1;
+    padding: 0 0.5vw;
+    align-items: flex-start;
+    margin-top: -5vh;
+  }
+  .bg-rotated {
+    display: inline-block;
+    transform: rotate(90deg);
+    transform-origin: center center;
+    line-height: 1;
+  }
+  .bg-top span:first-child { margin-left: -8vw; }
+  .bg-top span:last-child  { margin-right: -8vw; transform: rotate(270deg); }
 
-  /* Black circle — 336px (240px × 1.4), perfectly centered */
+  /* Black circle — centered, scales with viewport */
   .login-box {
     position: absolute;
-    left: 50%; top: 50%;
+    left: 50%; top: 26%;
     transform: translate(-50%, -50%);
-    width: 311px; height: 311px;
+    width: 22vw; height: 22vw;
     border-radius: 50%;
-    background: #000;
+    background: linear-gradient(
+      120deg,
+      #000000 0%,
+      #0a0a28 25%,
+      #1a3870 45%,
+      #2a5aaa 50%,
+      #1a3870 55%,
+      #0a0a28 75%,
+      #000000 100%
+    );
+    background-size: 300% 300%;
+    animation: liquidFlow 8s ease-in-out infinite;
     overflow: hidden;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    padding: 0 14%;
+    padding: 4% 0 0 0;
     transform-origin: center center;
     z-index: 2;
+    box-shadow: 8px 8px 24px rgba(255,255,255,0.35);
   }
 
-  /* Ball expand animation on login */
   @keyframes ballExpand {
     0%   { transform: translate(-50%, -50%) scale(1); }
-    100% { transform: translate(-50%, -50%) scale(50); }
+    100% { transform: translate(-50%, -50%) scale(10); }
   }
   .login-box.expanding {
     animation: ballExpand 0.55s cubic-bezier(0.4, 0, 0.7, 1) forwards;
@@ -457,27 +531,27 @@
 
   @keyframes loginSlideUp { from { opacity:0; transform:translateY(28px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
 
-  .login-field { margin-bottom: 10px; width: 100%; }
+  .login-field { margin-bottom: 1.2vw; width: 6cm; flex-shrink: 0; }
   .login-field label {
-    display: block; font-size: 8px; font-weight: 700;
-    color: rgba(255,255,255,0.70); margin-bottom: 4px; letter-spacing: 1.5px;
-    text-transform: uppercase;
+    display: block; font-size: 0.85vw; font-weight: 700;
+    color: rgba(255,255,255,0.88); margin-bottom: 0.3vw; letter-spacing: 1.8px;
+    text-transform: uppercase; font-family: 'Arial Black', Arial, sans-serif;
   }
   .login-field input {
-    width: 100%; padding: 7px 9px;
-    border: 1px solid rgba(255,255,255,0.50); border-radius: 3px;
-    font-size: 12px; color: #fff; outline: none;
-    font-family: inherit; background: rgba(255,255,255,0.08);
-    transition: border-color 0.15s;
+    width: 100%; flex-shrink: 0; padding: 0.44vw 0.8vw;
+    border: none; border-radius: 2px;
+    font-size: 1vw; color: #000; outline: none;
+    font-family: inherit; background: #fff;
+    box-sizing: border-box;
   }
-  .login-field input::placeholder { color: rgba(255,255,255,0.25); }
-  .login-field input:focus { border-color: rgba(255,255,255,0.90); background: rgba(255,255,255,0.12); }
+  .login-field input::placeholder { color: rgba(0,0,0,0.25); }
+  .login-field input:focus { background: #fff; outline: none; }
   .login-btn {
-    width: 100%; padding: 7px 0; border: none; cursor: pointer;
-    font-size: 11px; font-weight: 700; color: #fff;
+    width: 3cm; padding: 0.8vw 0; border: none; cursor: pointer;
+    font-size: 2vw; font-weight: 700; color: #fff;
     font-family: inherit; background: transparent;
-    margin-top: 6px; letter-spacing: 0.8px; text-align: center;
-    transition: opacity 0.15s;
+    margin-top: -1.5vw; letter-spacing: 0.8px; text-align: center;
+    transition: opacity 0.15s; white-space: nowrap; flex-shrink: 0;
   }
   .login-btn:hover { opacity: 0.70; }
   .login-btn:active { opacity: 0.45; }
@@ -743,33 +817,22 @@
 </head>
 <body>
 <div class="login-overlay" id="loginOverlay">
-  <!-- Badge ring: MERKURY INNOVATIONS top arc, WEEKLY INVENTORY bottom arc -->
-  <svg class="login-ring" xmlns="http://www.w3.org/2000/svg" viewBox="-170 -170 340 340">
-    <defs>
-      <path id="ringTop" d="M -150,0 A 150,150 0 0,1 150,0"/>
-      <path id="ringBot" d="M 150,0 A 150,150 0 0,1 -150,0"/>
-    </defs>
-    <circle cx="0" cy="0" r="162" fill="none" stroke="#000" stroke-width="0.8"/>
-    <circle cx="0" cy="0" r="128" fill="none" stroke="#000" stroke-width="0.8"/>
-    <text font-size="35" font-weight="900" fill="#000"
-          font-family="'Arial Black', Arial, sans-serif" letter-spacing="3.6">
-      <textPath href="#ringTop" startOffset="50%" text-anchor="middle">MERKURY INNOVATIONS</textPath>
-    </text>
-    <text font-size="35" font-weight="900" fill="#000"
-          font-family="'Arial Black', Arial, sans-serif" letter-spacing="3.6">
-      <textPath href="#ringBot" startOffset="50%" text-anchor="middle">YROTNEVNI YLKEEW</textPath>
-    </text>
-  </svg>
+  <!-- Typographic background -->
+  <div class="login-bg">
+    <div class="bg-row bg-top"><span class="bg-rotated">MER</span><span class="bg-rotated">ONS</span></div>
+    <div class="bg-row bg-mid"><span>KURY</span><span>INNOVATI</span></div>
+    <div class="bg-row bg-bot"><span>WEEKLY INVENTORY</span></div>
+  </div>
   <div class="login-box" id="loginBox">
     <div class="login-field">
-      <label>Username</label>
+      <label>USERNAME</label>
       <input type="text" id="loginUser" placeholder="" autocomplete="username" />
     </div>
     <div class="login-field">
-      <label>Password</label>
+      <label>PASSWORD</label>
       <input type="password" id="loginPass" placeholder="" autocomplete="current-password" />
     </div>
-    <div id="loginErr" style="display:none;font-size:11px;color:#ff7070;text-align:center;margin-bottom:4px;margin-top:-6px;">Incorrect username or password.</div>
+    <div id="loginErr" style="display:none;font-size:0.75vw;color:#ff9090;text-align:center;margin-bottom:2px;margin-top:-4px;font-weight:600;">Incorrect username or password.</div>
     <button class="login-btn" onclick="doLogin()">Log In</button>
   </div>
 </div>
@@ -1003,7 +1066,7 @@
 // 從 Supabase Project Settings > API 取得後填入下方
 const SUPABASE_URL  = 'https://unfefsgzqlbpikcfpjig.supabase.co';
 const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuZmVmc2d6cWxicGlrY2ZwamlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODEzMjksImV4cCI6MjA5NDk1NzMyOX0.3PjwJHi3ufUKOLFGFOMdOsQ6iZJO-IeiSftFLznQrg8';
-let sbClient = null;
+let sbClient = null;  // renamed to avoid conflict with window.supabase (CDN namespace)
 try {
   if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && typeof window.supabase !== 'undefined') {
     sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -3123,7 +3186,7 @@ function renderReorderTab() {
 }
 
 // ── Auto-logout after 15 min inactivity ──────────────────────────────────────
-const INACTIVITY_MS = 15 * 60 * 1000; // 15 minutes
+const INACTIVITY_MS = 15 * 60 * 1000;
 let inactivityTimer = null;
 
 function resetInactivityTimer() {
@@ -3132,11 +3195,10 @@ function resetInactivityTimer() {
 }
 
 function autoLogout() {
-  // Show login overlay again (reset ball state first)
   const box = document.getElementById('loginBox');
   box.classList.remove('expanding');
   box.style.animation = 'none';
-  box.offsetHeight; // force reflow
+  box.offsetHeight;
   box.style.animation = '';
 
   const overlay = document.getElementById('loginOverlay');
@@ -3164,10 +3226,8 @@ function doLogin() {
   const VALID_USER = 'Teasley@merkuryinnovations.com';
   const VALID_PASS = '$Dab11211';
   const errEl = document.getElementById('loginErr');
-  // Case-insensitive username comparison
   if (user.toLowerCase() === VALID_USER.toLowerCase() && pass === VALID_PASS) {
     if (errEl) errEl.style.display = 'none';
-    // Ball expands to fill screen, then overlay fades out to reveal dashboard
     const box = document.getElementById('loginBox');
     box.classList.add('expanding');
     box.addEventListener('animationend', () => {
@@ -3179,7 +3239,7 @@ function doLogin() {
         overlay.style.opacity = '';
         overlay.style.transition = '';
         loadFromSupabase();
-        startInactivityWatch(); // start 15-min countdown after login
+        startInactivityWatch();
       }, 460);
     }, { once: true });
   } else {
