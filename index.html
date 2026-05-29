@@ -1062,18 +1062,6 @@
   </div>
 </div>
 
-<!-- Firm Receipt Detail Popup -->
-<div class="rp-overlay" id="frDetailOverlay">
-  <div class="rp-box">
-    <h3>Firm Receipt Details</h3>
-    <div class="rp-sub" id="frDetailSub"></div>
-    <div id="frDetailContent" style="margin-top:12px;"></div>
-    <div class="rp-actions">
-      <button class="modal-cancel" onclick="closeFrDetailPopup()">Close</button>
-    </div>
-  </div>
-</div>
-
 <script>
 // ── Supabase 配置 ─────────────────────────────────────────────────────────────
 // 從 Supabase Project Settings > API 取得後填入下方
@@ -1474,10 +1462,8 @@ function buildProduct(p) {
         }
         if (rd.isFirmReceipt) {
           inp.readOnly = true;
-          inp.title = 'Firm receipt — double-click to view Case Pack & Config details';
+          inp.title = 'Firm receipt — synced from ATS only (read-only)';
           td.classList.add('fr-locked');
-          td.style.cursor = 'pointer';
-          td.addEventListener('dblclick', function() { openFrDetailPopup(p.sku, i); });
         }
         // Always attach listeners — guard in handleChange prevents past-week mutations
         inp.addEventListener('focus', function() {
@@ -1925,7 +1911,7 @@ function renderInboundPage() {
   // ── Table ─────────────────────────────────────────────────────────────────────
   html += `<div class="inbound-tbl-inner"><table class="inbound-tbl" id="inboundTable"><thead><tr>`;
   for (const col of colDefs) html += `<th>${col.label}</th>`;
-  html += `<th>Case Pack</th><th>Case Configuration</th><th>Project Description</th></tr></thead><tbody id="inboundTbody">`;
+  html += `<th>Case Pack</th><th>Case Configuration</th></tr></thead><tbody id="inboundTbody">`;
 
   for (let ri = 0; ri < dataRows.length; ri++) {
     const row = dataRows[ri];
@@ -1943,23 +1929,21 @@ function renderInboundPage() {
       let display = val;
       // Format quantity numbers with commas
       if (col.cls === 'qty-cell' && val !== '' && !isNaN(Number(val.replace(/[,$]/g,'')))) {
-        display = Math.round(Number(val.replace(/[,$]/g,''))).toLocaleString('en-US', {maximumFractionDigits: 0});
+        display = Number(val.replace(/[,$]/g,'')).toLocaleString();
       }
       html += `<td class="${col.cls}">${display}</td>`;
     }
 
-    // Editable: Case Pack, Case Configuration, Project Description
+    // Editable: Case Pack
     const cpVal   = saved.casePack   || '';
     const cfgVal  = saved.caseConfig || '';
-    const pdVal   = saved.projDesc   || '';
     html += `<td class="editable-inbound"><input type="text" value="${cpVal.replace(/"/g,'&quot;')}" placeholder="e.g. 1/6" data-rowkey="${rowKey}" data-field="casePack" onchange="saveInboundEdit(this)" /></td>`;
     html += `<td class="editable-inbound"><input type="text" value="${cfgVal.replace(/"/g,'&quot;')}" placeholder="e.g. Display, PDQ" data-rowkey="${rowKey}" data-field="caseConfig" onchange="saveInboundEdit(this)" /></td>`;
-    html += `<td class="editable-inbound"><input type="text" value="${pdVal.replace(/"/g,'&quot;')}" placeholder="e.g. Holiday Display" data-rowkey="${rowKey}" data-field="projDesc" onchange="saveInboundEdit(this)" /></td>`;
     html += `</tr>`;
   }
 
   if (dataRows.length === 0) {
-    html += `<tr><td colspan="${colDefs.length + 3}" style="text-align:center;padding:40px 20px;color:var(--text-3);font-size:13px;">No inbound rows matched the products on the Weekly Recap page.</td></tr>`;
+    html += `<tr><td colspan="${colDefs.length + 2}" style="text-align:center;padding:40px 20px;color:var(--text-3);font-size:13px;">No inbound rows matched the products on the Weekly Recap page.</td></tr>`;
   }
 
   html += `</tbody></table></div>`;
@@ -2024,9 +2008,8 @@ async function syncFromExcel() {
     lastSuofData = data;  // cache for new item auto-fill
 
     // Detect which weeks array index Week 01 maps to.
-    // The SKU Pipeline "Week 01" column always represents the CURRENT fiscal week.
-    // We default to getCurrentWeekIdx() and also try to confirm from row 2 col D.
-    let startWeekIdx = getCurrentWeekIdx();
+    // Row index 1 (row 2 in sheet) has "Fiscal Week XX of YYYY" in col D (index 3).
+    let startWeekIdx = 0;
     const currentWeekCell = data[1] ? data[1][3] : null;
     if (currentWeekCell) {
       const m = String(currentWeekCell).match(/Fiscal Week (\d+) of (\d+)/i);
@@ -2706,62 +2689,6 @@ document.getElementById('rpOverlay').addEventListener('click', function(e) {
   if (e.target === this) closeRpPopup();
 });
 
-// ── Firm Receipt Detail Popup ─────────────────────────────────────────────────
-function openFrDetailPopup(sku, idx) {
-  const p = products.find(x => x.sku === sku);
-  const model = p ? p.model.toLowerCase().trim() : sku.toLowerCase();
-  document.getElementById('frDetailSub').textContent =
-    `${weeks[idx].fw} (${weeks[idx].dt}) — ${p ? p.model : sku}`;
-
-  // Scan inbound edit data for entries matching this model
-  const editData = _loadInboundEdits();
-  const matches = [];
-  for (const [key, val] of Object.entries(editData)) {
-    const parts = key.split('|');
-    if (parts.length >= 2 && parts[1].toLowerCase().trim() === model) {
-      matches.push(val);
-    }
-  }
-
-  let content = '';
-  if (matches.length === 0) {
-    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">
-      No inbound detail data found for this product.<br>
-      <span style="font-size:11px;opacity:0.7;">Enter data in the Inbound Detail tab first.</span>
-    </p>`;
-  } else {
-    // Use first match (most products have one active inbound entry)
-    const m = matches[0];
-    content = `
-      <div class="rp-field">
-        <label>Case Pack</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.casePack || '<span style="opacity:0.4">—</span>'}</div>
-      </div>
-      <div class="rp-field">
-        <label>Case Configuration</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.caseConfig || '<span style="opacity:0.4">—</span>'}</div>
-      </div>
-      <div class="rp-field">
-        <label>Project Description</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.projDesc || '<span style="opacity:0.4">—</span>'}</div>
-      </div>`;
-    if (matches.length > 1) {
-      content += `<p style="font-size:11px;color:var(--text-3);margin-top:8px;">(${matches.length} inbound entries — showing most recent)</p>`;
-    }
-  }
-
-  document.getElementById('frDetailContent').innerHTML = content;
-  document.getElementById('frDetailOverlay').classList.add('open');
-}
-
-function closeFrDetailPopup() {
-  document.getElementById('frDetailOverlay').classList.remove('open');
-}
-
-document.getElementById('frDetailOverlay').addEventListener('click', function(e) {
-  if (e.target === this) closeFrDetailPopup();
-});
-
 
 
 // ── localStorage persistence ─────────────────────────────────────────────────
@@ -3303,9 +3230,9 @@ function doLogin() {
   if (user.toLowerCase() === VALID_USER.toLowerCase() && pass === VALID_PASS) {
     if (errEl) errEl.style.display = 'none';
     const box = document.getElementById('loginBox');
-    box.classList.add('expanding');
-    box.addEventListener('animationend', () => {
-      const overlay = document.getElementById('loginOverlay');
+    const overlay = document.getElementById('loginOverlay');
+
+    function dismissOverlay() {
       overlay.style.transition = 'opacity 0.45s ease';
       overlay.style.opacity = '0';
       setTimeout(() => {
@@ -3315,6 +3242,15 @@ function doLogin() {
         loadFromSupabase();
         startInactivityWatch();
       }, 460);
+    }
+
+    // Fallback: dismiss overlay after 800ms regardless of animationend
+    const fallbackTimer = setTimeout(dismissOverlay, 800);
+
+    box.classList.add('expanding');
+    box.addEventListener('animationend', () => {
+      clearTimeout(fallbackTimer);
+      dismissOverlay();
     }, { once: true });
   } else {
     if (errEl) { errEl.textContent = 'Incorrect username or password.'; errEl.style.display = 'block'; }
@@ -3327,5 +3263,86 @@ document.getElementById('loginPass').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') doLogin();
 });
 document.getElementById('loginUser').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') doLogin();
+  if (e.key === 'Enter') document.getElementById('loginPass').focus();
 });
+
+// ── Page navigation ───────────────────────────────────────────────────────────
+function showPage(page) {
+  document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const section = document.getElementById('page-' + page);
+  const navBtn  = document.getElementById('nav-' + page);
+  if (section) section.classList.add('active');
+  if (navBtn)  navBtn.classList.add('active');
+  if (page === 'reorder') renderReorderTab();
+  if (page === 'inbound') {
+    if (lastInboundData) renderInboundPage();
+    else refreshInboundPage();
+  }
+}
+
+
+// Init
+document.getElementById('todayDate').textContent = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
+
+// Restore persisted data before building DOM
+const savedSnap = loadState();
+
+renderSummary();
+const container = document.getElementById('productsContainer');
+
+// If we have a saved order, re-order products array first
+if (savedSnap && savedSnap.productOrder) {
+  const ordered = [];
+  savedSnap.productOrder.forEach(model => {
+    const p = products.find(x => x.model === model);
+    if (p) ordered.push(p);
+  });
+  products.forEach(p => { if (!ordered.includes(p)) ordered.push(p); });
+  products.length = 0; ordered.forEach(p => products.push(p));
+}
+
+products.forEach(p => {
+  const block = buildProduct(p);
+  container.appendChild(block);
+  // Restore collapsed state
+  if (savedSnap && savedSnap.collapsed && savedSnap.collapsed[p.sku]) {
+    block.classList.add('collapsed');
+    const btn = document.getElementById('toggle-btn-' + p.sku);
+    if (btn) btn.innerHTML = '&#9654; Show';
+  }
+});
+
+initFilterBar();
+buildFilterDropdown();  // rebuild with any restored items
+applyFilters();
+initDragDrop();
+renderReorderTab();
+
+// ── File input change handlers (fire on file selection) ──────────────────────
+document.getElementById('inputSuof').addEventListener('change', async function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  excelFile = file;
+  await syncFromExcel();
+  this.value = '';  // reset so same file can be re-selected next time
+});
+document.getElementById('inputAts').addEventListener('change', async function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  atsFile = file;
+  await syncFromATS();
+  this.value = '';
+});
+document.getElementById('inputVd').addEventListener('change', async function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  vdFile = file;
+  await syncFromVD();
+  this.value = '';
+});
+const rdEl = document.getElementById('reorderDate');
+if (rdEl) rdEl.textContent = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
+</script>
+</body>
+</html>
