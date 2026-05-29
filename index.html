@@ -1062,6 +1062,18 @@
   </div>
 </div>
 
+<!-- Firm Receipt Detail Popup -->
+<div class="rp-overlay" id="frDetailOverlay">
+  <div class="rp-box">
+    <h3>Firm Receipt Details</h3>
+    <div class="rp-sub" id="frDetailSub"></div>
+    <div id="frDetailContent" style="margin-top:12px;"></div>
+    <div class="rp-actions">
+      <button class="modal-cancel" onclick="closeFrDetailPopup()">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Supabase 配置 ─────────────────────────────────────────────────────────────
 // 從 Supabase Project Settings > API 取得後填入下方
@@ -1462,8 +1474,10 @@ function buildProduct(p) {
         }
         if (rd.isFirmReceipt) {
           inp.readOnly = true;
-          inp.title = 'Firm receipt — synced from ATS only (read-only)';
+          inp.title = 'Firm receipt — double-click to view inbound details';
           td.classList.add('fr-locked');
+          td.style.cursor = 'pointer';
+          td.addEventListener('dblclick', function() { openFrDetailPopup(p.sku, i); });
         }
         // Always attach listeners — guard in handleChange prevents past-week mutations
         inp.addEventListener('focus', function() {
@@ -2689,6 +2703,123 @@ document.getElementById('rpOverlay').addEventListener('click', function(e) {
   if (e.target === this) closeRpPopup();
 });
 
+// ── Firm Receipt Detail Popup ─────────────────────────────────────────────────
+function openFrDetailPopup(sku, weekIdx) {
+  const p = products.find(x => x.sku === sku);
+  const model = p ? p.model.toLowerCase().trim() : '';
+  document.getElementById('frDetailSub').textContent =
+    `${weeks[weekIdx].fw} (${weeks[weekIdx].dt}) — ${p ? p.model : sku}`;
+
+  let content = '';
+
+  if (!lastInboundData || lastInboundData.length === 0) {
+    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">
+      No inbound data loaded.<br>
+      <span style="font-size:11px;opacity:0.7;">Sync ATS to load Inbound Detail data.</span>
+    </p>`;
+    document.getElementById('frDetailContent').innerHTML = content;
+    document.getElementById('frDetailOverlay').classList.add('open');
+    return;
+  }
+
+  // ── Locate header row and column indices ─────────────────────────────────
+  let headerRowIdx = 0;
+  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
+    if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
+      headerRowIdx = i; break;
+    }
+  }
+  const headerRow = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
+
+  function findCol(...terms) {
+    for (const term of terms) {
+      const idx = headerRow.findIndex(h => h.toLowerCase().includes(term.toLowerCase()));
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  }
+
+  const colProductId = findCol('product id', 'productid', 'model', 'item no', 'item number', 'item #');
+  const colPoId      = findCol('purchase order id', 'po id', 'po number', 'order id', 'po#', 'po no');
+  const colQty       = findCol('delivery notification quantity', 'notification quantity', 'delivery qty', 'quantity', 'units', 'qty');
+
+  // ── Find all inbound rows matching this model ─────────────────────────────
+  const editData = _loadInboundEdits();
+  const matches  = [];
+
+  for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
+    const row = lastInboundData[r];
+    if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
+    if (colProductId === -1) continue;
+    const pid = String(row[colProductId] || '').trim().toLowerCase();
+    if (pid !== model) continue;
+
+    const poId = colPoId  !== -1 ? String(row[colPoId]  || '').trim() : '';
+    const qty  = colQty   !== -1 ? Math.round(Number(String(row[colQty] || '').replace(/[,$]/g, ''))) : null;
+    const rowKey = `${poId}|${pid}|${r - headerRowIdx - 1}`;
+    const saved  = editData[rowKey] || {};
+
+    // Also check all saved keys matching this model (in case index shifted)
+    let mergedSaved = saved;
+    if (!saved.casePack && !saved.caseConfig && !saved.projDesc) {
+      for (const [key, val] of Object.entries(editData)) {
+        const parts = key.split('|');
+        if (parts.length >= 2 && parts[1].toLowerCase().trim() === model) {
+          mergedSaved = val; break;
+        }
+      }
+    }
+
+    matches.push({ poId, qty, saved: mergedSaved });
+  }
+
+  if (matches.length === 0) {
+    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">
+      No inbound rows found for this product.<br>
+      <span style="font-size:11px;opacity:0.7;">Enter data in the Inbound Detail tab first.</span>
+    </p>`;
+  } else {
+    const displayRow = (m, idx) => {
+      const qtyDisplay = (m.qty != null && !isNaN(m.qty)) ? m.qty.toLocaleString('en-US') : '—';
+      return `
+        ${matches.length > 1 ? `<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Entry ${idx + 1}</div>` : ''}
+        <div class="rp-field">
+          <label>Purchase Order ID</label>
+          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.poId || '<span style="opacity:0.4">—</span>'}</div>
+        </div>
+        <div class="rp-field">
+          <label>Delivery Notification Qty</label>
+          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${qtyDisplay}</div>
+        </div>
+        <div class="rp-field">
+          <label>Case Pack</label>
+          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.casePack || '<span style="opacity:0.4">—</span>'}</div>
+        </div>
+        <div class="rp-field">
+          <label>Case Configuration</label>
+          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.caseConfig || '<span style="opacity:0.4">—</span>'}</div>
+        </div>
+        <div class="rp-field">
+          <label>Project Description</label>
+          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.projDesc || '<span style="opacity:0.4">—</span>'}</div>
+        </div>
+        ${idx < matches.length - 1 ? '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.14);margin:12px 0;">' : ''}`;
+    };
+    content = matches.map((m, i) => displayRow(m, i)).join('');
+  }
+
+  document.getElementById('frDetailContent').innerHTML = content;
+  document.getElementById('frDetailOverlay').classList.add('open');
+}
+
+function closeFrDetailPopup() {
+  document.getElementById('frDetailOverlay').classList.remove('open');
+}
+
+document.getElementById('frDetailOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeFrDetailPopup();
+});
+
 
 
 // ── localStorage persistence ─────────────────────────────────────────────────
@@ -3289,60 +3420,17 @@ document.getElementById('todayDate').textContent = new Date().toLocaleDateString
 const savedSnap = loadState();
 
 renderSummary();
+
+// Build and append all product blocks
 const container = document.getElementById('productsContainer');
-
-// If we have a saved order, re-order products array first
-if (savedSnap && savedSnap.productOrder) {
-  const ordered = [];
-  savedSnap.productOrder.forEach(model => {
-    const p = products.find(x => x.model === model);
-    if (p) ordered.push(p);
-  });
-  products.forEach(p => { if (!ordered.includes(p)) ordered.push(p); });
-  products.length = 0; ordered.forEach(p => products.push(p));
-}
-
 products.forEach(p => {
   const block = buildProduct(p);
   container.appendChild(block);
-  // Restore collapsed state
-  if (savedSnap && savedSnap.collapsed && savedSnap.collapsed[p.sku]) {
-    block.classList.add('collapsed');
-    const btn = document.getElementById('toggle-btn-' + p.sku);
-    if (btn) btn.innerHTML = '&#9654; Show';
-  }
 });
 
 initFilterBar();
-buildFilterDropdown();  // rebuild with any restored items
-applyFilters();
 initDragDrop();
-renderReorderTab();
-
-// ── File input change handlers (fire on file selection) ──────────────────────
-document.getElementById('inputSuof').addEventListener('change', async function(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  excelFile = file;
-  await syncFromExcel();
-  this.value = '';  // reset so same file can be re-selected next time
-});
-document.getElementById('inputAts').addEventListener('change', async function(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  atsFile = file;
-  await syncFromATS();
-  this.value = '';
-});
-document.getElementById('inputVd').addEventListener('change', async function(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  vdFile = file;
-  await syncFromVD();
-  this.value = '';
-});
-const rdEl = document.getElementById('reorderDate');
-if (rdEl) rdEl.textContent = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
+showPage('inventory');
 </script>
 </body>
 </html>
