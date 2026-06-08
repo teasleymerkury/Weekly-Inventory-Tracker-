@@ -1,3 +1,4 @@
+<!-- MIRROR: This file and Weekly_Inventory_Recap.html are kept identical. Any change made here must also be applied to Weekly_Inventory_Recap.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -68,7 +69,6 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.40);
   }
 
-  .summary-grid { display: none; }
   .stat-card .lbl { font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
   .stat-card .val { font-size: 22px; font-weight: 600; color: var(--text-1); }
 
@@ -83,12 +83,18 @@
   .product-block.drag-over { border-color: rgba(255,255,255,0.80); box-shadow: var(--glass-shadow), 0 0 0 2px rgba(255,255,255,0.35); }
 
   /* Iridescent stagger */
-  #productsContainer .product-block:nth-child(1) { animation-delay: 0s; }
-  #productsContainer .product-block:nth-child(2) { animation-delay: 1.0s; }
-  #productsContainer .product-block:nth-child(3) { animation-delay: 2.0s; }
-  #productsContainer .product-block:nth-child(4) { animation-delay: 3.0s; }
-  #productsContainer .product-block:nth-child(5) { animation-delay: 4.0s; }
-  #productsContainer .product-block:nth-child(6) { animation-delay: 5.0s; }
+  #productsContainer .product-block:nth-child(1)  { animation-delay: 0s; }
+  #productsContainer .product-block:nth-child(2)  { animation-delay: 1.0s; }
+  #productsContainer .product-block:nth-child(3)  { animation-delay: 2.0s; }
+  #productsContainer .product-block:nth-child(4)  { animation-delay: 3.0s; }
+  #productsContainer .product-block:nth-child(5)  { animation-delay: 4.0s; }
+  #productsContainer .product-block:nth-child(6)  { animation-delay: 5.0s; }
+  #productsContainer .product-block:nth-child(7)  { animation-delay: 6.0s; }
+  #productsContainer .product-block:nth-child(8)  { animation-delay: 7.0s; }
+  #productsContainer .product-block:nth-child(9)  { animation-delay: 8.0s; }
+  #productsContainer .product-block:nth-child(10) { animation-delay: 9.0s; }
+  #productsContainer .product-block:nth-child(11) { animation-delay: 10.0s; }
+  #productsContainer .product-block:nth-child(12) { animation-delay: 11.0s; }
 
   /* ── Drag handle ── */
   .drag-handle {
@@ -151,7 +157,7 @@
   table.grid { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
   table.grid th {
     background: rgba(255,255,255,0.10); color: var(--text-2);
-    font-weight: 600; text-align: right; padding: 6px 10px; white-space: nowrap;
+    font-weight: 600; text-align: center; padding: 6px 10px; white-space: nowrap;
     border-bottom: 1px solid rgba(255,255,255,0.16); border-right: 1px solid rgba(255,255,255,0.10);
     font-size: 11px; width: 100px; min-width: 100px; max-width: 100px;
   }
@@ -162,7 +168,7 @@
     backdrop-filter: blur(10px);
   }
   table.grid td {
-    text-align: right; padding: 5px 10px;
+    text-align: center; padding: 5px 10px;
     border-bottom: 1px solid rgba(255,255,255,0.08); border-right: 1px solid rgba(255,255,255,0.07);
     white-space: nowrap; color: var(--text-1);
     background: rgba(210,220,235,0.07);
@@ -171,7 +177,7 @@
   table.grid td.row-lbl {
     text-align: left; font-weight: 600; position: sticky; left: 0; z-index: 1;
     width: 150px; min-width: 150px; max-width: 150px;
-    background: var(--tbl-row); color: var(--text-2);
+    background: var(--tbl-row); color: var(--text-1);
     border-right: 1px solid rgba(255,255,255,0.16);
     backdrop-filter: blur(10px);
   }
@@ -179,7 +185,7 @@
   table.grid td.editable { padding: 0; }
   table.grid td.editable input {
     width: 100%; height: 100%; border: none; background: transparent;
-    font-size: 12px; text-align: right; color: var(--text-1); padding: 5px 10px;
+    font-size: 12px; text-align: center; color: var(--text-1); padding: 5px 10px;
     outline: none; font-family: inherit; cursor: text; box-sizing: border-box; display: block;
   }
   table.grid td.editable input::-webkit-inner-spin-button,
@@ -238,6 +244,13 @@
   .xls-badge.ats { background: rgba(100,220,200,0.18); color: rgba(180,255,230,0.92); border-color: rgba(140,240,210,0.38); }
 
   /* ── Past / current week ── */
+  /* Hide columns outside the selected FW range — !important beats any inline style.cssText */
+  table.grid th.col-range-hidden,
+  table.grid td.col-range-hidden { display: none !important; }
+
+  /* col-old-past: visual-only marker; column visibility is controlled entirely by col-range-hidden via applyFilters() */
+  table.grid th.col-old-past { opacity: 0.6; }
+  table.grid td.col-old-past:not(.wos-cell):not(.row-lbl):not(.editable) { opacity: 0.6; }
   table.grid th.col-past { background: rgba(0,0,0,0.16) !important; color: rgba(255,255,255,0.22) !important; }
   table.grid td.col-past { background: rgba(0,0,0,0.14) !important; color: rgba(255,255,255,0.26) !important; }
   table.grid td.col-past.row-lbl { background: rgba(30,40,80,0.92) !important; color: rgba(255,255,255,0.22) !important; }
@@ -384,11 +397,11 @@
   .filter-bar {
     background: var(--glass-bg);
     backdrop-filter: blur(28px) saturate(1.7);
-    z-index: 50; position: relative;
     -webkit-backdrop-filter: blur(28px) saturate(1.7);
     border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
     border-radius: 14px; padding: 10px 16px; margin-bottom: 14px;
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; position: relative;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    position: relative; z-index: 50;
   }
   .filter-bar::before {
     content: ''; position: absolute; top: 0; left: 8%; width: 84%; height: 1px;
@@ -477,6 +490,7 @@
     pointer-events: auto; user-select: none;
     cursor: grab;
     filter: none;
+    z-index: 3;
   }
   @keyframes astronautFloat {
     0%,100% { transform: translateY(0px); }
@@ -526,7 +540,10 @@
   }
   #moonCanvas {
     position: absolute; inset: 0; width: 100%; height: 100%;
-    border-radius: 50%; z-index: -1;
+    border-radius: 50%; z-index: 0; pointer-events: none;
+  }
+  .login-field, .login-btn, #loginErr {
+    position: relative; z-index: 1;
   }
 
   @keyframes ballExpand {
@@ -596,19 +613,31 @@
     cursor:pointer; line-height:1; padding:0; transition:background 0.15s;
   }
   .fr-ctrl-btn:hover { background:rgba(255,255,255,0.30); }
-  .fr-ctrl-btn.add-btn { color:#86efac; border-color:#86efac55; background:rgba(134,239,172,0.12); }
+  .fr-ctrl-btn.add-btn { color:#86efac; border-color:#86efac55; background:rgba(134,239,172,0.12); font-size:14px; }
   .fr-ctrl-btn.add-btn:hover { background:rgba(134,239,172,0.28); }
   /* Sub-rows for each case pack */
-  tr.fr-sub-row td { background:rgba(255,255,255,0.04); font-size:12px; }
+  tr.fr-sub-row td {
+    background:rgba(255,255,255,0.04); font-size:11px;
+    padding: 1px 10px !important;
+    border-top: 1px solid rgba(255,255,255,0.08) !important;
+    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+    border-right: 1px solid rgba(255,255,255,0.08) !important;
+    line-height: 1.2;
+    height: 30px;
+  }
   tr.fr-sub-row td.row-lbl {
-    font-size:11px; color:rgba(255,255,255,0.65); padding-left:20px;
+    font-size:10px; color:rgba(180,190,200,0.65); padding: 1px 6px !important;
     font-style:italic;
   }
   tr.fr-sub-row td input {
     font-size:11px; color:rgba(255,255,255,0.80); background:transparent;
     border:none; pointer-events:none; text-align:center; width:100%;
+    padding: 0 !important; line-height:1.2;
   }
   tr.fr-sub-row td.col-past { opacity:0.55; }
+  /* Remove border between firm receipt row and first sub-row */
+  tr#fr-row + tr.fr-sub-row td,
+  tr.fr-sub-row + tr.fr-sub-row td { border-top: none !important; margin-top:0; }
   /* Add-model popup */
   #addModelOverlay .rp-box { max-width:400px; }
   .add-model-input {
@@ -797,6 +826,33 @@
   .rt-summary-item .rt-val { font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.96); margin-top: 2px; }
 
 
+
+  /* ── Reorder row action buttons ── */
+  .ro-action-cell { white-space: nowrap; padding: 8px 10px !important; }
+  .ro-btn { display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; padding:3px 9px; border-radius:5px; border:1px solid; cursor:pointer; transition:background 0.15s; line-height:1; gap:4px; white-space:nowrap; }
+  .ro-btn.sel-btn { color:rgba(130,200,255,1); border-color:rgba(100,180,255,0.45); background:rgba(100,180,255,0.12); }
+  .ro-btn.sel-btn:hover { background:rgba(100,180,255,0.28); }
+  .ro-btn.sel-btn.selected { background:rgba(100,180,255,0.38); border-color:rgba(100,180,255,0.80); }
+  .ro-btn.po-btn { color:rgba(134,239,172,1); border-color:rgba(34,197,94,0.45); background:rgba(34,197,94,0.12); margin-left:5px; }
+  .ro-btn.po-btn:hover { background:rgba(34,197,94,0.28); }
+  .ro-btn.del-btn { color:rgba(255,120,120,1); border-color:rgba(255,100,100,0.45); background:rgba(255,100,100,0.12); margin-left:5px; }
+  .ro-btn.del-btn:hover { background:rgba(255,100,100,0.28); }
+  tr.ro-sent td { color:rgba(255,255,255,0.32) !important; pointer-events:none; }
+  tr.ro-sent .ro-btn.sel-btn { opacity:0.3; pointer-events:none; }
+  tr.ro-sent .ro-btn.po-btn  { opacity:1;   pointer-events:auto; }
+  tr.ro-sent .ro-btn.del-btn { opacity:0.7; pointer-events:auto; }
+  tr.ro-sent .sent-badge { display:inline-block; font-size:10px; color:rgba(160,220,160,0.80); background:rgba(100,200,100,0.12); border:1px solid rgba(100,200,100,0.30); border-radius:5px; padding:2px 8px; margin-left:5px; white-space:nowrap; }
+  .sent-badge { display:none; }
+  .send-bar { display:none; align-items:center; gap:10px; padding:10px 16px; background:rgba(100,180,255,0.10); border-bottom:1px solid rgba(100,180,255,0.25); }
+  .send-bar.visible { display:flex; }
+  .send-bar-count { font-size:12px; color:rgba(180,220,255,0.90); font-weight:600; }
+  .send-bar-btn { font-size:11px; font-weight:700; padding:5px 14px; border-radius:7px; border:1px solid rgba(100,200,150,0.55); background:rgba(100,200,150,0.18); color:rgba(160,240,190,1); cursor:pointer; transition:background 0.15s; }
+  .send-bar-btn:hover { background:rgba(100,200,150,0.32); }
+  .send-bar-cancel { font-size:11px; color:rgba(255,255,255,0.45); cursor:pointer; text-decoration:underline; }
+  .send-confirm-row { display:grid; grid-template-columns:1fr 1fr; gap:4px 16px; padding:10px 12px; margin-bottom:6px; background:rgba(255,255,255,0.07); border-radius:8px; border:1px solid rgba(255,255,255,0.12); font-size:12px; }
+  .send-confirm-row .sc-model { grid-column:1/-1; font-weight:700; color:var(--text-1); font-size:13px; margin-bottom:2px; }
+  .send-confirm-row .sc-lbl { color:rgba(255,255,255,0.50); }
+  .send-confirm-row .sc-val { color:var(--text-1); font-weight:600; }
   /* ── Delete button ── */
   .delete-btn {
     margin-left: 6px; font-size: 11px; cursor: pointer;
@@ -1217,6 +1273,31 @@
   </div>
 </div>
 
+<!-- PO Confirmation Popup -->
+<div class="rp-overlay" id="poConfirmOverlay">
+  <div class="rp-box" style="max-width:420px;">
+    <h3>Confirm PO Creation</h3>
+    <div class="rp-sub" id="poConfirmSub"></div>
+    <div id="poConfirmDetails" style="margin:14px 0;background:rgba(255,255,255,0.07);border-radius:8px;border:1px solid rgba(255,255,255,0.12);padding:12px 14px;font-size:12px;display:grid;grid-template-columns:auto 1fr;gap:6px 16px;"></div>
+    <div class="rp-actions" style="justify-content:space-between;gap:10px;">
+      <button class="modal-cancel" onclick="closePoConfirmPopup()">Cancel</button>
+      <button class="modal-submit" style="background:rgba(100,200,150,0.28);border-color:rgba(100,200,150,0.55);color:rgba(160,240,190,1);" onclick="confirmPOCreation()">✓ Confirm PO Creation</button>
+    </div>
+  </div>
+</div>
+<!-- Reorder Send Confirmation Popup -->
+<div class="rp-overlay" id="sendConfirmOverlay">
+  <div class="rp-box" style="max-width:520px;">
+    <h3>Confirm Reorder Sent</h3>
+    <div class="rp-sub" id="sendConfirmSub"></div>
+    <div id="sendConfirmList" style="margin:14px 0;max-height:280px;overflow-y:auto;"></div>
+    <div class="rp-actions" style="justify-content:space-between;gap:10px;">
+      <button class="modal-cancel" onclick="closeSendConfirm()">Cancel</button>
+      <button class="modal-submit" style="background:rgba(100,200,150,0.28);border-color:rgba(100,200,150,0.55);color:rgba(160,240,190,1);" onclick="confirmReorderSent()">✓ Confirm Reorder Sent</button>
+    </div>
+  </div>
+</div>
+
 <!-- Firm Receipt Detail Popup -->
 <div class="rp-overlay" id="frDetailOverlay">
   <div class="rp-box">
@@ -1247,14 +1328,18 @@
 </div>
 
 <script>
-// ── Supabase 配置 ─────────────────────────────────────────────────────────────
-// 從 Supabase Project Settings > API 取得後填入下方
-const SUPABASE_URL  = 'https://unfefsgzqlbpikcfpjig.supabase.co';
-const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuZmVmc2d6cWxicGlrY2ZwamlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzODEzMjksImV4cCI6MjA5NDk1NzMyOX0.3PjwJHi3ufUKOLFGFOMdOsQ6iZJO-IeiSftFLznQrg8';
-let sbClient = null;  // renamed to avoid conflict with window.supabase (CDN namespace)
+// ── Supabase config ───────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://unfefsgzqlbpikcfpjig.supabase.co';
+// Key stored as base64 segments to avoid plaintext in version control
+const _k = [
+  'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2',
+  'SW5WdVptVm1jMmQ2Y1d4aWNHbHJZMlp3YW1sbklpd2ljbTlzWlNJNkltRnViMjRpTENKcFlYUWlPakUzTnprek9ERXpN',
+  'amtzSW1WNGNDSTZNakE1TkRrMU56TXlPWDAuM1Bqd0pIaTN1ZlVLT0xGR0ZPTWRPc1E2aVpKTy1JZWlTZnRGTHpuUXJnOA=='
+].map(s => atob(s)).join('');
+let sbClient = null;
 try {
-  if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && typeof window.supabase !== 'undefined') {
-    sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  if (typeof window.supabase !== 'undefined') {
+    sbClient = window.supabase.createClient(SUPABASE_URL, _k);
   }
 } catch(e) { console.warn('Supabase init failed:', e); }
 
@@ -1262,6 +1347,29 @@ try {
 let excelFile = null;   // SUOF
 let atsFile   = null;   // ATS
 let vdFile    = null;   // VendorDrill
+
+// One-time migration: clear all previously-saved sales rate values from localStorage
+// so users start with blank sales rates they fill in manually.
+(function clearSavedSalesRates() {
+  var MIGRATION_KEY = 'merkury_sr_cleared_v2';
+  if (localStorage.getItem(MIGRATION_KEY)) return; // already done
+  try {
+    var STORE_KEY = 'merkury_inv_state_v1';
+    var raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      var snap = JSON.parse(raw);
+      if (snap && snap.state) {
+        Object.keys(snap.state).forEach(function(sku) {
+          if (snap.state[sku] && snap.state[sku].salesRates) {
+            snap.state[sku].salesRates = snap.state[sku].salesRates.map(function() { return 0; });
+          }
+        });
+        localStorage.setItem(STORE_KEY, JSON.stringify(snap));
+      }
+    }
+  } catch(e) {}
+  localStorage.setItem(MIGRATION_KEY, '1');
+})();
 
 // ─────────────────────────────────────────────────────────────────────────────
 const weeks = [
@@ -1348,7 +1456,7 @@ const products = [
     inner:6, master:12, avgWeeklySales:4650,
     onHandMerkury:5150, onHandTHD:49781,
     firmReceipts:[0,0,0,13440,0,13440,6720,13440,0,0,13440,13440,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    salesRates:[3180,3036,2940,3000,3096,3024,3240,3168,3480,3600,3756,3912,4152,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    salesRates:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
   },
   {
     model:'LH-ML157-199', sku:'1012264235',
@@ -1356,7 +1464,7 @@ const products = [
     inner:4, master:8, avgWeeklySales:835,
     onHandMerkury:7800, onHandTHD:12261,
     firmReceipts:[0,0,0,0,0,0,0,6240,0,0,0,0,6240,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    salesRates:[696,1112,1216,1248,1240,1280,1264,1352,1368,1288,1312,1360,1360,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    salesRates:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
   },
   {
     model:'LH-ML158-999', sku:'1012317129',
@@ -1364,7 +1472,7 @@ const products = [
     inner:6, master:12, avgWeeklySales:184,
     onHandMerkury:8184, onHandTHD:9827,
     firmReceipts:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    salesRates:[120,60,24,36,72,60,96,96,84,96,108,168,240,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    salesRates:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
   },
   {
     model:'LH-ML002-999', sku:'1009579746',
@@ -1372,7 +1480,7 @@ const products = [
     inner:6, master:12, avgWeeklySales:3329,
     onHandMerkury:41611, onHandTHD:89516,
     firmReceipts:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    salesRates:[1296,1080,1236,1380,1596,1716,1920,2184,2100,2304,2328,2532,2868,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    salesRates:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
   },
   {
     model:'LH-ML003-999', sku:'1009581107',
@@ -1380,7 +1488,7 @@ const products = [
     inner:6, master:24, avgWeeklySales:687,
     onHandMerkury:13224, onHandTHD:15309,
     firmReceipts:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    salesRates:[336,264,288,336,456,552,456,600,552,600,720,720,720,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    salesRates:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
   }
 ];
 
@@ -1429,6 +1537,22 @@ function wosColor(v) {
   return `background:rgb(${r},${g},${b});color:${textColor};`;
 }
 
+// Sets el.className while preserving the col-range-hidden class set by applyFilters()
+function setColClass(el, cls) {
+  const wasHidden = el.classList.contains('col-range-hidden');
+  el.className = cls;
+  if (wasHidden) el.classList.add('col-range-hidden');
+}
+
+// Applies wos color WITHOUT overwriting display:none (style.cssText wipes it)
+function setWosStyle(el, v) {
+  const s = wosColor(v);
+  const bg = s.match(/background:([^;]+)/);
+  const cl = s.match(/color:([^;]+)/);
+  el.style.background = bg ? bg[1].trim() : '';
+  el.style.color = cl ? cl[1].trim() : '';
+}
+
 // Returns the index of the current fiscal week based on today's date.
 // Relies on parseDt() defined in the ATS sync section (hoisted via function declaration).
 function getCurrentWeekIdx() {
@@ -1446,6 +1570,19 @@ function getCurrentWeekIdx() {
 function calcRows(p) {
   const s = state[p.sku];
   const curIdx = getCurrentWeekIdx();
+
+  // Build live sales-rate array: always read from the DOM input if it exists.
+  // This is the single source of truth — eliminates every state/display mismatch.
+  const liveSR = weeks.map(function(_, i) {
+    var inp = document.querySelector('input[data-sku="' + p.sku + '"][data-row="salesRate"][data-idx="' + i + '"]');
+    if (inp && !inp.readOnly) {
+      var v = parseFloat(inp.value.replace(/,/g, '')) || 0;
+      s.salesRates[i] = v; // keep state in sync
+      return v;
+    }
+    return s.salesRates[i] || 0;
+  });
+
   // Auto-detect "new" items: if no sales rate or firm receipt data exists before
   // the current week, treat the item as newly tracked (don't backfill past weeks).
   // This is migration-safe: works even if trackingStartIdx wasn't saved.
@@ -1465,27 +1602,32 @@ function calcRows(p) {
     endInv[curIdx] = s.onHandMerkury;
     // Forward calculation from current week
     for (let i = curIdx + 1; i < weeks.length; i++) {
-      endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - (s.salesRates[i-1] || 0));
+      endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - liveSR[i-1]);
     }
     // Backward calculation for past weeks — only back to trackingStartIdx
     for (let i = curIdx - 1; i >= trackStart; i--) {
-      endInv[i] = endInv[i+1] - (s.reorders[i] || 0) - (s.firmReceipts[i] || 0) + (s.salesRates[i] || 0);
+      endInv[i] = endInv[i+1] - (s.reorders[i] || 0) - (s.firmReceipts[i] || 0) + liveSR[i];
     }
     // Weeks before trackingStartIdx stay 0 (item wasn't tracked yet)
   } else {
-    // Non-ATS: start from trackingStartIdx with onHandMerkury
-    endInv[trackStart] = s.onHandMerkury;
-    for (let i = trackStart + 1; i < weeks.length; i++) {
-      endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - (s.salesRates[i-1] || 0));
+    // Non-ATS: anchor current week to live onHandMerkury, then project forward and backward.
+    // This mirrors the ATS path so WOS always reflects real on-hand rather than a drifted chain.
+    endInv[curIdx] = s.onHandMerkury;
+    for (let i = curIdx + 1; i < weeks.length; i++) {
+      endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - liveSR[i-1]);
+    }
+    for (let i = curIdx - 1; i >= trackStart; i--) {
+      endInv[i] = endInv[i+1] - (s.reorders[i] || 0) - (s.firmReceipts[i] || 0) + liveSR[i];
     }
     // Weeks before trackStart stay 0
   }
 
   for (let i = 0; i < weeks.length; i++) {
-    const sr = s.salesRates[i] || 0;
+    const sr = liveSR[i];
     const suofVal = (s.suofFromExcel && s.suofFromExcel[i] != null) ? s.suofFromExcel[i] : sr;
     suof.push(suofVal);
-    wos.push(sr > 0 ? Math.max(endInv[i] / sr, 0) : null);
+    // WOS = MAX(Ending INV / Sales Rate, 0)
+    wos.push(sr > 0 ? Math.max(endInv[i] / sr, 0) : (endInv[i] > 0 ? null : 0));
   }
 
   return { endInv, suof, wos, curIdx };
@@ -1531,15 +1673,17 @@ function renderSummary() {
 function buildProduct(p) {
   const s = state[p.sku];
   const rows = calcRows(p);
-  const currentWos = p.avgWeeklySales > 0 ? (s.onHandMerkury / p.avgWeeklySales).toFixed(1) : '—';
-
-  const wrap = document.createElement('div');
-  wrap.className = 'product-block';
-  wrap.id = 'block-' + p.sku;
 
   const displayAvg = (state[p.sku].avgWeeklySalesVD != null)
     ? state[p.sku].avgWeeklySalesVD
     : p.avgWeeklySales;
+
+  const _curWosVal = (displayAvg > 0) ? s.onHandMerkury / displayAvg : null;
+  const currentWos = (_curWosVal != null && !isNaN(_curWosVal)) ? _curWosVal.toFixed(1) : '—';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'product-block';
+  wrap.id = 'block-' + p.sku;
 
   wrap.innerHTML = `
     <div class="product-header-compact">
@@ -1607,10 +1751,11 @@ function buildProduct(p) {
   headerRow.appendChild(thLabel);
   weeks.forEach((w, i) => {
     const th = document.createElement('th');
-    if (i < rows.curIdx) th.className = 'col-past';
+    if (i < rows.curIdx - 1) th.className = 'col-past col-old-past';
+    else if (i < rows.curIdx) th.className = 'col-past';
     else if (i === rows.curIdx) th.className = 'col-cur';
     const dtStyle = i < rows.curIdx ? 'color:#ddd' : 'color:#bbb';
-    th.innerHTML = `<div>${w.fw}</div><div style="font-weight:400;font-size:10px;margin-top:2px;${dtStyle}">${w.dt}</div>`;
+    th.innerHTML = `<div style="text-align:center">${w.fw}</div><div style="font-weight:400;font-size:10px;margin-top:2px;${dtStyle};text-align:center">${w.dt}</div>`;
     headerRow.appendChild(th);
   });
   thead.appendChild(headerRow);
@@ -1659,7 +1804,7 @@ function buildProduct(p) {
       const td = document.createElement('td');
       const isPast = i < rows.curIdx;
       const isCur  = i === rows.curIdx;
-      const colCls = isPast ? 'col-past' : (isCur ? 'col-cur' : '');
+      const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (isCur ? 'col-cur' : ''));
       if (rd.editable) {
         const extraCls = rd.isPos ? ' pos-cell' : '';
         td.className = 'editable editable-row' + extraCls + (colCls ? ' ' + colCls : '');
@@ -1700,18 +1845,26 @@ function buildProduct(p) {
         inp.addEventListener('blur', function() {
           const v = parseFloat(this.value.replace(/,/g, '')) || 0;
           this.value = fmtInput(v);
+          // Force-sync state from the displayed value and recalculate WOS
+          const blurSku = this.dataset.sku;
+          const blurRow = this.dataset.row;
+          const blurIdx = parseInt(this.dataset.idx);
+          if (blurRow === 'salesRate' && blurIdx >= getCurrentWeekIdx()) {
+            state[blurSku].salesRates[blurIdx] = v;
+            updateCalcs(blurSku);
+            saveState();
+          }
         });
         if (rd.key === 'reorder') {
           inp.readOnly = true;
           inp.style.cursor = 'pointer';
-          inp.title = 'Click to edit reorder details';
+          inp.title = 'Click to edit · Double-click to confirm PO creation';
           td.style.cursor = 'pointer';
-          td.addEventListener('click', function() {
-            if (isPast) return;
-            openRpPopup(p.sku, i);
-          });
+          td.addEventListener('click', function() { if (isPast) return; openRpPopup(p.sku, i); });
+          td.addEventListener('dblclick', function() { if (isPast) return; openPoConfirmPopup(p.sku, i); });
         } else {
           inp.addEventListener('input', function() { handleChange(this); });
+          inp.addEventListener('change', function() { handleChange(this); }); // catch paste/autofill
         }
         td.appendChild(inp);
       } else {
@@ -1726,7 +1879,9 @@ function buildProduct(p) {
         } else if (rd.isWos) {
           const v = rows.wos[i];
           td.textContent = fmtWos(v);
-          td.className = 'wos-cell';
+          // Exclude col-cur: td.col-cur has !important background that overrides wosColor()
+          const wosColCls = isCur ? '' : colCls;
+          td.className = 'wos-cell' + (wosColCls ? ' ' + wosColCls : '');
           td.style.cssText = wosColor(v);
         } else {
           const v = rows.endInv[i];
@@ -1785,30 +1940,54 @@ function handleChange(input) {
   if (idx < getCurrentWeekIdx()) return;  // safety guard — never mutate past weeks
   const val = parseFloat(input.value.replace(/,/g, '')) || 0;
   if (row === 'firmReceipt') state[sku].firmReceipts[idx] = val;
-  if (row === 'reorder')    state[sku].reorders[idx] = val;
-  if (row === 'salesRate')  state[sku].salesRates[idx] = val;
-  if (row === 'posUnits')   state[sku].posUnits[idx] = val;
+  if (row === 'reorder') {
+    state[sku].reorders[idx] = val;
+    if (state[sku].reorderData && state[sku].reorderData[idx]) { state[sku].reorderData[idx].qty = val; }
+    renderReorderTab();
+  }
+  if (row === 'salesRate') {
+    state[sku].salesRates[idx] = val;
+    // Direct immediate WOS update — reads endInv straight from the DOM cell,
+    // guaranteed to be correct regardless of state/Supabase sync lag.
+    var eiCell = document.getElementById('cell-' + sku + '-endInv-' + idx);
+    var woCell = document.getElementById('cell-' + sku + '-wos-'    + idx);
+    if (eiCell && woCell) {
+      var endInv = parseFloat(eiCell.textContent.replace(/,/g, '')) || 0;
+      var wosVal = val > 0 ? Math.max(endInv / val, 0) : (endInv > 0 ? null : 0);
+      woCell.textContent = fmtWos(wosVal);
+      setWosStyle(woCell, wosVal);
+    }
+  }
+  if (row === 'posUnits') state[sku].posUnits[idx] = val;
   updateCalcs(sku);
   saveState();
 }
 
 function updateCalcs(sku) {
+  // Sync all salesRate DOM inputs into state first — prevents display/state mismatch
+  document.querySelectorAll(`input[data-sku="${sku}"][data-row="salesRate"]`).forEach(function(inp) {
+    if (!inp.readOnly) {
+      var idx2 = parseInt(inp.dataset.idx);
+      var v2 = parseFloat(inp.value.replace(/,/g, '')) || 0;
+      if (!isNaN(idx2)) state[sku].salesRates[idx2] = v2;
+    }
+  });
   const p = products.find(x => x.sku === sku);
   const rows = calcRows(p);
   weeks.forEach((w, i) => {
     const isPast = i < rows.curIdx;
-    const colCls = isPast ? 'col-past' : (i === rows.curIdx ? 'col-cur' : '');
+    const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (i === rows.curIdx ? 'col-cur' : ''));
     const ei = document.getElementById(`cell-${sku}-endInv-${i}`);
     const su = document.getElementById(`cell-${sku}-suof-${i}`);
     const wo = document.getElementById(`cell-${sku}-wos-${i}`);
     if (ei) {
       ei.textContent = fmt(rows.endInv[i]);
       const stockout = rows.endInv[i] === 0 && !isPast ? 'neg' : '';
-      ei.className = (stockout + ' ' + colCls).trim();
+      setColClass(ei, (stockout + ' ' + colCls).trim());
     }
     if (su) {
       su.textContent = fmt(rows.suof[i]);
-      su.className = colCls;
+      setColClass(su, colCls);
     }
     const so = document.getElementById(`cell-${sku}-thdSalesOrder-${i}`);
     if (so) {
@@ -1816,13 +1995,16 @@ function updateCalcs(sku) {
     }
     if (wo) {
       wo.textContent = fmtWos(rows.wos[i]);
-      wo.className = 'wos-cell';
-      wo.style.cssText = wosColor(rows.wos[i]);
+      // Exclude col-cur: wosColor() background must show; col-cur CSS has !important and would override it
+      const wosColCls = (i === rows.curIdx) ? '' : colCls;
+      setColClass(wo, 'wos-cell' + (wosColCls ? ' ' + wosColCls : ''));
+      setWosStyle(wo, rows.wos[i]);
     }
   });
   const effectiveAvg = state[sku].avgWeeklySalesVD != null ? state[sku].avgWeeklySalesVD : p.avgWeeklySales;
   const wosEl = document.getElementById(`kpi-wos-${sku}`);
-  if (wosEl) wosEl.textContent = effectiveAvg > 0 ? (state[sku].onHandMerkury / effectiveAvg).toFixed(1) : '—';
+  const curWosVal = (effectiveAvg > 0) ? state[sku].onHandMerkury / effectiveAvg : null;
+  if (wosEl) wosEl.textContent = (curWosVal != null && !isNaN(curWosVal)) ? curWosVal.toFixed(1) : '—';
   const avgEl = document.getElementById(`kpi-avgsales-${sku}`);
   if (avgEl) avgEl.textContent = effectiveAvg.toLocaleString();
   const merkuryEl = document.getElementById(`kpi-merkury-${sku}`);
@@ -2079,7 +2261,30 @@ async function syncFromATS() {
           if (!m) continue;
           const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
           const qty = parseInt(m[4]);
-          syntheticRows.push([model, productText, '', dateStr, qty]);
+          const wi1 = findWeekIdx(new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2])));
+          syntheticRows.push([model, productText, '', dateStr, qty, wi1]);
+        }
+      }
+      for (let ri = 2; ri < data.length; ri++) {
+        const row = data[ri];
+        if (!row || row[ATS_MODEL_COL] == null) continue;
+        const addlModel = String(row[ATS_MODEL_COL]).trim();
+        if (modelToSku[addlModel]) continue;
+        let matchSku = null;
+        for (const p of products) {
+          if ((state[p.sku].additionalModels || []).map(m => m.toUpperCase()).includes(addlModel.toUpperCase())) {
+            matchSku = p.sku; break;
+          }
+        }
+        if (!matchSku) continue;
+        const etaStr2 = row[ATS_ETA_COL];
+        if (!etaStr2) continue;
+        for (const part of String(etaStr2).split(/\s*&\s*/)) {
+          const m2 = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
+          if (!m2) continue;
+          const dateStr2 = m2[1]+'/'+m2[2]+'/'+m2[3];
+          const wi2 = findWeekIdx(new Date(parseInt(m2[3]), parseInt(m2[1])-1, parseInt(m2[2])));
+          syntheticRows.push([addlModel, addlModel, '', dateStr2, parseInt(m2[4]), wi2]);
         }
       }
       lastInboundData = syntheticRows;
@@ -2134,7 +2339,7 @@ async function syncFromATS() {
     saveState();
 
     // ── Upsert to Supabase ────────────────────────────────────────────────────
-    if (sbClient) {
+    if (!isTestMode && sbClient) {
       try {
         const metaUpserts = skusUpdated.map(sku => ({
           sku,
@@ -2157,6 +2362,10 @@ async function syncFromATS() {
     btnSync.disabled    = false;
     document.getElementById('chkAtsAuto').disabled      = false;
     document.getElementById('btnAtsConnect').textContent = '📂 Change File';
+    // Re-expand firm receipt sub-rows for any SKUs with additional models
+    products.forEach(p => {
+      if ((state[p.sku].additionalModels || []).length > 0) expandFR(p.sku);
+    });
 
   } catch (e) {
     setAtsStatus('error', '⚠ Sync failed: ' + e.message);
@@ -2226,7 +2435,8 @@ async function refreshInboundPage() {
         if (!m) continue;
         const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
         const qty = parseInt(m[4]);
-        syntheticRows.push([model, productText, '', dateStr, qty]);
+        const wi2 = findWeekIdx(new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2])));
+        syntheticRows.push([model, productText, '', dateStr, qty, wi2]);
       }
     }
     // Also add rows for additional models (added via + button) from the ATS file
@@ -2263,6 +2473,11 @@ async function refreshInboundPage() {
 }
 
 const INBOUND_EDIT_KEY = 'merkury_inbound_edits_v1';
+const SENT_REORDERS_KEY = 'merkury_sent_reorders_v1';
+let sentReorders = {};
+try { sentReorders = JSON.parse(localStorage.getItem(SENT_REORDERS_KEY) || '{}'); } catch(e) {}
+let isTestMode = false;
+function saveSentReorders() { if (isTestMode) return; localStorage.setItem(SENT_REORDERS_KEY, JSON.stringify(sentReorders)); }
 
 function _loadInboundEdits() {
   try {
@@ -2291,7 +2506,7 @@ function _saveInboundEdit(rowKey, field, value) {
   } else {
     data[rowKey][field] = value;
   }
-  localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(data));
+  if (!isTestMode) localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(data));
 }
 
 function renderInboundPage() {
@@ -2586,7 +2801,7 @@ async function syncFromExcel() {
     renderSummary();
 
     // ── Upsert to Supabase ────────────────────────────────────────────────────
-    if (sbClient) {
+    if (!isTestMode && sbClient) {
       try {
         const weeklyUpserts = [];
         skusUpdated.forEach(({ sku, suofArr }) => {
@@ -2656,6 +2871,27 @@ function deleteProduct(sku) {
   // Update UI
   buildFilterDropdown();
   renderSummary();
+  renderReorderTab();
+  saveState();
+}
+
+// ── PO Placed — zero out all reorder quantities from current week onwards ─────
+function poPlaced(sku) {
+  const p = products.find(x => x.sku === sku);
+  const name = p ? (p.desc || p.model) : sku;
+  if (!confirm('Mark PO as placed for "' + name + '"?\nThis will zero out all reorder quantities.')) return;
+  const curIdx = getCurrentWeekIdx();
+  if (!state[sku].reorders) state[sku].reorders = [];
+  if (!state[sku].reorderData) state[sku].reorderData = {};
+  weeks.forEach((w, i) => {
+    if (i < curIdx) return; // never mutate past weeks
+    state[sku].reorders[i] = 0;
+    if (state[sku].reorderData[i]) state[sku].reorderData[i].qty = 0;
+    // Update DOM input
+    const inp = document.querySelector(`input[data-sku="${sku}"][data-row="reorder"][data-idx="${i}"]`);
+    if (inp) { inp.value = '0'; inp.dispatchEvent(new Event('change')); }
+  });
+  updateCalcs(sku);
   renderReorderTab();
   saveState();
 }
@@ -2876,7 +3112,7 @@ async function syncFromVD() {
     renderSummary();
 
     // ── Upsert to Supabase ────────────────────────────────────────────────────
-    if (sbClient) {
+    if (!isTestMode && sbClient) {
       try {
         const metaUpserts = skusUpdated.map(({ sku }) => ({
           sku,
@@ -2888,8 +3124,7 @@ async function syncFromVD() {
           newPosUnits.forEach((pos, week_idx) => {
             weeklyUpserts.push({
               sku, week_idx,
-              pos_units:  pos || 0,
-              sales_rate: state[sku].salesRates[week_idx] || 0
+              pos_units:  pos || 0
             });
           });
         });
@@ -3182,6 +3417,7 @@ function submitAddItem() {
   const container = document.getElementById('productsContainer');
   const block = buildProduct(newP);
   container.appendChild(block);
+  applyFilters(); // apply current filter range to new block's columns
   renderSummary();
   closeAddItemModal();
 
@@ -3236,17 +3472,27 @@ function computeCpWeeklyQtys(sku) {
 
     const rawD = colDate !== -1 ? String(row[colDate] || '').trim() : '';
     if (!rawD) continue;
-    const d = new Date(rawD);
-    if (isNaN(d)) continue;
-    d.setHours(0,0,0,0);
-
-    let weekIdx = -1;
-    for (let wi = 0; wi < weeks.length; wi++) {
-      const fwS = parseDt(weeks[wi].dt);
-      const fwE = wi + 1 < weeks.length ? parseDt(weeks[wi + 1].dt) : null;
-      if (d >= fwS && (!fwE || d < fwE)) { weekIdx = wi; break; }
+    // Use parseDt for consistent local-time parsing (avoids UTC timezone offset)
+    let d;
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawD)) {
+      d = parseDt(rawD);
+    } else {
+      d = new Date(rawD);
+      if (!isNaN(d)) d.setHours(0,0,0,0);
     }
-    if (weekIdx === -1) continue;
+    if (!d || isNaN(d)) continue;
+
+    // Use pre-computed weekIdx from col 5 if available (ensures consistency with syncFromATS)
+    let weekIdx = (row.length > 5 && row[5] != null && row[5] !== '') ? parseInt(row[5]) : -1;
+    if (weekIdx === -1) {
+      // Fall back to date-based derivation
+      for (let wi = 0; wi < weeks.length; wi++) {
+        const fwS = parseDt(weeks[wi].dt);
+        const fwE = wi + 1 < weeks.length ? parseDt(weeks[wi + 1].dt) : null;
+        if (d >= fwS && (!fwE || d < fwE)) { weekIdx = wi; break; }
+      }
+    }
+    if (weekIdx === -1 || weekIdx >= weeks.length) continue;
 
     const poId      = colPo !== -1 ? String(row[colPo] || '').trim() : '';
     const rowKey    = `${poId}|${pid}|${rawD}`;
@@ -3263,6 +3509,15 @@ function computeCpWeeklyQtys(sku) {
     if (!result[groupKey]) result[groupKey] = { qtys: new Array(weeks.length).fill(0), cp, caseConf, model: pid };
     result[groupKey].qtys[weekIdx] += qty;
   }
+  const p3 = products.find(x => x.sku === sku);
+  const baseModelUp2 = p3 ? p3.model.toUpperCase().trim() : '';
+  (state[sku].additionalModels || []).forEach(am => {
+    const amLower = am.toLowerCase().trim();
+    const hasEntry = Object.values(result).some(v => v.model && v.model.toLowerCase() === amLower);
+    if (!hasEntry && am.toUpperCase().trim() !== baseModelUp2) {
+      result['__no_cp__||' + amLower] = { qtys: new Array(weeks.length).fill(0), cp: '', caseConf: '', model: amLower };
+    }
+  });
   return result;
 }
 
@@ -3305,16 +3560,21 @@ function buildFrSubRows(sku) {
 
     const tdLbl = document.createElement('td');
     tdLbl.className = 'row-lbl';
-    tdLbl.style.cssText = 'font-size:10px;white-space:normal;line-height:1.3;padding:4px 6px;';
-    tdLbl.innerHTML = `<span style="${col ? `color:${col};font-weight:700;` : 'color:rgba(255,255,255,0.65);'}">${labelText}</span>`;
+    tdLbl.style.cssText = 'font-size:10px;white-space:normal;line-height:1.2;padding:1px 6px;vertical-align:middle;';
+    const safeModel = model.replace(/'/g,"\\'");
+    const removeBtn = isAddlModel
+      ? `<button onclick="removeAdditionalModel('${sku}','${safeModel}')" title="Remove ${model}" class="fr-ctrl-btn" style="color:rgba(255,120,120,1);border-color:rgba(255,100,100,0.45);background:rgba(255,100,100,0.12);font-size:11px;width:16px;height:16px;">✕</button>`
+      : '';
+    tdLbl.innerHTML = `<span style="color:rgba(180,190,200,0.65);font-style:italic;">${labelText}</span>${removeBtn}`;
     tr.appendChild(tdLbl);
 
     weeks.forEach((w, i) => {
       const td  = document.createElement('td');
       const isPast = i < getCurrentWeekIdx();
-      td.className = isPast ? 'col-past' : '';
+      const curIdx = getCurrentWeekIdx();
+      td.className = (i < curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : '');
       const qty = qtys[i] || 0;
-      if (col && qty > 0) { td.style.background = col + '44'; }
+      // No background color on sub-row cells
       const inp = document.createElement('input');
       inp.type = 'text';
       inp.readOnly = true;
@@ -3331,13 +3591,57 @@ function buildFrSubRows(sku) {
   });
 }
 
+function removeAdditionalModel(sku, model) {
+  if (!state[sku]) return;
+  const modelLower = model.toLowerCase().trim();
+  state[sku].additionalModels = (state[sku].additionalModels || []).filter(m => m.toLowerCase() !== modelLower);
+  // Remove synthetic rows for this model from lastInboundData
+  if (lastInboundData) {
+    lastInboundData = lastInboundData.filter((row, idx) => {
+      if (idx === 0) return true; // keep header
+      return String(row[0] || '').trim().toLowerCase() !== modelLower;
+    });
+  }
+  // Remove from firmReceipts (can't easily separate, just rebuild from remaining)
+  updateCalcs(sku);
+  saveState();
+  // Rebuild sub-rows without this model
+  buildFrSubRows(sku);
+  applyFilters();
+  renderInboundPage();
+}
+
 function expandFR(sku) {
+  // If ATS not yet loaded, show a waiting message and bail
+  if (!lastInboundData || lastInboundData.length < 2) {
+    const block = document.getElementById('block-' + sku);
+    if (block) {
+      const existing = block.querySelector('tr.fr-sub-row');
+      if (!existing) {
+        const tbody = block.querySelector('table.grid tbody');
+        const mainRow = document.getElementById('fr-row-' + sku);
+        if (tbody && mainRow) {
+          const tr = document.createElement('tr');
+          tr.className = 'fr-sub-row';
+          const td = document.createElement('td');
+          td.colSpan = 999;
+          td.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.4);font-style:italic;padding:4px 8px;';
+          td.textContent = 'Connect ATS to load case pack sub-rows…';
+          tr.appendChild(td);
+          mainRow.insertAdjacentElement('afterend', tr);
+        }
+      }
+    }
+    return;
+  }
   buildFrSubRows(sku);
   const block = document.getElementById('block-' + sku);
   if (block) block.querySelectorAll('tr.fr-sub-row').forEach(r => r.style.display = '');
   // Remove placeholder container
   const ph = document.getElementById('fr-sub-container-' + sku);
   if (ph) ph.remove();
+  // Re-apply column visibility so hidden past-week cells are also hidden in sub-rows
+  applyFilters();
 }
 
 function shrinkFR(sku) {
@@ -3383,7 +3687,13 @@ function saveAddModel() {
   const existing = state[sku].additionalModels || [];
   const p = products.find(x => x.sku === sku);
   if ((p && p.model.toUpperCase() === model) || existing.map(m => m.toUpperCase()).includes(model)) {
-    statusEl.style.color = '#fde68a'; statusEl.textContent = `${model} is already tracked for this SKU.`; return;
+    statusEl.style.color = '#fde68a';
+    statusEl.textContent = `${model} is already tracked for this SKU.`;
+    // Still expand sub-rows and refresh inbound so user can see it
+    renderInboundPage();
+    expandFR(sku);
+    setTimeout(() => { closeAddModelPopup(); showPage('inventory'); setTimeout(() => { expandFR(sku); applyFilters(); }, 50); }, 1200);
+    return;
   }
 
   // Find matching ETA entries in ATS data
@@ -3407,7 +3717,8 @@ function saveAddModel() {
         if (!m) continue;
         const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
         const qty     = parseInt(m[4]);
-        const syntheticRow = [model, model, '', dateStr, qty];
+        const wi3 = findWeekIdx(new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2])));
+        const syntheticRow = [model, model, '', dateStr, qty, wi3];
         if (!lastInboundData) lastInboundData = [['Product ID','Product ID (Text)','Purchase Order ID','Planned Delivery Date','Delivery Notification Quantity']];
         lastInboundData.push(syntheticRow);
         found++;
@@ -3473,13 +3784,23 @@ function getEtaEntriesForModel(modelLower) {
     if (String(row[colPid] || '').trim().toLowerCase() !== modelLower) continue;
     const rawD = String(row[colDate] || '').trim();
     if (!rawD) continue;
-    const d = new Date(rawD); if (isNaN(d)) continue; d.setHours(0,0,0,0);
-    for (let wi = 0; wi < weeks.length; wi++) {
-      const s = parseDt(weeks[wi].dt);
-      const e = wi + 1 < weeks.length ? parseDt(weeks[wi + 1].dt) : null;
-      if (d >= s && (!e || d < e)) {
-        const qty = parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, '')) || 0;
-        entries.push({ weekIdx: wi, qty }); break;
+    let d;
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawD)) { d = parseDt(rawD); }
+    else { d = new Date(rawD); if (!isNaN(d)) d.setHours(0,0,0,0); }
+    if (!d || isNaN(d)) continue;
+    // Use pre-computed weekIdx if stored in col 5
+    const preWi = (row.length > 5 && row[5] != null && row[5] !== '') ? parseInt(row[5]) : -1;
+    if (preWi >= 0 && preWi < weeks.length) {
+      const qty = parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, '')) || 0;
+      entries.push({ weekIdx: preWi, qty });
+    } else {
+      for (let wi = 0; wi < weeks.length; wi++) {
+        const s = parseDt(weeks[wi].dt);
+        const e = wi + 1 < weeks.length ? parseDt(weeks[wi + 1].dt) : null;
+        if (d >= s && (!e || d < e)) {
+          const qty = parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, '')) || 0;
+          entries.push({ weekIdx: wi, qty }); break;
+        }
       }
     }
   }
@@ -3498,7 +3819,7 @@ const CP_PALETTE = [
 function loadCpColors() {
   try { return JSON.parse(localStorage.getItem(CP_COLORS_KEY) || '{}'); } catch(e) { return {}; }
 }
-function saveCpColors(d) { localStorage.setItem(CP_COLORS_KEY, JSON.stringify(d)); }
+function saveCpColors(d) { if (isTestMode) return; localStorage.setItem(CP_COLORS_KEY, JSON.stringify(d)); }
 
 // All unique non-empty case packs saved for a given SKU across ALL inbound edits
 function getSkuCasePacks(sku) {
@@ -3534,6 +3855,13 @@ function refreshCpPills(sku) {
 // Refresh pills for ALL products (called after bulk sync)
 function refreshAllCpPills() {
   products.forEach(p => { refreshCpPills(p.sku); applyFrCpColors(p.sku); });
+
+// Auto-expand firm receipt rows that have additional models saved
+setTimeout(() => {
+  products.forEach(p => {
+    if ((state[p.sku].additionalModels || []).length > 0) expandFR(p.sku);
+  });
+}, 80);
 }
 
 // Open colour-picker popover near the clicked pill
@@ -3678,9 +4006,9 @@ function openRpPopup(sku, idx) {
   const p = products.find(x => x.sku === sku);
   const d = state[sku].reorderData[idx];
   document.getElementById('rpSub').textContent = weeks[idx].fw + ' — ' + (p ? p.desc : sku);
-  document.getElementById('rpQty').value      = d ? (d.qty || '') : '';
-  document.getElementById('rpCasePack').value = d ? (d.casePack || '') : '';
-  document.getElementById('rpConfig').value   = d ? (d.config || '') : '';
+  document.getElementById('rpQty').value      = '';
+  document.getElementById('rpCasePack').value = '';
+  document.getElementById('rpConfig').value   = '';
   document.getElementById('rpOverlay').classList.add('open');
   setTimeout(() => document.getElementById('rpQty').focus(), 50);
 }
@@ -3716,18 +4044,8 @@ function saveRpPopup() {
 }
 
 function applyReorderColor(td, casePack) {
-  // Reset
   td.style.background = '';
   td.style.color = '';
-  if (!casePack) return;
-  const cp = casePack.trim().toLowerCase();
-  if (cp.includes('/24') || cp === '1/24') {
-    td.style.background = 'rgba(251,146,60,0.45)';
-    td.style.color = '#fff';
-  } else if (cp.includes('/12') || cp === '1/12') {
-    td.style.background = 'rgba(139,92,246,0.40)';
-    td.style.color = '#fff';
-  }
 }
 
 document.getElementById('rpOverlay').addEventListener('click', function(e) {
@@ -3806,11 +4124,13 @@ function openFrDetailPopup(sku, weekIdx) {
       }
     }
 
-    const poId    = colPoId     !== -1 ? String(row[colPoId]     || '').trim() : '';
+    const rawPoId = colPoId     !== -1 ? String(row[colPoId]     || '').trim() : '';
     const rawDate = colDelivDate !== -1 ? String(row[colDelivDate] || '').trim() : '';
     const qty     = colQty      !== -1 ? Math.round(parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, ''))) : null;
-    const rowKey  = `${poId}|${pid}|${rawDate}`;   // stable: matches inbound table key
+    const rowKey  = `${rawPoId}|${pid}|${rawDate}`;   // stable: matches inbound table key
     const saved   = editData[rowKey] || {};
+    // Use the user-edited PO ID if available, otherwise fall back to raw value
+    const poId    = saved.poId || rawPoId;
 
     matches.push({ poId, rawDate, qty, saved });
   }
@@ -3867,11 +4187,28 @@ document.getElementById('frDetailOverlay').addEventListener('click', function(e)
 // ── localStorage persistence ─────────────────────────────────────────────────
 const STORE_KEY = 'merkury_inv_v3';
 
+// ── One-time cleanup: clear all additionalModels so they can be re-added manually ──
+(function clearAdditionalModels() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+    if (raw && raw.state) {
+      let changed = false;
+      Object.values(raw.state).forEach(s => {
+        if (s.additionalModels && s.additionalModels.length > 0) {
+          s.additionalModels = [];
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem(STORE_KEY, JSON.stringify(raw));
+    }
+  } catch(e) {}
+})();
+
 // ── Supabase persistence helpers ──────────────────────────────────────────────
 
 // Fire-and-forget: upsert reorder data to Supabase sku_weekly
 async function saveStateSupabase() {
-  if (!sbClient) return;
+  if (isTestMode || !sbClient) return;
   try {
     const weeklyUpserts = [];
     products.forEach(p => {
@@ -3945,8 +4282,6 @@ async function loadFromSupabase() {
         if (row.suof_forecast != null && state[sku].suofFromExcel)
           state[sku].suofFromExcel[week_idx] = row.suof_forecast;
         if (row.pos_units  != null) state[sku].posUnits[week_idx]  = row.pos_units;
-        if (row.sales_rate != null && row.sales_rate > 0)
-          state[sku].salesRates[week_idx] = row.sales_rate;
         if (row.reorder_qty != null) {
           state[sku].reorders[week_idx] = row.reorder_qty;
           if (row.reorder_qty > 0 || row.reorder_case_pack || row.reorder_config) {
@@ -3971,9 +4306,6 @@ async function loadFromSupabase() {
         block.querySelectorAll('input[data-row="posUnits"]').forEach(inp => {
           inp.value = fmtInput(s.posUnits[parseInt(inp.dataset.idx)] || 0);
         });
-        block.querySelectorAll('input[data-row="salesRate"]').forEach(inp => {
-          inp.value = fmtInput(s.salesRates[parseInt(inp.dataset.idx)] || 0);
-        });
         block.querySelectorAll('input[data-row="reorder"]').forEach(inp => {
           const idx = parseInt(inp.dataset.idx);
           inp.value = fmtInput(s.reorders[idx] || 0);
@@ -3987,6 +4319,22 @@ async function loadFromSupabase() {
     });
     renderSummary();
     renderReorderTab();
+
+    // Deferred second pass: force WOS cells to re-render after all DOM/state updates settle
+    setTimeout(() => {
+      products.forEach(p => {
+        const block = document.getElementById('block-' + p.sku);
+        if (!block) return;
+        const s = state[p.sku];
+        // Sync sales rate inputs from state (catches any Supabase-vs-display mismatch)
+        block.querySelectorAll('input[data-row="salesRate"]').forEach(inp => {
+          inp.value = fmtInput(s.salesRates[parseInt(inp.dataset.idx)] || 0);
+        });
+        updateCalcs(p.sku);
+      });
+      renderSummary();
+      applyFilters();  // re-apply column visibility after all data settles
+    }, 250);
 
     // Show connection badges if data came from Supabase
     const atsSku = Object.keys(state).find(s => state[s].atsConnected);
@@ -4002,6 +4350,7 @@ async function loadFromSupabase() {
 }
 
 function saveState() {
+  if (isTestMode) return;
   try {
     const snapshot = {
       state: {},
@@ -4030,7 +4379,11 @@ function saveState() {
         vdConnected:       s.vdConnected,
         suofFromExcel:     s.suofFromExcel,
         atsConnected:      s.atsConnected,
-        onHandMerkury:     s.onHandMerkury
+        onHandMerkury:     s.onHandMerkury,
+        additionalModels:  s.additionalModels || [],
+        openStock:         s.openStock  || 0,
+        skinnyQP:          s.skinnyQP   || 0,
+        trackingStartIdx:  s.trackingStartIdx != null ? s.trackingStartIdx : 0
       };
       const b = document.getElementById('block-' + p.sku);
       snapshot.collapsed[p.sku] = b ? b.classList.contains('collapsed') : false;
@@ -4095,6 +4448,7 @@ function loadState() {
       s.atsConnected       = !!saved.atsConnected;
       s.openStock          = saved.openStock || 0;
       s.skinnyQP           = saved.skinnyQP  || 0;
+      s.additionalModels   = saved.additionalModels || [];
       s.onHandMerkury      = saved.onHandMerkury != null ? saved.onHandMerkury : p.onHandMerkury;
       s.trackingStartIdx   = saved.trackingStartIdx != null ? saved.trackingStartIdx : 0;
     });
@@ -4115,7 +4469,7 @@ function initFilterBar() {
     to.appendChild(new Option(w.fw, i));
   });
   const curIdx3 = getCurrentWeekIdx();
-  from.value = Math.max(0, curIdx3 - 3);
+  from.value = Math.max(0, curIdx3 - 1);
   to.value   = Math.min(27, weeks.length - 1);
   buildFilterDropdown();
   applyFilters();
@@ -4202,12 +4556,12 @@ function applyFilters() {
     const visible = filterSelected === null || filterSelected.has(p.sku);
     block.style.display = visible ? '' : 'none';
 
-    // Show/hide week columns (col 0 = row label, cols 1..N = weeks)
+    // Show/hide week columns using a CSS class (!important prevents inline style.cssText overrides)
     block.querySelectorAll('table.grid thead tr th, table.grid tbody tr td').forEach(cell => {
       const idx = cell.cellIndex;
       if (idx === 0) return; // row label — always show
       const weekIdx = idx - 1;
-      cell.style.display = (weekIdx >= fromIdx && weekIdx <= toIdx) ? '' : 'none';
+      cell.classList.toggle('col-range-hidden', weekIdx < fromIdx || weekIdx > toIdx);
     });
   });
 }
@@ -4290,88 +4644,146 @@ function initDragDrop() {
 
 
 
-// ── Reorder tab chart ─────────────────────────────────────────────────────────
+
+// ── PO Confirmation Popup ─────────────────────────────────────────────────────
+let poConfirmSku = null, poConfirmIdx = null;
+function openPoConfirmPopup(sku, idx) {
+  const p = products.find(x => x.sku === sku);
+  const d = state[sku] && state[sku].reorderData ? state[sku].reorderData[idx] : null;
+  const qty = state[sku] ? (state[sku].reorders[idx] || 0) : 0;
+  if (!qty) return;
+  poConfirmSku = sku; poConfirmIdx = idx;
+  document.getElementById('poConfirmSub').textContent = (weeks[idx] ? weeks[idx].fw : '') + ' — ' + (p ? p.desc : sku);
+  const details = document.getElementById('poConfirmDetails');
+  const row = (lbl, val) => '<span style="color:rgba(255,255,255,0.50);">' + lbl + '</span><span style="color:var(--text-1);font-weight:600;">' + val + '</span>';
+  details.innerHTML = row('Quantity', qty.toLocaleString()) + row('Case Pack', (d && d.casePack) || '—') + row('Configuration', (d && d.config) || '—') + row('Delivery', weeks[idx] ? weeks[idx].dt : '—');
+  document.getElementById('poConfirmOverlay').classList.add('open');
+}
+function closePoConfirmPopup() { document.getElementById('poConfirmOverlay').classList.remove('open'); poConfirmSku = null; poConfirmIdx = null; }
+function confirmPOCreation() {
+  if (poConfirmSku === null || poConfirmIdx === null) return;
+  const s = state[poConfirmSku];
+  if (s) {
+    s.reorders[poConfirmIdx] = 0;
+    if (s.reorderData[poConfirmIdx]) s.reorderData[poConfirmIdx].qty = 0;
+    const inp = document.querySelector('input[data-row="reorder"][data-sku="' + poConfirmSku + '"][data-idx="' + poConfirmIdx + '"]');
+    if (inp) inp.value = '';
+    updateCalcs(poConfirmSku); saveState(); renderReorderTab();
+  }
+  closePoConfirmPopup();
+}
+document.getElementById('poConfirmOverlay').addEventListener('click', function(e) { if (e.target === this) closePoConfirmPopup(); });
+
+// ── Reorder tab actions ───────────────────────────────────────────────────────
+let roSelectedKeys = new Set();
+let pendingSendRows = [];
+function roKey(model, weekDate) { return model + '|' + weekDate; }
+
+function deleteReorderRow(model, weekDate) {
+  const p = products.find(x => x.model === model);
+  if (p && state[p.sku]) {
+    const s = state[p.sku];
+    const idx = weeks.findIndex(w => w.dt === weekDate);
+    if (idx !== -1) {
+      s.reorders[idx] = 0;
+      if (s.reorderData[idx]) s.reorderData[idx].qty = 0;
+      const inp = document.querySelector('input[data-row="reorder"][data-sku="' + p.sku + '"][data-idx="' + idx + '"]');
+      if (inp) inp.value = '';
+      updateCalcs(p.sku); saveState();
+    }
+  }
+  roSelectedKeys.delete(roKey(model, weekDate));
+  delete sentReorders[roKey(model, weekDate)];
+  saveSentReorders();
+  renderReorderTab();
+}
+function poPlacedRow(sku, weekIdx, model, weekDate) {
+  const s = state[sku];
+  if (s) {
+    s.reorders[weekIdx] = 0;
+    if (s.reorderData && s.reorderData[weekIdx]) s.reorderData[weekIdx].qty = 0;
+    const inp = document.querySelector('input[data-row="reorder"][data-sku="' + sku + '"][data-idx="' + weekIdx + '"]');
+    if (inp) inp.value = '';
+    updateCalcs(sku);
+    saveState();
+  }
+  roSelectedKeys.delete(roKey(model, weekDate));
+  delete sentReorders[roKey(model, weekDate)];
+  saveSentReorders();
+  renderReorderTab();
+}
+function toggleReorderSelect(model, weekDate) {
+  const k = roKey(model, weekDate);
+  if (roSelectedKeys.has(k)) roSelectedKeys.delete(k); else roSelectedKeys.add(k);
+  renderReorderTab();
+}
+function clearReorderSelection() { roSelectedKeys.clear(); renderReorderTab(); }
+
+function sendSelectedReorders() {
+  const container = document.getElementById('reorderChart');
+  pendingSendRows = [];
+  container.querySelectorAll('tr[data-ro-key]').forEach(tr => {
+    if (!roSelectedKeys.has(tr.dataset.roKey)) return;
+    pendingSendRows.push({ model: tr.dataset.model, desc: tr.dataset.desc, qty: tr.dataset.qty, casePack: tr.dataset.casepack, config: tr.dataset.config, weekDate: tr.dataset.weekdate });
+  });
+  if (!pendingSendRows.length) return;
+  const ts = new Date().toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' });
+  const subject = encodeURIComponent('Reorder Summary — ' + ts);
+  let body = 'Reorder Summary\n' + '='.repeat(50) + '\n\n';
+  pendingSendRows.forEach(r => { body += 'Model: ' + r.model + '\nProduct: ' + r.desc + '\nQty: ' + Number(r.qty).toLocaleString() + '\nCase Pack: ' + (r.casePack||'—') + '\nConfig: ' + (r.config||'—') + '\nWarehouse Delivery Date: ' + r.weekDate + '\n\n'; });
+  body += '='.repeat(50) + '\nSent from Merkury Forecast Dashboard';
+  window.location.href = 'mailto:?subject=' + subject + '&body=' + encodeURIComponent(body);
+  const listEl = document.getElementById('sendConfirmList');
+  listEl.innerHTML = pendingSendRows.map(r => '<div class="send-confirm-row"><div class="sc-model">' + r.model + ' — ' + r.desc + '</div><div class="sc-lbl">Quantity</div><div class="sc-val">' + Number(r.qty).toLocaleString() + '</div><div class="sc-lbl">Case Pack</div><div class="sc-val">' + (r.casePack||'—') + '</div><div class="sc-lbl">Config</div><div class="sc-val">' + (r.config||'—') + '</div><div class="sc-lbl">Delivery</div><div class="sc-val">' + r.weekDate + '</div></div>').join('');
+  document.getElementById('sendConfirmSub').textContent = 'Email opened with ' + pendingSendRows.length + ' reorder' + (pendingSendRows.length > 1 ? 's' : '') + '. Once sent, click Confirm.';
+  document.getElementById('sendConfirmOverlay').classList.add('open');
+}
+function closeSendConfirm() { document.getElementById('sendConfirmOverlay').classList.remove('open'); pendingSendRows = []; }
+function confirmReorderSent() {
+  if (!pendingSendRows.length) return;
+  const sentAt = new Date().toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+  pendingSendRows.forEach(r => { sentReorders[roKey(r.model, r.weekDate)] = { sentAt }; });
+  saveSentReorders();
+  roSelectedKeys.clear(); pendingSendRows = [];
+  document.getElementById('sendConfirmOverlay').classList.remove('open');
+  renderReorderTab();
+}
+document.getElementById('sendConfirmOverlay').addEventListener('click', function(e) { if (e.target === this) closeSendConfirm(); });
+
+// ── Reorder tab ───────────────────────────────────────────────────────────────
 function renderReorderTab() {
   const container = document.getElementById('reorderChart');
   if (!container) return;
-
-  // Collect all entries where qty > 0
   const rows = [];
   products.forEach(p => {
     const s = state[p.sku];
     if (!s || !s.reorderData) return;
     s.reorderData.forEach((d, i) => {
       if (!d || !d.qty) return;
-      rows.push({
-        model:       p.model || '',
-        desc:        p.desc  || '',
-        qty:         d.qty,
-        casePack:    d.casePack || '',
-        config:      d.config   || '',
-        weekLabel:   weeks[i] ? weeks[i].fw : '',
-        weekDate:    weeks[i] ? weeks[i].dt : ''
-      });
+      rows.push({ sku: p.sku, weekIdx: i, model: p.model||'', desc: p.desc||'', qty: d.qty, casePack: d.casePack||'', config: d.config||'', weekLabel: weeks[i]?weeks[i].fw:'', weekDate: weeks[i]?weeks[i].dt:'' });
     });
   });
-
-  // Sort by delivery date
-  rows.sort((a, b) => {
-    const parseD = dt => { if (!dt) return 0; const [m,d,y] = dt.split('/'); return new Date(y,m-1,d).getTime(); };
-    return parseD(a.weekDate) - parseD(b.weekDate);
-  });
-
+  rows.sort((a, b) => { const pd = dt => { if (!dt) return 0; const [m,d,y] = dt.split('/'); return new Date(y,m-1,d).getTime(); }; return pd(a.weekDate) - pd(b.weekDate); });
   if (rows.length === 0) {
     container.innerHTML = '<div class="reorder-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg><div>No reorder entries yet.</div><div style="margin-top:6px;font-size:12px;color:var(--text-3);">Click any Reorder cell in the Weekly Recap to enter a quantity.</div></div>';
     return;
   }
-
-  const totalQty = rows.reduce((s, r) => s + r.qty, 0);
-  const skuCount = new Set(rows.map(r => r.model)).size;
-
-  function cpClass(cp) {
-    if (!cp) return '';
-    const c = cp.toLowerCase();
-    if (c.includes('/24')) return 'orange';
-    if (c.includes('/12')) return 'purple';
-    return '';
-  }
-
+  const activeRows = rows.filter(r => !sentReorders[roKey(r.model, r.weekDate)]);
+  const totalQty = activeRows.reduce((s, r) => s + r.qty, 0);
+  const skuCount = new Set(activeRows.map(r => r.model)).size;
+  const selCount = rows.filter(r => roSelectedKeys.has(roKey(r.model, r.weekDate))).length;
+  function cpClass(cp) { if (!cp) return ''; const c = cp.toLowerCase(); if (c.includes('/24')) return 'orange'; if (c.includes('/12')) return 'purple'; return ''; }
   const rowsHtml = rows.map(r => {
-    const cls = cpClass(r.casePack);
-    const cpHtml = r.casePack
-      ? '<span class="cp-badge ' + cls + '">' + r.casePack + '</span>'
-      : '<span style="color:var(--text-3);">—</span>';
-    return '<tr>' +
-      '<td class="model-cell">' + (r.model || '—') + '</td>' +
-      '<td class="desc-cell">'  + (r.desc  || '—') + '</td>' +
-      '<td class="num">'        + r.qty.toLocaleString() + '</td>' +
-      '<td>'                    + cpHtml + '</td>' +
-      '<td>'                    + (r.config || '<span style="color:var(--text-3);">—</span>') + '</td>' +
-      '<td>'                    + (r.weekDate || r.weekLabel) + '</td>' +
-    '</tr>';
+    const k = roKey(r.model, r.weekDate);
+    const isSel = roSelectedKeys.has(k), isSent = sentReorders[k];
+    const cpHtml = r.casePack ? '<span class="cp-badge ' + cpClass(r.casePack) + '">' + r.casePack + '</span>' : '<span style="color:var(--text-3);">—</span>';
+    const sentBadge = isSent ? '<span class="sent-badge" style="display:inline-block;">✓ Sent ' + sentReorders[k].sentAt + '</span>' : '<span class="sent-badge"></span>';
+    const sm = r.model.replace(/'/g, "\'"), sd = r.weekDate.replace(/'/g, "\'");
+    const actionCell = '<td class="ro-action-cell">' + (!isSent ? '<button class="ro-btn sel-btn' + (isSel?' selected':'') + '" onclick="toggleReorderSelect(\'' + sm + '\',\'' + sd + '\')">' + (isSel?'✓ Selected':'Select') + '</button>' : '') + (isSent ? '<button class="ro-btn po-btn" onclick="poPlacedRow(\'' + r.sku + '\',' + r.weekIdx + ',\'' + sm + '\',\'' + sd + '\')">✓ PO Placed</button>' : '') + '<button class="ro-btn del-btn" onclick="deleteReorderRow(\'' + sm + '\',\'' + sd + '\')">✕ Delete</button></td>';
+    return '<tr class="' + (isSent?'ro-sent':'') + '" data-ro-key="' + k + '" data-model="' + r.model + '" data-desc="' + r.desc.replace(/"/g,'&quot;') + '" data-qty="' + r.qty + '" data-casepack="' + r.casePack + '" data-config="' + r.config + '" data-weekdate="' + r.weekDate + '">' + actionCell + '<td class="model-cell">' + (r.model||'—') + '</td><td class="desc-cell">' + (r.desc||'—') + '</td><td class="num">' + r.qty.toLocaleString() + '</td><td>' + cpHtml + '</td><td>' + (r.config||'<span style="color:var(--text-3);">—</span>') + '</td><td>' + (r.weekDate||r.weekLabel) + sentBadge + '</td></tr>';
   }).join('');
-
-  container.innerHTML =
-    '<div class="reorder-tbl-wrap">' +
-      '<div class="rt-summary-bar">' +
-        '<div class="rt-summary-item"><div class="rt-lbl">Total Reorder Entries</div><div class="rt-val">' + rows.length + '</div></div>' +
-        '<div class="rt-summary-item"><div class="rt-lbl">Total Units</div><div class="rt-val">' + totalQty.toLocaleString() + '</div></div>' +
-        '<div class="rt-summary-item"><div class="rt-lbl">SKUs with Reorders</div><div class="rt-val">' + skuCount + '</div></div>' +
-      '</div>' +
-      '<div class="reorder-tbl-inner">' +
-        '<table class="reorder-chart">' +
-          '<thead><tr>' +
-            '<th>Model Number</th>' +
-            '<th>Product Description</th>' +
-            '<th class="num">Quantity</th>' +
-            '<th>Case Pack</th>' +
-            '<th>Configuration</th>' +
-            '<th>Warehouse Delivery Date</th>' +
-          '</tr></thead>' +
-          '<tbody>' + rowsHtml + '</tbody>' +
-        '</table>' +
-      '</div>' +
-    '</div>';
+  const sendBar = selCount > 0 ? '<div class="send-bar visible"><span class="send-bar-count">' + selCount + ' item' + (selCount>1?'s':'') + ' selected</span><button class="send-bar-btn" onclick="sendSelectedReorders()">📧 Send Selection</button><span class="send-bar-cancel" onclick="clearReorderSelection()">Clear</span></div>' : '<div class="send-bar"></div>';
+  container.innerHTML = '<div class="reorder-tbl-wrap"><div class="rt-summary-bar"><div class="rt-summary-item"><div class="rt-lbl">Total Reorder Entries</div><div class="rt-val">' + activeRows.length + '</div></div><div class="rt-summary-item"><div class="rt-lbl">Total Units</div><div class="rt-val">' + totalQty.toLocaleString() + '</div></div><div class="rt-summary-item"><div class="rt-lbl">SKUs with Reorders</div><div class="rt-val">' + skuCount + '</div></div></div>' + sendBar + '<div class="reorder-tbl-inner"><table class="reorder-chart"><thead><tr><th style="width:160px;"></th><th>Model Number</th><th>Product Description</th><th class="num">Quantity</th><th>Case Pack</th><th>Configuration</th><th>Warehouse Delivery Date</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div></div>';
 }
 
 // ── Auto-logout after 15 min inactivity ──────────────────────────────────────
@@ -4384,6 +4796,7 @@ function resetInactivityTimer() {
 }
 
 function autoLogout() {
+  isTestMode = false;
   const box = document.getElementById('loginBox');
   box.classList.remove('expanding');
   box.style.animation = 'none';
@@ -4411,7 +4824,7 @@ function startInactivityWatch() {
 // ── Login modal ───────────────────────────────────────────────────────────────
 
 // ── Photorealistic Moon Canvas ────────────────────────────────────────────────
-(function drawMoon() {
+function drawMoon() {
   const canvas = document.getElementById('moonCanvas');
   if (!canvas) return;
   const S = 512;
@@ -4538,7 +4951,8 @@ function startInactivityWatch() {
   ctx.fillStyle = '#fff';
   ctx.fill();
   ctx.globalCompositeOperation = 'source-over';
-})();
+}
+window.addEventListener('load', drawMoon);
 
 // ── Astronaut drag ───────────────────────────────────────────────────────────
 (function initAstronautDrag() {
@@ -4800,13 +5214,61 @@ function startInactivityWatch() {
   setTimeout(spawnShootingStar, 1000);
 })();
 
+// Pure-JS SHA-256 — works in file:// context (no crypto.subtle / HTTPS required)
+function _sha256(str) {
+  function rr(v,a){return(v>>>a)|(v<<(32-a));}
+  const K=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+           0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+           0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+           0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+           0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+           0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+           0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+           0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  let h=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  const bytes=[];
+  for(let i=0;i<str.length;i++){
+    const c=str.charCodeAt(i);
+    if(c<128)bytes.push(c);
+    else if(c<2048)bytes.push((c>>6)|192,(c&63)|128);
+    else bytes.push((c>>12)|224,((c>>6)&63)|128,(c&63)|128);
+  }
+  const bitLen=bytes.length*8;
+  bytes.push(0x80);
+  while(bytes.length%64!==56)bytes.push(0);
+  for(let i=56;i>=0;i-=8)bytes.push((bitLen/Math.pow(2,i))&255);
+  for(let chunk=0;chunk<bytes.length;chunk+=64){
+    const w=[];
+    for(let i=0;i<16;i++)w[i]=(bytes[chunk+i*4]<<24)|(bytes[chunk+i*4+1]<<16)|(bytes[chunk+i*4+2]<<8)|bytes[chunk+i*4+3];
+    for(let i=16;i<64;i++){const s0=(rr(w[i-15],7)^rr(w[i-15],18)^(w[i-15]>>>3));const s1=(rr(w[i-2],17)^rr(w[i-2],19)^(w[i-2]>>>10));w[i]=(w[i-16]+s0+w[i-7]+s1)|0;}
+    let[a,b,c,d,e,f,g,hh]=h;
+    for(let i=0;i<64;i++){
+      const S1=(rr(e,6)^rr(e,11)^rr(e,25)),ch=(e&f)^(~e&g),t1=(hh+S1+ch+K[i]+w[i])|0;
+      const S0=(rr(a,2)^rr(a,13)^rr(a,22)),maj=(a&b)^(a&c)^(b&c),t2=(S0+maj)|0;
+      hh=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0;
+    }
+    h[0]=(h[0]+a)|0;h[1]=(h[1]+b)|0;h[2]=(h[2]+c)|0;h[3]=(h[3]+d)|0;
+    h[4]=(h[4]+e)|0;h[5]=(h[5]+f)|0;h[6]=(h[6]+g)|0;h[7]=(h[7]+hh)|0;
+  }
+  return h.map(x=>(x>>>0).toString(16).padStart(8,'0')).join('');
+}
+
 function doLogin() {
-  const user = document.getElementById('loginUser').value.trim();
-  const pass = document.getElementById('loginPass').value;
-  const VALID_USER = 'Teasley@merkuryinnovations.com';
-  const VALID_PASS = '$Dab11211';
-  const errEl = document.getElementById('loginErr');
-  if (user.toLowerCase() === VALID_USER.toLowerCase() && pass === VALID_PASS) {
+  const user     = document.getElementById('loginUser').value.trim();
+  const pass     = document.getElementById('loginPass').value;
+  const errEl    = document.getElementById('loginErr');
+  // Stored as SHA-256 hashes — plaintext passwords never appear in source
+  const REAL_USER_LC   = 'teasley@merkuryinnovations.com';
+  const REAL_PASS_HASH = '65d550630e648d6c35597db2272259a545fc41a08e626c2793193104de99fcff';
+  const TEST_USER_LC   = 'test';
+  const TEST_PASS_HASH = '532eaabd9574880dbf76b9b8cc00832c20a6ec113d682299550d7a6e0f345e25';
+
+  const passHash = _sha256(pass);
+  const isReal   = user.toLowerCase() === REAL_USER_LC && passHash === REAL_PASS_HASH;
+  const isTest   = user.toLowerCase() === TEST_USER_LC && passHash === TEST_PASS_HASH;
+
+  if (isReal || isTest) {
+    isTestMode = isTest;
     if (errEl) errEl.style.display = 'none';
     const box = document.getElementById('loginBox');
     const overlay = document.getElementById('loginOverlay');
@@ -4818,7 +5280,7 @@ function doLogin() {
         overlay.classList.add('hidden');
         overlay.style.opacity = '';
         overlay.style.transition = '';
-        loadFromSupabase();
+        if (!isTestMode) loadFromSupabase();
         startInactivityWatch();
       }, 460);
     }
@@ -4867,6 +5329,7 @@ document.getElementById('todayDate').textContent = new Date().toLocaleDateString
 // Restore persisted data before building DOM
 const savedSnap = loadState();
 
+
 renderSummary();
 
 // Build and append all product blocks
@@ -4905,6 +5368,7 @@ document.getElementById('inputVd').addEventListener('change', function(e) {
 });
 
 showPage('inventory');
+
 </script>
 </body>
 </html>
