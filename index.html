@@ -2090,7 +2090,7 @@ function parseEtaField(etaStr) {
 let autoSyncAtsTimer = null;
 let lastAtsData     = null;  // cached for auto-filling new items
 let lastAtsItemInfo  = null;  // 'Item Info' tab — Inner/Master packs
-let lastInboundData  = null;  // 'Inbound' tab raw rows
+let lastInboundData  = null;  // 'Inbound' tab raw rows — also persisted to localStorage
 let lastSoDetailData = null;  // 'SO Detail' tab raw rows
 
 // ── THD Sales Order ──────────────────────────────────────────────────────────
@@ -2288,6 +2288,7 @@ async function syncFromATS() {
         }
       }
       lastInboundData = syntheticRows;
+      if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(syntheticRows)); } catch(e) {}
       // Re-render inbound page if it's currently visible
       const inboundPage = document.getElementById('page-inbound');
       if (inboundPage && inboundPage.classList.contains('active')) renderInboundPage();
@@ -2336,6 +2337,13 @@ async function syncFromATS() {
     if (synced === 0) throw new Error('No matching model numbers found in ATS sheet.');
 
     renderSummary();
+    // Pre-compute and store case-pack breakdown so sub-rows survive logout/refresh
+    products.forEach(p => {
+      if (state[p.sku].atsConnected) {
+        const cpData = computeCpWeeklyQtys(p.sku);
+        if (Object.keys(cpData).length > 0) state[p.sku].savedCpData = cpData;
+      }
+    });
     saveState();
 
     // ── Upsert to Supabase ────────────────────────────────────────────────────
@@ -2465,6 +2473,7 @@ async function refreshInboundPage() {
       }
     }
     lastInboundData = syntheticRows;
+    if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(syntheticRows)); } catch(e) {}
     renderInboundPage();
   } catch(e) {
     document.getElementById('inboundContent').innerHTML =
@@ -2472,11 +2481,13 @@ async function refreshInboundPage() {
   }
 }
 
-const INBOUND_EDIT_KEY = 'merkury_inbound_edits_v1';
+const INBOUND_EDIT_KEY  = 'merkury_inbound_edits_v1';
+const INBOUND_DATA_KEY  = 'merkury_inbound_data_v1';
 const SENT_REORDERS_KEY = 'merkury_sent_reorders_v1';
 let sentReorders = {};
 try { sentReorders = JSON.parse(localStorage.getItem(SENT_REORDERS_KEY) || '{}'); } catch(e) {}
 let isTestMode = false;
+let deletedSkus = new Set();
 function saveSentReorders() { if (isTestMode) return; localStorage.setItem(SENT_REORDERS_KEY, JSON.stringify(sentReorders)); }
 
 function _loadInboundEdits() {
@@ -2550,9 +2561,12 @@ function renderInboundPage() {
   ].filter(c => c.idx !== -1);
 
   // ── Build set of known model numbers from the main page ───────────────────────
-  const knownModels = new Set(Object.keys(modelToSku).map(m => m.toLowerCase().trim()));
-  // Also include any additional models added via the + button
+  // Drive from the live products array (base model + additionalModels) so that:
+  //   • User-added products appear immediately after being added
+  //   • Deleted products disappear immediately (they're removed from products[])
+  const knownModels = new Set();
   products.forEach(p => {
+    knownModels.add(p.model.toLowerCase().trim());
     (state[p.sku].additionalModels || []).forEach(m => knownModels.add(m.toLowerCase().trim()));
   });
 
@@ -2856,6 +2870,8 @@ function deleteProduct(sku) {
   const p = products.find(x => x.sku === sku);
   const name = p ? p.desc || p.model : sku;
   if (!confirm('Delete "' + name + '"?\nThis will permanently remove the item and all its data.')) return;
+  // Track deletion so it survives page reload
+  deletedSkus.add(sku);
   // Remove from products array
   const idx = products.findIndex(x => x.sku === sku);
   if (idx >= 0) products.splice(idx, 1);
@@ -2872,6 +2888,7 @@ function deleteProduct(sku) {
   buildFilterDropdown();
   renderSummary();
   renderReorderTab();
+  if (lastInboundData) renderInboundPage();
   saveState();
 }
 
@@ -2890,6 +2907,7 @@ function poPlaced(sku) {
     // Update DOM input
     const inp = document.querySelector(`input[data-sku="${sku}"][data-row="reorder"][data-idx="${i}"]`);
     if (inp) { inp.value = '0'; inp.dispatchEvent(new Event('change')); }
+    upsertZeroReorder(sku, i);
   });
   updateCalcs(sku);
   renderReorderTab();
@@ -3424,6 +3442,7 @@ function submitAddItem() {
   // Rebuild filter dropdown to include new item
   buildFilterDropdown();
   renderReorderTab();
+  if (lastInboundData) renderInboundPage(); // reflect new item in inbound detail immediately
   saveState();
   // Scroll to the new item
   setTimeout(() => block.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
@@ -3436,7 +3455,43 @@ function submitAddItem() {
 // Compute per-case-pack weekly quantities for a SKU.
 // Returns { casePack: Float32Array(weeks.length) }
 function computeCpWeeklyQtys(sku) {
-  if (!lastInboundData || lastInboundData.length < 2) return {};
+  // If no ATS data, use saved cpData snapshot (from last ATS sync) if available
+  if (!lastInboundData || lastInboundData.length < 2) {
+    const saved = state[sku] && state[sku].savedCpData;
+    if (saved && Object.keys(saved).length > 0) {
+      // Return saved breakdown; ensure any new additionalModels not yet in saved are included
+      const result = {};
+      Object.entries(saved).forEach(([k, v]) => {
+        // Pad/truncate qtys to current weeks length
+        const qtys = new Array(weeks.length).fill(0);
+        (v.qtys || []).forEach((q, i) => { if (i < qtys.length) qtys[i] = q; });
+        result[k] = { qtys, cp: v.cp, caseConf: v.caseConf, model: v.model };
+      });
+      // Also add any additionalModels not already covered
+      const p0 = products.find(x => x.sku === sku);
+      const baseUp = p0 ? p0.model.toUpperCase().trim() : '';
+      (state[sku].additionalModels || []).forEach(am => {
+        const amLower = am.toLowerCase().trim();
+        const key = '__no_cp__||' + amLower;
+        if (am.toUpperCase().trim() !== baseUp && !result[key]) {
+          result[key] = { qtys: new Array(weeks.length).fill(0), cp: '', caseConf: '', model: amLower };
+        }
+      });
+      return result;
+    }
+    // No saved data — return placeholders for additionalModels only
+    const result = {};
+    const p0 = products.find(x => x.sku === sku);
+    const baseUp = p0 ? p0.model.toUpperCase().trim() : '';
+    (state[sku].additionalModels || []).forEach(am => {
+      if (am.toUpperCase().trim() !== baseUp) {
+        result['__no_cp__||' + am.toLowerCase().trim()] = {
+          qtys: new Array(weeks.length).fill(0), cp: '', caseConf: '', model: am.toLowerCase().trim()
+        };
+      }
+    });
+    return result;
+  }
 
   const p = products.find(x => x.sku === sku);
   const allModels = new Set();
@@ -3612,27 +3667,31 @@ function removeAdditionalModel(sku, model) {
 }
 
 function expandFR(sku) {
-  // If ATS not yet loaded, show a waiting message and bail
+  // If ATS not yet loaded and no manually-added models, show a waiting message and bail
   if (!lastInboundData || lastInboundData.length < 2) {
-    const block = document.getElementById('block-' + sku);
-    if (block) {
-      const existing = block.querySelector('tr.fr-sub-row');
-      if (!existing) {
-        const tbody = block.querySelector('table.grid tbody');
-        const mainRow = document.getElementById('fr-row-' + sku);
-        if (tbody && mainRow) {
-          const tr = document.createElement('tr');
-          tr.className = 'fr-sub-row';
-          const td = document.createElement('td');
-          td.colSpan = 999;
-          td.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.4);font-style:italic;padding:4px 8px;';
-          td.textContent = 'Connect ATS to load case pack sub-rows…';
-          tr.appendChild(td);
-          mainRow.insertAdjacentElement('afterend', tr);
+    const hasAddl = (state[sku].additionalModels || []).length > 0;
+    if (!hasAddl) {
+      const block = document.getElementById('block-' + sku);
+      if (block) {
+        const existing = block.querySelector('tr.fr-sub-row');
+        if (!existing) {
+          const tbody = block.querySelector('table.grid tbody');
+          const mainRow = document.getElementById('fr-row-' + sku);
+          if (tbody && mainRow) {
+            const tr = document.createElement('tr');
+            tr.className = 'fr-sub-row';
+            const td = document.createElement('td');
+            td.colSpan = 999;
+            td.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.4);font-style:italic;padding:4px 8px;';
+            td.textContent = 'Connect ATS to load case pack sub-rows…';
+            tr.appendChild(td);
+            mainRow.insertAdjacentElement('afterend', tr);
+          }
         }
       }
+      return;
     }
-    return;
+    // Has saved additional models — fall through to render them (with zero data until ATS connects)
   }
   buildFrSubRows(sku);
   const block = document.getElementById('block-' + sku);
@@ -4187,23 +4246,6 @@ document.getElementById('frDetailOverlay').addEventListener('click', function(e)
 // ── localStorage persistence ─────────────────────────────────────────────────
 const STORE_KEY = 'merkury_inv_v3';
 
-// ── One-time cleanup: clear all additionalModels so they can be re-added manually ──
-(function clearAdditionalModels() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
-    if (raw && raw.state) {
-      let changed = false;
-      Object.values(raw.state).forEach(s => {
-        if (s.additionalModels && s.additionalModels.length > 0) {
-          s.additionalModels = [];
-          changed = true;
-        }
-      });
-      if (changed) localStorage.setItem(STORE_KEY, JSON.stringify(raw));
-    }
-  } catch(e) {}
-})();
-
 // ── Supabase persistence helpers ──────────────────────────────────────────────
 
 // Fire-and-forget: upsert reorder data to Supabase sku_weekly
@@ -4230,6 +4272,17 @@ async function saveStateSupabase() {
       await sbClient.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
     }
   } catch(e) { console.warn('Supabase saveState failed:', e.message); }
+}
+
+// Explicitly zero a single reorder row in Supabase (called when row is deleted or PO placed)
+async function upsertZeroReorder(sku, week_idx) {
+  if (isTestMode || !sbClient) return;
+  try {
+    await sbClient.from('sku_weekly').upsert(
+      { sku, week_idx, reorder_qty: 0, reorder_case_pack: '', reorder_config: '' },
+      { onConflict: 'sku,week_idx' }
+    );
+  } catch(e) { console.warn('Supabase zero reorder failed:', e.message); }
 }
 
 // Load from Supabase and apply on top of in-memory state; re-render everything
@@ -4333,6 +4386,10 @@ async function loadFromSupabase() {
         updateCalcs(p.sku);
       });
       renderSummary();
+      // Re-expand firm receipt sub-rows for any SKUs with saved additional models
+      products.forEach(p => {
+        if ((state[p.sku].additionalModels || []).length > 0) expandFR(p.sku);
+      });
       applyFilters();  // re-apply column visibility after all data settles
     }, 250);
 
@@ -4355,6 +4412,7 @@ function saveState() {
     const snapshot = {
       state: {},
       productOrder: products.map(p => p.model),
+      deletedSkus: [...deletedSkus],
       // Save full product metadata so user-added items persist
       productMeta: products.map(p => ({
         model: p.model, sku: p.sku, desc: p.desc,
@@ -4383,7 +4441,8 @@ function saveState() {
         additionalModels:  s.additionalModels || [],
         openStock:         s.openStock  || 0,
         skinnyQP:          s.skinnyQP   || 0,
-        trackingStartIdx:  s.trackingStartIdx != null ? s.trackingStartIdx : 0
+        trackingStartIdx:  s.trackingStartIdx != null ? s.trackingStartIdx : 0,
+        savedCpData:       s.savedCpData || null
       };
       const b = document.getElementById('block-' + p.sku);
       snapshot.collapsed[p.sku] = b ? b.classList.contains('collapsed') : false;
@@ -4400,6 +4459,8 @@ function loadState() {
     if (!raw) return false;
     const snap = JSON.parse(raw);
     if (!snap || !snap.state) return false;
+    // Restore deleted SKUs set
+    if (snap.deletedSkus) snap.deletedSkus.forEach(s => deletedSkus.add(s));
     // Restore any user-added products not in the hardcoded list
     if (snap.productMeta) {
       snap.productMeta.forEach(meta => {
@@ -4451,6 +4512,7 @@ function loadState() {
       s.additionalModels   = saved.additionalModels || [];
       s.onHandMerkury      = saved.onHandMerkury != null ? saved.onHandMerkury : p.onHandMerkury;
       s.trackingStartIdx   = saved.trackingStartIdx != null ? saved.trackingStartIdx : 0;
+      s.savedCpData        = saved.savedCpData || null;
     });
     return snap;
   } catch(e) { return false; }
@@ -4690,6 +4752,7 @@ function deleteReorderRow(model, weekDate) {
       const inp = document.querySelector('input[data-row="reorder"][data-sku="' + p.sku + '"][data-idx="' + idx + '"]');
       if (inp) inp.value = '';
       updateCalcs(p.sku); saveState();
+      upsertZeroReorder(p.sku, idx);
     }
   }
   roSelectedKeys.delete(roKey(model, weekDate));
@@ -4706,6 +4769,7 @@ function poPlacedRow(sku, weekIdx, model, weekDate) {
     if (inp) inp.value = '';
     updateCalcs(sku);
     saveState();
+    upsertZeroReorder(sku, weekIdx);
   }
   roSelectedKeys.delete(roKey(model, weekDate));
   delete sentReorders[roKey(model, weekDate)];
@@ -5328,6 +5392,21 @@ document.getElementById('todayDate').textContent = new Date().toLocaleDateString
 
 // Restore persisted data before building DOM
 const savedSnap = loadState();
+// Remove any hardcoded products the user previously deleted
+deletedSkus.forEach(sku => {
+  const idx = products.findIndex(p => p.sku === sku);
+  if (idx >= 0) products.splice(idx, 1);
+  delete state[sku];
+  // Also purge from modelToSku so deleted items don't appear in ATS sync or inbound detail
+  for (const m of Object.keys(modelToSku)) {
+    if (modelToSku[m] === sku) delete modelToSku[m];
+  }
+});
+// Restore last inbound data from localStorage (so inbound detail works without reconnecting ATS)
+try {
+  const _iraw = localStorage.getItem(INBOUND_DATA_KEY);
+  if (_iraw) lastInboundData = JSON.parse(_iraw);
+} catch(e) {}
 
 
 renderSummary();
@@ -5338,6 +5417,13 @@ products.forEach(p => {
   const block = buildProduct(p);
   container.appendChild(block);
 });
+
+// Auto-expand firm receipt sub-rows for any SKUs that have saved additional models
+if (savedSnap) {
+  products.forEach(p => {
+    if ((state[p.sku].additionalModels || []).length > 0) expandFR(p.sku);
+  });
+}
 
 initFilterBar();
 initDragDrop();
