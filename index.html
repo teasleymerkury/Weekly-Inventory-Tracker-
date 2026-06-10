@@ -1085,7 +1085,7 @@
     <div class="sync-col">
       <div class="sync-col-head">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M8 3v18M16 3v18M2 9h20M2 15h20"/></svg>
-        SUOF Excel
+        THD SUOF Report
       </div>
       <span class="sync-col-status" id="excelStatus">Not connected</span>
       <div class="sync-col-btns">
@@ -1099,7 +1099,7 @@
     <div class="sync-col">
       <div class="sync-col-head">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V21H3V8"/><path d="M23 3H1v5h22V3z"/><path d="M10 12h4"/></svg>
-        ATS &mdash; On Hand &amp; Receipts
+        ATS Report
       </div>
       <span class="sync-col-status" id="atsStatus">Not connected</span>
       <div class="sync-col-btns">
@@ -1113,7 +1113,7 @@
     <div class="sync-col">
       <div class="sync-col-head">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        VendorDrill &mdash; Avg Sales &amp; POS
+        THD POS Report
       </div>
       <span class="sync-col-status" id="vdStatus">Not connected</span>
       <div class="sync-col-btns">
@@ -1161,7 +1161,7 @@
   <div class="modal-overlay" id="addItemModal">
     <div class="modal-box">
       <h2>Add New Item</h2>
-      <div class="modal-hint" id="modalHint">Connect ATS and/or SUOF Excel first to auto-fill data.</div>
+      <div class="modal-hint" id="modalHint">Connect ATS Report and/or THD SUOF Report first to auto-fill data.</div>
       <div class="modal-grid">
         <div class="modal-field">
           <label>Model # *</label>
@@ -2289,6 +2289,7 @@ async function syncFromATS() {
       }
       lastInboundData = syntheticRows;
       if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(syntheticRows)); } catch(e) {}
+      saveInboundCache(syntheticRows);
       // Re-render inbound page if it's currently visible
       const inboundPage = document.getElementById('page-inbound');
       if (inboundPage && inboundPage.classList.contains('active')) renderInboundPage();
@@ -2296,6 +2297,12 @@ async function syncFromATS() {
 
     let synced = 0;
     const skusUpdated = [];
+    // Track which SKUs have already had their additional models summed.
+    // The ATS sheet can have multiple rows per base model (one per QP/case-pack
+    // configuration). Without this guard, additionalModels quantities get added
+    // once per ATS row — causing them to be multiplied N times.
+    const skusAddlModelsDone = new Set();
+
     // Data starts at row index 2 (row 3 in sheet), headers are row index 1
     for (let ri = 2; ri < data.length; ri++) {
       const row = data[ri];
@@ -2316,22 +2323,42 @@ async function syncFromATS() {
       for (const { weekIdx, qty } of etaEntries) {
         newFirmReceipts[weekIdx] = qty;
       }
-      state[sku].firmReceipts = newFirmReceipts;
-      state[sku].atsConnected = true;
+
+      if (!skusAddlModelsDone.has(sku)) {
+        // First ATS row for this SKU: set base receipts, then add additional models once
+        state[sku].firmReceipts = newFirmReceipts;
+        state[sku].atsConnected = true;
+
+        // Add quantities from additional models (added via + button) — only once per SKU
+        (state[sku].additionalModels || []).forEach(addlModel => {
+          getEtaEntriesForModel(addlModel.toLowerCase()).forEach(({ weekIdx, qty }) => {
+            state[sku].firmReceipts[weekIdx] = (state[sku].firmReceipts[weekIdx] || 0) + qty;
+          });
+        });
+
+        skusAddlModelsDone.add(sku);
+        skusUpdated.push(sku);
+        synced++;
+      } else {
+        // Subsequent ATS rows for same SKU (e.g. different QP config):
+        // MERGE base ETA values — do NOT add additional models again
+        newFirmReceipts.forEach((v, i) => {
+          if (v) state[sku].firmReceipts[i] = (state[sku].firmReceipts[i] || 0) + v;
+        });
+        state[sku].atsConnected = true;
+      }
 
       // Update firm receipt input cells in the DOM
       const block = document.getElementById(`block-${sku}`);
       if (block) {
         block.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
           const idx = parseInt(inp.dataset.idx);
-          inp.value = fmtInput(newFirmReceipts[idx] || 0);
+          inp.value = fmtInput(state[sku].firmReceipts[idx] || 0);
         });
       }
 
       updateFirmReceiptLabel(sku);
       updateCalcs(sku);
-      skusUpdated.push(sku);
-      synced++;
     }
 
     if (synced === 0) throw new Error('No matching model numbers found in ATS sheet.');
@@ -2474,6 +2501,7 @@ async function refreshInboundPage() {
     }
     lastInboundData = syntheticRows;
     if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(syntheticRows)); } catch(e) {}
+    saveInboundCache(syntheticRows);
     renderInboundPage();
   } catch(e) {
     document.getElementById('inboundContent').innerHTML =
@@ -3363,6 +3391,10 @@ function submitAddItem() {
                  onHandMerkury, onHandTHD, firmReceipts, salesRates };
   products.push(newP);
 
+  // If this SKU/model was previously deleted, un-delete it so it survives reload
+  deletedSkus.delete(sku);
+  deletedSkus.delete(model);
+
   // Register model→SKU mapping for future ATS syncs
   modelToSku[model] = sku;
 
@@ -3656,8 +3688,28 @@ function removeAdditionalModel(sku, model) {
       if (idx === 0) return true; // keep header
       return String(row[0] || '').trim().toLowerCase() !== modelLower;
     });
+    saveInboundCache(lastInboundData);
   }
-  // Remove from firmReceipts (can't easily separate, just rebuild from remaining)
+  // Rebuild firmReceipts from scratch: base model + all remaining additionalModels
+  const p = products.find(x => x.sku === sku);
+  if (p) {
+    const allModels = [p.model.toLowerCase(), ...(state[sku].additionalModels || []).map(m => m.toLowerCase())];
+    const newFR = new Array(weeks.length).fill(0);
+    allModels.forEach(m => {
+      getEtaEntriesForModel(m).forEach(({ weekIdx, qty }) => {
+        newFR[weekIdx] = (newFR[weekIdx] || 0) + qty;
+      });
+    });
+    state[sku].firmReceipts = newFR;
+    // Update firm receipt input cells in the DOM
+    const block = document.getElementById('block-' + sku);
+    if (block) {
+      block.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
+        const idx = parseInt(inp.dataset.idx);
+        inp.value = fmtInput(state[sku].firmReceipts[idx] || 0);
+      });
+    }
+  }
   updateCalcs(sku);
   saveState();
   // Rebuild sub-rows without this model
@@ -4274,6 +4326,17 @@ async function saveStateSupabase() {
   } catch(e) { console.warn('Supabase saveState failed:', e.message); }
 }
 
+// Save ATS inbound rows to Supabase app_cache so they persist across browser clears / devices
+async function saveInboundCache(rows) {
+  if (isTestMode || !sbClient) return;
+  try {
+    await sbClient.from('app_cache').upsert(
+      { key: 'inbound_rows', data: { rows }, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+  } catch(e) { console.warn('Supabase inbound cache save failed:', e.message); }
+}
+
 // Explicitly zero a single reorder row in Supabase (called when row is deleted or PO placed)
 async function upsertZeroReorder(sku, week_idx) {
   if (isTestMode || !sbClient) return;
@@ -4289,14 +4352,24 @@ async function upsertZeroReorder(sku, week_idx) {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
-        sbClient.from('sku_weekly').select('*')
+        sbClient.from('sku_weekly').select('*'),
+        sbClient.from('app_cache').select('*').eq('key', 'inbound_rows')
       ]);
 
     if (metaErr)   throw metaErr;
     if (weeklyErr) throw weeklyErr;
+
+    // Restore ATS inbound rows from Supabase (overrides localStorage — Supabase is source of truth)
+    if (cacheRows && cacheRows.length > 0) {
+      const rows = cacheRows[0].data && cacheRows[0].data.rows;
+      if (rows && rows.length > 0) {
+        lastInboundData = rows;
+        try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(rows)); } catch(e) {}
+      }
+    }
 
     // Apply sku_meta
     if (metaRows) {
@@ -4391,6 +4464,11 @@ async function loadFromSupabase() {
         if ((state[p.sku].additionalModels || []).length > 0) expandFR(p.sku);
       });
       applyFilters();  // re-apply column visibility after all data settles
+      // Re-render inbound page if it's visible and we now have data from Supabase
+      if (lastInboundData) {
+        const inboundPage = document.getElementById('page-inbound');
+        if (inboundPage && inboundPage.classList.contains('active')) renderInboundPage();
+      }
     }, 250);
 
     // Show connection badges if data came from Supabase
@@ -5386,6 +5464,57 @@ function showPage(page) {
   }
 }
 
+
+// ── Login modal ───────────────────────────────────────────────────────────────
+function doLogin() {
+  const user     = document.getElementById('loginUser').value.trim();
+  const pass     = document.getElementById('loginPass').value;
+  const errEl    = document.getElementById('loginErr');
+  const REAL_USER_LC   = 'teasley@merkuryinnovations.com';
+  const REAL_PASS_HASH = '65d550630e648d6c35597db2272259a545fc41a08e626c2793193104de99fcff';
+  const TEST_USER_LC   = 'test';
+  const TEST_PASS_HASH = '532eaabd9574880dbf76b9b8cc00832c20a6ec113d682299550d7a6e0f345e25';
+
+  const passHash = _sha256(pass);
+  const isReal   = user.toLowerCase() === REAL_USER_LC && passHash === REAL_PASS_HASH;
+  const isTest   = user.toLowerCase() === TEST_USER_LC && passHash === TEST_PASS_HASH;
+
+  if (isReal || isTest) {
+    isTestMode = isTest;
+    if (errEl) errEl.style.display = 'none';
+    const box = document.getElementById('loginBox');
+    const overlay = document.getElementById('loginOverlay');
+
+    function dismissOverlay() {
+      overlay.style.transition = 'opacity 0.45s ease';
+      overlay.style.opacity = '0';
+      setTimeout(() => {
+        overlay.classList.add('hidden');
+        overlay.style.opacity = '';
+        overlay.style.transition = '';
+        if (!isTestMode) loadFromSupabase();
+        startInactivityWatch();
+      }, 460);
+    }
+
+    const fallbackTimer = setTimeout(dismissOverlay, 800);
+    box.classList.add('expanding');
+    box.addEventListener('animationend', () => {
+      clearTimeout(fallbackTimer);
+      dismissOverlay();
+    }, { once: true });
+  } else {
+    if (errEl) { errEl.textContent = 'Incorrect username or password.'; errEl.style.display = 'block'; }
+    document.getElementById('loginPass').value = '';
+    document.getElementById('loginPass').focus();
+  }
+}
+document.getElementById('loginPass').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('loginUser').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('loginPass').focus();
+});
 
 // Init
 document.getElementById('todayDate').textContent = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
