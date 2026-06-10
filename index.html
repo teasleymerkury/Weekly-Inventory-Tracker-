@@ -2912,6 +2912,18 @@ function deleteProduct(sku) {
   for (const m of Object.keys(modelToSku)) {
     if (modelToSku[m] === sku) delete modelToSku[m];
   }
+  // Remove this product's rows from lastInboundData so re-adding it later
+  // doesn't create duplicates in the Inbound Detail
+  if (lastInboundData && p) {
+    const modelUp = p.model.toUpperCase();
+    const addlUp  = (p.additionalModels || []).map(m => m.toUpperCase());
+    const allUp   = new Set([modelUp, ...addlUp]);
+    lastInboundData = lastInboundData.filter((row, i) =>
+      i === 0 || !allUp.has(String(row[0] || '').trim().toUpperCase())
+    );
+    if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(lastInboundData)); } catch(e) {}
+    saveInboundCache(lastInboundData);
+  }
   // Update UI
   buildFilterDropdown();
   renderSummary();
@@ -3370,16 +3382,50 @@ function submitAddItem() {
   let atsConnected   = false;
 
   if (lastAtsData) {
+    // Ensure lastInboundData exists so new item's ETA rows can be added immediately
+    if (!lastInboundData || lastInboundData.length < 1) {
+      lastInboundData = [['Product ID', 'Product ID (Text)', 'Purchase Order ID',
+                          'Planned Delivery Date', 'Delivery Notification Quantity']];
+    }
+    // Remove any stale rows for this model (e.g. from a previous delete + re-add)
+    // so we never push duplicates into lastInboundData
+    lastInboundData = lastInboundData.filter((row, idx) =>
+      idx === 0 || String(row[0] || '').trim().toUpperCase() !== model
+    );
+    let atsFirstMatch = true;
     for (let ri = 2; ri < lastAtsData.length; ri++) {
       const row = lastAtsData[ri];
       if (!row || row[ATS_MODEL_COL] == null) continue;
       if (String(row[ATS_MODEL_COL]).trim().toUpperCase() !== model) continue;
-      const atsNow = row[ATS_NOW_COL];
-      if (atsNow != null && !isNaN(atsNow)) onHandMerkury = Math.round(Number(atsNow));
+      // On Hand — take from first matching row only
+      if (atsFirstMatch) {
+        const atsNow = row[ATS_NOW_COL];
+        if (atsNow != null && !isNaN(atsNow)) onHandMerkury = Math.round(Number(atsNow));
+        atsFirstMatch = false;
+      }
+      // Firm Receipts — MERGE across all rows (one per QP/case-pack config)
       const etaEntries = parseEtaField(row[ATS_ETA_COL]);
-      for (const { weekIdx, qty } of etaEntries) firmReceipts[weekIdx] = qty;
+      for (const { weekIdx, qty } of etaEntries) {
+        firmReceipts[weekIdx] = (firmReceipts[weekIdx] || 0) + qty;
+      }
       atsConnected = true;
-      break;
+      // Seed lastInboundData so Inbound Detail shows this model without a re-sync
+      const etaStr = row[ATS_ETA_COL];
+      if (etaStr) {
+        const etaParts = String(etaStr).split(/\s*&\s*/);
+        for (const part of etaParts) {
+          const em = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
+          if (!em) continue;
+          const dateStr = `${em[1]}/${em[2]}/${em[3]}`;
+          const eqty    = parseInt(em[4]);
+          const wi      = findWeekIdx(new Date(parseInt(em[3]), parseInt(em[1])-1, parseInt(em[2])));
+          lastInboundData.push([model, desc, '', dateStr, eqty, wi]);
+        }
+      }
+    }
+    if (atsConnected) {
+      if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(lastInboundData)); } catch(e) {}
+      saveInboundCache(lastInboundData);
     }
   }
 
@@ -3409,7 +3455,7 @@ function submitAddItem() {
     onHandMerkury
   };
 
-  // Pull VendorDrill data if connected (avgWeeklySalesVD + posUnits)
+  // Pull VendorDrill data if connected (avgWeeklySalesVD + posUnits + onHandTHD)
   if (lastVdData) {
     try {
       const parsed = parseVDSalesTab(lastVdData);
@@ -3418,10 +3464,15 @@ function submitAddItem() {
       const htmlCurFW2  = parseInt(curFWMatch2[1]);
       const htmlCurYr2  = parseInt(curFWMatch2[2]);
       const avgVdWeeks2 = [htmlCurFW2 - 1, htmlCurFW2 - 2, htmlCurFW2 - 3];
-      const vdSku = sku || model;  // try sku first, fall back to model
+      // On Hand (THD) = Str OH Units Wkly for the previous fiscal week
+      const prevIdx2     = Math.max(0, curIdx2 - 1);
+      const prevFWMatch2 = weeks[prevIdx2].fw.match(/FW(\d+)\s+(\d{4})/);
+      const prevFW2      = parseInt(prevFWMatch2[1]);
+      const prevYr2      = parseInt(prevFWMatch2[2]);
+      const ohKey2       = `${prevFW2}_${prevYr2}`;
       for (const checkSku of [sku, model]) {
         if (!checkSku || !parsed[checkSku]) continue;
-        const { weeklyUnits } = parsed[checkSku];
+        const { weeklyUnits, strOhByWeek } = parsed[checkSku];
         const newPosUnits2 = new Array(weeks.length).fill(0);
         weeklyUnits.forEach(({ fw, yr, units }) => {
           const label2 = 'FW' + fw + ' ' + yr;
@@ -3433,13 +3484,18 @@ function submitAddItem() {
           const entry2 = weeklyUnits.find(w => w.fw === vdFW && w.yr === htmlCurYr2);
           avgSum2 += entry2 ? entry2.units : 0;
         });
-        // Will be applied to state[sku] after state is created below
-        state[vdSku] = state[vdSku] || {};
-        state[vdSku]._vdPosUnits    = newPosUnits2;
-        state[vdSku]._vdAvgSales    = Math.round(avgSum2 / 3);
-        state[vdSku]._vdConnected   = true;
-        // Also seed salesRates from POS units so Ending INV projects correctly
-        state[vdSku]._vdSalesRates  = newPosUnits2;
+        // Apply directly to state[sku] (already initialized above)
+        state[sku].posUnits         = newPosUnits2;
+        state[sku].avgWeeklySalesVD = Math.round(avgSum2 / 3);
+        state[sku].vdConnected      = true;
+        // Seed salesRates from POS units so Ending INV projects correctly
+        state[sku].salesRates       = [...newPosUnits2];
+        // On Hand (THD) — update both state and product object so buildProduct renders it
+        if (strOhByWeek && ohKey2 in strOhByWeek) {
+          const ohVal2 = strOhByWeek[ohKey2];
+          state[sku].onHandTHD = ohVal2;
+          newP.onHandTHD = ohVal2;
+        }
         break;
       }
     } catch(e) { /* VD parse failed — ignore */ }
