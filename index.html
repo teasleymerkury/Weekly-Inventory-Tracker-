@@ -2040,6 +2040,7 @@ function resetProduct(sku) {
 
 // ATS sheet: col A (0) = model number, col K (10) = ATS NOW, col Q (16) = PO Detail ETA
 const ATS_MODEL_COL  = 0;
+const ATS_DESC_COL   = 1;   // column B = Material ID (Text)
 const ATS_NOW_COL    = 10;
 const ATS_ETA_COL    = 16;
 
@@ -2284,7 +2285,8 @@ async function syncFromATS() {
           if (!m2) continue;
           const dateStr2 = m2[1]+'/'+m2[2]+'/'+m2[3];
           const wi2 = findWeekIdx(new Date(parseInt(m2[3]), parseInt(m2[1])-1, parseInt(m2[2])));
-          syntheticRows.push([addlModel, addlModel, '', dateStr2, parseInt(m2[4]), wi2]);
+          const addlDesc = (row[ATS_DESC_COL] != null ? String(row[ATS_DESC_COL]).trim() : '') || addlModel;
+          syntheticRows.push([addlModel, addlDesc, '', dateStr2, parseInt(m2[4]), wi2]);
         }
       }
       lastInboundData = syntheticRows;
@@ -2428,6 +2430,7 @@ function setAtsStatus(type, msg) {
   const el = document.getElementById('atsStatus');
   el.className = 'excel-status' + (type ? ' ' + type : '');
   el.textContent = msg;
+  if (type === 'connected') try { localStorage.setItem('ats_status_msg', msg); } catch(e) {}
 }
 
 function toggleAutoSyncATS(on) {
@@ -2573,16 +2576,16 @@ function renderInboundPage() {
     return -1;
   }
 
-  const colProductId   = findCol('product id',   'productid',  'model',      'item no', 'item number', 'item #');
-  const colProductText = findCol('product id (text)', 'product name', 'description', 'item desc', 'item description');
+  const colProductId   = findCol('product id',   'productid',  'material id', 'model', 'item no', 'item number', 'item #');
+  const colProductText = findCol('material id (text)', 'product id (text)', 'product name', 'description', 'item desc', 'item description');
   const colPoId        = findCol('purchase order id', 'po id', 'po number', 'order id', 'po#', 'po no');
   const colDelivDate   = findCol('planned delivery date', 'delivery date', 'eta', 'arrival date', 'ship date');
   const colQty         = findCol('delivery notification quantity', 'notification quantity', 'delivery qty', 'quantity', 'units', 'qty');
 
   // Build the column definitions we actually want to show
   const colDefs = [
-    { idx: colProductId,   label: 'Product ID',           cls: 'model-cell' },
-    { idx: colProductText, label: 'Product ID (Text)',     cls: 'desc-cell'  },
+    { idx: colProductId,   label: 'Model Number',          cls: 'model-cell' },
+    { idx: colProductText, label: 'Product Description',   cls: 'desc-cell'  },
     { idx: colPoId,        label: 'Purchase Order ID',     cls: ''           },
     { idx: colDelivDate,   label: 'Planned Delivery Date', cls: 'date-cell'  },
     { idx: colQty,         label: 'Delivery Notification Qty', cls: 'qty-cell' },
@@ -2593,9 +2596,15 @@ function renderInboundPage() {
   //   • User-added products appear immediately after being added
   //   • Deleted products disappear immediately (they're removed from products[])
   const knownModels = new Set();
+  // Map: additionalModel (lowercase) → parent product name, for desc-cell fallback
+  const addlModelToName = {};
   products.forEach(p => {
     knownModels.add(p.model.toLowerCase().trim());
-    (state[p.sku].additionalModels || []).forEach(m => knownModels.add(m.toLowerCase().trim()));
+    (state[p.sku].additionalModels || []).forEach(m => {
+      const ml = m.toLowerCase().trim();
+      knownModels.add(ml);
+      addlModelToName[ml] = p.name || p.model;
+    });
   });
 
   // ── Collect & filter data rows ────────────────────────────────────────────────
@@ -2684,6 +2693,10 @@ function renderInboundPage() {
         continue;
       }
       let display = val;
+      // For Product ID (Text): if blank, substitute parent product name from addlModelToName
+      if (col.cls === 'desc-cell' && !display && addlModelToName[pid]) {
+        display = addlModelToName[pid];
+      }
       // Format quantity numbers with commas
       if (col.cls === 'qty-cell') {
         const qn = parseFloat(val.replace(/[^0-9.]/g,''));
@@ -2884,6 +2897,7 @@ function setExcelStatus(type, msg) {
   const el = document.getElementById('excelStatus');
   el.className = 'excel-status' + (type ? ' ' + type : '');
   el.textContent = msg;
+  if (type === 'connected') try { localStorage.setItem('suof_status_msg', msg); } catch(e) {}
 }
 
 function toggleAutoSync(on) {
@@ -2993,6 +3007,7 @@ function setVdStatus(type, msg) {
   const el = document.getElementById('vdStatus');
   el.className = 'excel-status' + (type ? ' ' + type : '');
   el.textContent = msg;
+  if (type === 'connected') try { localStorage.setItem('vd_status_msg', msg); } catch(e) {}
 }
 
 // Parse the pivot-table Sales tab.
@@ -3427,6 +3442,21 @@ function submitAddItem() {
       if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(lastInboundData)); } catch(e) {}
       saveInboundCache(lastInboundData);
     }
+  } else if (lastInboundData && lastInboundData.length > 1) {
+    // ATS raw file not in memory (e.g. after reload) — fall back to cached inbound rows
+    // to seed firm receipts so new items still get populated without re-syncing
+    for (let ri = 1; ri < lastInboundData.length; ri++) {
+      const row = lastInboundData[ri];
+      if (!row) continue;
+      if (String(row[0] || '').trim().toUpperCase() !== model) continue;
+      // weekIdx is stored at index 5 in synthetic rows
+      const weekIdx = row[5];
+      const qty = parseInt(row[4]);
+      if (weekIdx != null && !isNaN(weekIdx) && !isNaN(qty)) {
+        firmReceipts[weekIdx] = (firmReceipts[weekIdx] || 0) + qty;
+        atsConnected = true;
+      }
+    }
   }
 
   // Build salesRates — zeros (user fills manually, or pulled via SUOF display)
@@ -3768,6 +3798,7 @@ function removeAdditionalModel(sku, model) {
   }
   updateCalcs(sku);
   saveState();
+  saveAdditionalModelsCache();
   // Rebuild sub-rows without this model
   buildFrSubRows(sku);
   applyFilters();
@@ -3903,6 +3934,7 @@ function saveAddModel() {
   if (!state[sku].additionalModels) state[sku].additionalModels = [];
   state[sku].additionalModels.push(model.toLowerCase());
   saveState();
+  saveAdditionalModelsCache();
 
   // Refresh firm receipts for this SKU by re-aggregating from lastInboundData
   const etaEntries = getEtaEntriesForModel(model.toLowerCase());
@@ -4382,6 +4414,22 @@ async function saveStateSupabase() {
   } catch(e) { console.warn('Supabase saveState failed:', e.message); }
 }
 
+// Save additionalModels map to Supabase app_cache so they persist across devices
+async function saveAdditionalModelsCache() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const map = {};
+    products.forEach(p => {
+      const models = state[p.sku] && state[p.sku].additionalModels;
+      if (models && models.length > 0) map[p.sku] = models;
+    });
+    await sbClient.from('app_cache').upsert(
+      { key: 'additional_models', data: map, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+  } catch(e) { console.warn('Supabase additionalModels cache save failed:', e.message); }
+}
+
 // Save ATS inbound rows to Supabase app_cache so they persist across browser clears / devices
 async function saveInboundCache(rows) {
   if (isTestMode || !sbClient) return;
@@ -4408,11 +4456,12 @@ async function upsertZeroReorder(sku, week_idx) {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         sbClient.from('sku_weekly').select('*'),
-        sbClient.from('app_cache').select('*').eq('key', 'inbound_rows')
+        sbClient.from('app_cache').select('*').eq('key', 'inbound_rows'),
+        sbClient.from('app_cache').select('*').eq('key', 'additional_models')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -4424,6 +4473,18 @@ async function loadFromSupabase() {
       if (rows && rows.length > 0) {
         lastInboundData = rows;
         try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(rows)); } catch(e) {}
+      }
+    }
+
+    // Restore additionalModels from Supabase
+    if (addlModelsRows && addlModelsRows.length > 0) {
+      const map = addlModelsRows[0].data;
+      if (map && typeof map === 'object') {
+        Object.keys(map).forEach(sku => {
+          if (state[sku] && Array.isArray(map[sku]) && map[sku].length > 0) {
+            state[sku].additionalModels = map[sku];
+          }
+        });
       }
     }
 
@@ -4440,6 +4501,11 @@ async function loadFromSupabase() {
         if (row.avg_weekly_sales_vd != null) {
           state[sku].avgWeeklySalesVD = parseFloat(row.avg_weekly_sales_vd);
           state[sku].vdConnected = true;
+        }
+        if (row.on_hand_thd != null) {
+          state[sku].onHandTHD = row.on_hand_thd;
+          const prod = products.find(x => x.sku === sku);
+          if (prod) prod.onHandTHD = row.on_hand_thd;
         }
       });
     }
@@ -4527,13 +4593,22 @@ async function loadFromSupabase() {
       }
     }, 250);
 
-    // Show connection badges if data came from Supabase
+    // Show connection badges — restore last sync message if available, else generic
     const atsSku = Object.keys(state).find(s => state[s].atsConnected);
-    if (atsSku) setAtsStatus('connected', '✓ Data loaded from Supabase');
+    if (atsSku) {
+      const saved = localStorage.getItem('ats_status_msg');
+      setAtsStatus('connected', saved || '✓ Data loaded from Supabase');
+    }
     const suofSku = Object.keys(state).find(s => state[s].suofFromExcel);
-    if (suofSku) setExcelStatus('connected', '✓ Data loaded from Supabase');
+    if (suofSku) {
+      const saved = localStorage.getItem('suof_status_msg');
+      setExcelStatus('connected', saved || '✓ Data loaded from Supabase');
+    }
     const vdSku = Object.keys(state).find(s => state[s].vdConnected);
-    if (vdSku) setVdStatus('connected', '✓ Data loaded from Supabase');
+    if (vdSku) {
+      const saved = localStorage.getItem('vd_status_msg');
+      setVdStatus('connected', saved || '✓ Data loaded from Supabase');
+    }
 
   } catch(e) {
     console.warn('Supabase loadFromSupabase failed:', e.message);
