@@ -2115,17 +2115,24 @@ function buildThdSalesOrders() {
   const SO_EXT_REF_COL  = findH('external ref', 'ext ref', 'reference');
   const SO_REQ_QTY_COL  = findH('requested qty', 'req qty', 'requested quantity');
 
-  // Current fiscal week — all open SO Detail orders belong to current week
   const curIdx = getCurrentWeekIdx();
 
-  // Build per-SKU totals and detail rows (all non-Result rows → current week)
-  const soMap = {}; // sku -> { total, details[] }
+  // Helper: convert Excel serial or string date to JS Date (UTC)
+  const toJsDate = v => {
+    if (!v) return null;
+    if (typeof v === 'number') return new Date(Math.round((v - 25569) * 86400 * 1000));
+    const d = new Date(String(v));
+    return isNaN(d) ? null : d;
+  };
+
+  // Build per-SKU per-week totals and detail rows
+  const soMap = {}; // sku -> { [weekIdx]: { total, details[] } }
 
   for (let ri = hdrIdx + 1; ri < lastSoDetailData.length; ri++) {
     const row = lastSoDetailData[ri];
     if (!row || row[SO_MODEL_COL] == null) continue;
 
-    // Skip Result/subtotal rows — any row with "Result" anywhere in it
+    // Skip Result/subtotal rows
     const rowText = row.map(c => String(c || '').trim()).join('|').toLowerCase();
     if (rowText.includes('result')) continue;
 
@@ -2139,7 +2146,14 @@ function buildThdSalesOrders() {
     const reqQty = Math.round(parseFloat(String(reqQtyRaw || '').replace(/[^0-9.]/g, ''))) || 0;
     if (reqQty === 0) continue;
 
-    // Format dates
+    // Determine which week this order belongs to via start date, then req date, then current week
+    const startVal = SO_START_COL    >= 0 ? row[SO_START_COL]    : null;
+    const reqVal   = SO_REQ_DATE_COL >= 0 ? row[SO_REQ_DATE_COL] : null;
+    const dateJs   = toJsDate(startVal) || toJsDate(reqVal);
+    const weekIdx  = (dateJs ? findWeekIdx(dateJs) : -1);
+    const wIdx     = weekIdx >= 0 ? weekIdx : curIdx;
+
+    // Format dates for display
     const fmtDate = v => {
       if (!v) return '—';
       if (typeof v === 'number') {
@@ -2149,30 +2163,35 @@ function buildThdSalesOrders() {
       return String(v);
     };
 
-    if (!soMap[sku]) soMap[sku] = { total: 0, details: [] };
-    soMap[sku].total += reqQty;
-    soMap[sku].details.push({
-      startDate:  fmtDate(SO_START_COL    >= 0 ? row[SO_START_COL]    : null),
-      reqDate:    fmtDate(SO_REQ_DATE_COL >= 0 ? row[SO_REQ_DATE_COL] : null),
+    if (!soMap[sku]) soMap[sku] = {};
+    if (!soMap[sku][wIdx]) soMap[sku][wIdx] = { total: 0, details: [] };
+    soMap[sku][wIdx].total += reqQty;
+    soMap[sku][wIdx].details.push({
+      startDate:  fmtDate(startVal),
+      reqDate:    fmtDate(reqVal),
       salesOrder: String(row[SO_ORDER_COL]  || '').trim(),
       extRef:     String(row[SO_EXT_REF_COL] || '').trim(),
       reqQty
     });
   }
 
-  // Apply to state: put total in current week, 0 elsewhere
+  // Apply to state: place totals in the correct week slot
   products.forEach(p => {
-    const data = soMap[p.sku];
-    const arr  = new Array(weeks.length).fill(0);
+    const skuMap = soMap[p.sku] || {};
+    const arr       = new Array(weeks.length).fill(0);
     const detailArr = new Array(weeks.length).fill(null);
-    if (data) {
-      arr[curIdx] = data.total;
-      detailArr[curIdx] = data.details;
-    }
+    Object.keys(skuMap).forEach(wi => {
+      const i = parseInt(wi);
+      if (i >= 0 && i < weeks.length) {
+        arr[i]       = skuMap[wi].total;
+        detailArr[i] = skuMap[wi].details;
+      }
+    });
     state[p.sku].thdSalesOrders = arr;
     state[p.sku].thdSoDetails   = detailArr;
     updateCalcs(p.sku);
   });
+  saveThdSalesOrdersCache();
 }
 
 
@@ -2209,13 +2228,13 @@ function connectATS() {
   document.getElementById('inputAts').click();
 }
 
-async function syncFromATS() {
-  if (!atsFile) return;
+async function syncFromATS(autoBuffer = null) {
+  const isAutoLoad = !!autoBuffer;
+  if (!atsFile && !isAutoLoad) return;
   const btnSync = document.getElementById('btnAtsSync');
-  btnSync.textContent = '⏳ Syncing…';
-  btnSync.disabled = true;
+  if (!isAutoLoad) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
   try {
-    const buffer = await atsFile.arrayBuffer();
+    const buffer = autoBuffer || await atsFile.arrayBuffer();
     const wb     = XLSX.read(buffer, { type: 'array', raw: true });
 
     const ws = wb.Sheets['ATS'];
@@ -2394,20 +2413,29 @@ async function syncFromATS() {
     }
 
     const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
-    setAtsStatus('connected', `✓ Connected — ${atsFile.name} — last synced ${ts} (${synced} SKU${synced !== 1 ? 's' : ''})`);
-    btnSync.textContent = '🔄 Sync Now';
-    btnSync.disabled    = false;
-    document.getElementById('chkAtsAuto').disabled      = false;
-    document.getElementById('btnAtsConnect').textContent = '📂 Change File';
+    const displayName = isAutoLoad ? (localStorage.getItem('ats_file_name') || 'stored file') : atsFile.name;
+    if (!isAutoLoad) {
+      localStorage.setItem('ats_file_name', atsFile.name);
+      uploadSyncFile('ats.xlsx', buffer);
+    }
+    setAtsStatus('connected', `✓ Connected — ${displayName} — last synced ${ts} (${synced} SKU${synced !== 1 ? 's' : ''})`);
+    if (!isAutoLoad) {
+      btnSync.textContent = '🔄 Sync Now';
+      btnSync.disabled    = false;
+      document.getElementById('chkAtsAuto').disabled      = false;
+      document.getElementById('btnAtsConnect').textContent = '📂 Change File';
+    }
     // Re-expand firm receipt sub-rows for any SKUs with additional models
     products.forEach(p => {
       if ((state[p.sku].additionalModels || []).length > 0) expandFR(p.sku);
     });
 
   } catch (e) {
-    setAtsStatus('error', '⚠ Sync failed: ' + e.message);
-    btnSync.textContent = '🔄 Sync Now';
-    btnSync.disabled    = false;
+    if (!isAutoLoad) {
+      setAtsStatus('error', '⚠ Sync failed: ' + e.message);
+      btnSync.textContent = '🔄 Sync Now';
+      btnSync.disabled    = false;
+    }
   }
 }
 
@@ -2805,13 +2833,13 @@ function connectExcel() {
   document.getElementById('inputSuof').click();
 }
 
-async function syncFromExcel() {
-  if (!excelFile) return;
+async function syncFromExcel(autoBuffer = null) {
+  const isAutoLoad = !!autoBuffer;
+  if (!excelFile && !isAutoLoad) return;
   const btnSync = document.getElementById('btnSync');
-  btnSync.textContent = '⏳ Syncing…';
-  btnSync.disabled = true;
+  if (!isAutoLoad) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
   try {
-    const buffer = await excelFile.arrayBuffer();
+    const buffer = autoBuffer || await excelFile.arrayBuffer();
     const wb     = XLSX.read(buffer, { type: 'array', cellDates: false });
 
     const ws = wb.Sheets['SKU Pipeline'];
@@ -2871,16 +2899,25 @@ async function syncFromExcel() {
     }
 
     const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
-    setExcelStatus('connected', `✓ Connected — ${excelFile.name} — last synced ${ts} (${synced} SKU${synced!==1?'s':''})`);
-    document.getElementById('btnSync').textContent  = '🔄 Sync Now';
-    document.getElementById('btnSync').disabled     = false;
-    document.getElementById('chkAuto').disabled     = false;
-    document.getElementById('btnConnect').textContent = '📂 Change File';
+    const displayName = isAutoLoad ? (localStorage.getItem('suof_file_name') || 'stored file') : excelFile.name;
+    if (!isAutoLoad) {
+      localStorage.setItem('suof_file_name', excelFile.name);
+      uploadSyncFile('suof.xlsx', buffer);
+    }
+    setExcelStatus('connected', `✓ Connected — ${displayName} — last synced ${ts} (${synced} SKU${synced!==1?'s':''})`);
+    if (!isAutoLoad) {
+      document.getElementById('btnSync').textContent   = '🔄 Sync Now';
+      document.getElementById('btnSync').disabled      = false;
+      document.getElementById('chkAuto').disabled      = false;
+      document.getElementById('btnConnect').textContent = '📂 Change File';
+    }
 
   } catch (e) {
-    setExcelStatus('error', '⚠ Sync failed: ' + e.message);
-    document.getElementById('btnSync').textContent = '🔄 Sync Now';
-    document.getElementById('btnSync').disabled    = false;
+    if (!isAutoLoad) {
+      setExcelStatus('error', '⚠ Sync failed: ' + e.message);
+      document.getElementById('btnSync').textContent = '🔄 Sync Now';
+      document.getElementById('btnSync').disabled    = false;
+    }
   }
 }
 
@@ -3080,14 +3117,14 @@ function connectVD() {
   document.getElementById('inputVd').click();
 }
 
-async function syncFromVD() {
-  if (!vdFile) return;
+async function syncFromVD(autoBuffer = null) {
+  const isAutoLoad = !!autoBuffer;
+  if (!vdFile && !isAutoLoad) return;
   const btn = document.getElementById('btnVdSync');
-  btn.textContent = '⏳ Syncing…';
-  btn.disabled = true;
+  if (!isAutoLoad) { btn.textContent = '⏳ Syncing…'; btn.disabled = true; }
 
   try {
-    const buffer = await vdFile.arrayBuffer();
+    const buffer = autoBuffer || await vdFile.arrayBuffer();
     const wb     = XLSX.read(buffer, { type: 'array', raw: true });
 
     const ws = wb.Sheets['Sales'];
@@ -3207,16 +3244,25 @@ async function syncFromVD() {
     }
 
     const ts = new Date().toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit', second:'2-digit' });
-    setVdStatus('connected', `✓ Connected — ${vdFile.name} — last synced ${ts} (${synced} SKU${synced!==1?'s':''})`);
-    btn.textContent = '🔄 Sync Now';
-    btn.disabled    = false;
-    document.getElementById('chkVdAuto').disabled      = false;
-    document.getElementById('btnVdConnect').textContent = '📂 Change File';
+    const displayName = isAutoLoad ? (localStorage.getItem('vd_file_name') || 'stored file') : vdFile.name;
+    if (!isAutoLoad) {
+      localStorage.setItem('vd_file_name', vdFile.name);
+      uploadSyncFile('vd.xlsx', buffer);
+    }
+    setVdStatus('connected', `✓ Connected — ${displayName} — last synced ${ts} (${synced} SKU${synced!==1?'s':''})`);
+    if (!isAutoLoad) {
+      btn.textContent = '🔄 Sync Now';
+      btn.disabled    = false;
+      document.getElementById('chkVdAuto').disabled      = false;
+      document.getElementById('btnVdConnect').textContent = '📂 Change File';
+    }
 
   } catch (e) {
-    setVdStatus('error', '⚠ Sync failed: ' + e.message);
-    btn.textContent = '🔄 Sync Now';
-    btn.disabled    = false;
+    if (!isAutoLoad) {
+      setVdStatus('error', '⚠ Sync failed: ' + e.message);
+      btn.textContent = '🔄 Sync Now';
+      btn.disabled    = false;
+    }
   }
 }
 
@@ -3301,17 +3347,30 @@ function autoLookupModel() {
   if (!model) return;
   document.getElementById('mi-model').value = model;
 
-  // SUOF lookup → SKU + Description
+  // ATS lookup → Description (column B = ATS_DESC_COL, most reliable source)
+  let atsDesc = '';
+  if (lastAtsData) {
+    for (let ri = 2; ri < lastAtsData.length; ri++) {
+      const row = lastAtsData[ri];
+      if (!row || row[ATS_MODEL_COL] == null) continue;
+      if (String(row[ATS_MODEL_COL]).trim().toUpperCase() !== model) continue;
+      const d = row[ATS_DESC_COL];
+      if (d != null && String(d).trim().length > 2) { atsDesc = String(d).trim(); break; }
+    }
+  }
+
+  // SUOF lookup → SKU (+ description fallback if ATS didn't provide one)
   const suofMatch = lookupSuofByModel(model);
-  if (suofMatch) {
-    if (suofMatch.sku) {
-      const skuEl = document.getElementById('mi-sku');
-      if (skuEl && !skuEl.value.trim()) { skuEl.value = suofMatch.sku; skuEl.classList.add('auto-filled'); }
-    }
-    if (suofMatch.desc) {
-      const descEl = document.getElementById('mi-desc');
-      if (descEl && !descEl.value.trim()) { descEl.value = suofMatch.desc; descEl.classList.add('auto-filled'); }
-    }
+  if (suofMatch && suofMatch.sku) {
+    const skuEl = document.getElementById('mi-sku');
+    if (skuEl && !skuEl.value.trim()) { skuEl.value = suofMatch.sku; skuEl.classList.add('auto-filled'); }
+  }
+
+  // Fill description: ATS first, then SUOF fallback
+  const descEl = document.getElementById('mi-desc');
+  if (descEl && !descEl.value.trim()) {
+    const finalDesc = atsDesc || (suofMatch && suofMatch.desc ? suofMatch.desc : '');
+    if (finalDesc) { descEl.value = finalDesc; descEl.classList.add('auto-filled'); }
   }
 
   // ATS Item Info lookup → Inner + Master
@@ -3329,8 +3388,9 @@ function autoLookupModel() {
 
   // Show lookup feedback in hint area
   const hints = [];
-  if (suofMatch && suofMatch.sku)  hints.push('SKU found in SUOF');
-  if (suofMatch && suofMatch.desc) hints.push('Name found in SUOF');
+  if (suofMatch && suofMatch.sku) hints.push('SKU found in SUOF');
+  if (atsDesc)                    hints.push('Name found in ATS');
+  else if (suofMatch && suofMatch.desc) hints.push('Name found in SUOF');
   if (atsMatch && (atsMatch.inner || atsMatch.master)) hints.push('Pack sizes found in ATS');
   if (hints.length) {
     const hintEl = document.getElementById('modalHint');
@@ -3561,6 +3621,10 @@ function submitAddItem() {
   buildFilterDropdown();
   renderReorderTab();
   if (lastInboundData) renderInboundPage(); // reflect new item in inbound detail immediately
+
+  // Populate THD Sales Order from cached SO Detail data (no re-sync needed)
+  if (lastSoDetailData) buildThdSalesOrders();
+
   saveState();
   // Scroll to the new item
   setTimeout(() => block.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
@@ -4414,6 +4478,47 @@ async function saveStateSupabase() {
   } catch(e) { console.warn('Supabase saveState failed:', e.message); }
 }
 
+// ── Supabase Storage helpers ──────────────────────────────────────────────────
+// Upload raw Excel buffer to the sync-files bucket (fire-and-forget)
+async function uploadSyncFile(key, buffer) {
+  if (!sbClient || isTestMode) return;
+  try {
+    const { error } = await sbClient.storage.from('sync-files').upload(key, new Uint8Array(buffer), {
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      upsert: true
+    });
+    if (error) console.warn('Storage upload failed:', key, error.message);
+  } catch(e) { console.warn('Storage upload error:', key, e.message); }
+}
+
+// Download a file from the sync-files bucket; returns ArrayBuffer or null
+async function downloadSyncFile(key) {
+  if (!sbClient) return null;
+  try {
+    const { data, error } = await sbClient.storage.from('sync-files').download(key);
+    if (error || !data) return null;
+    return await data.arrayBuffer();
+  } catch(e) { return null; }
+}
+
+// Auto-load all three sync files from Storage on login (runs only if files not yet in memory)
+async function autoLoadSyncFiles() {
+  if (!sbClient || isTestMode) return;
+  const needAts  = !atsFile  && !lastAtsData;
+  const needSuof = !excelFile && !lastSuofData;
+  const needVd   = !vdFile   && !lastVdData;
+  if (!needAts && !needSuof && !needVd) return;
+
+  const [atsBuffer, suofBuffer, vdBuffer] = await Promise.all([
+    needAts  ? downloadSyncFile('ats.xlsx')  : Promise.resolve(null),
+    needSuof ? downloadSyncFile('suof.xlsx') : Promise.resolve(null),
+    needVd   ? downloadSyncFile('vd.xlsx')   : Promise.resolve(null)
+  ]);
+  if (atsBuffer)  await syncFromATS(atsBuffer);
+  if (suofBuffer) await syncFromExcel(suofBuffer);
+  if (vdBuffer)   await syncFromVD(vdBuffer);
+}
+
 // Save additionalModels map to Supabase app_cache so they persist across devices
 async function saveAdditionalModelsCache() {
   if (isTestMode || !sbClient) return;
@@ -4428,6 +4533,21 @@ async function saveAdditionalModelsCache() {
       { onConflict: 'key' }
     );
   } catch(e) { console.warn('Supabase additionalModels cache save failed:', e.message); }
+}
+
+async function saveThdSalesOrdersCache() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const map = {};
+    products.forEach(p => {
+      const orders = state[p.sku] && state[p.sku].thdSalesOrders;
+      if (orders && orders.some(v => v > 0)) map[p.sku] = orders;
+    });
+    await sbClient.from('app_cache').upsert(
+      { key: 'thd_sales_orders', data: map, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+  } catch(e) { console.warn('Supabase thdSalesOrders cache save failed:', e.message); }
 }
 
 // Save ATS inbound rows to Supabase app_cache so they persist across browser clears / devices
@@ -4456,12 +4576,13 @@ async function upsertZeroReorder(sku, week_idx) {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         sbClient.from('sku_weekly').select('*'),
         sbClient.from('app_cache').select('*').eq('key', 'inbound_rows'),
-        sbClient.from('app_cache').select('*').eq('key', 'additional_models')
+        sbClient.from('app_cache').select('*').eq('key', 'additional_models'),
+        sbClient.from('app_cache').select('*').eq('key', 'thd_sales_orders')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -4483,6 +4604,18 @@ async function loadFromSupabase() {
         Object.keys(map).forEach(sku => {
           if (state[sku] && Array.isArray(map[sku]) && map[sku].length > 0) {
             state[sku].additionalModels = map[sku];
+          }
+        });
+      }
+    }
+
+    // Restore THD Sales Orders from Supabase
+    if (thdSoRows && thdSoRows.length > 0) {
+      const map = thdSoRows[0].data;
+      if (map && typeof map === 'object') {
+        Object.keys(map).forEach(sku => {
+          if (state[sku] && Array.isArray(map[sku])) {
+            state[sku].thdSalesOrders = map[sku];
           }
         });
       }
@@ -4610,6 +4743,9 @@ async function loadFromSupabase() {
       setVdStatus('connected', saved || '✓ Data loaded from Supabase');
     }
 
+    // Auto-load raw sync files from Storage so new items always auto-populate
+    autoLoadSyncFiles();
+
   } catch(e) {
     console.warn('Supabase loadFromSupabase failed:', e.message);
   }
@@ -4698,6 +4834,16 @@ function loadState() {
             atsConnected: false, onHandMerkury: newP.onHandMerkury
           };
         }
+      });
+    }
+    // Restore saved product order (from drag-and-drop reordering)
+    if (snap.productOrder && snap.productOrder.length > 0) {
+      const orderMap = {};
+      snap.productOrder.forEach((model, i) => { orderMap[model] = i; });
+      products.sort((a, b) => {
+        const ai = orderMap[a.model] != null ? orderMap[a.model] : 9999;
+        const bi = orderMap[b.model] != null ? orderMap[b.model] : 9999;
+        return ai - bi;
       });
     }
     products.forEach(p => {
