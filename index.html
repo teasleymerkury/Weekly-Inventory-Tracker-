@@ -365,7 +365,8 @@
   .main-content { flex: 1; min-width: 0; height: 100vh; overflow-y: auto; overflow-x: hidden; }
   .page-section { display: none; }
   .page-section.active { display: block; min-height: 100%; }
-  #page-reorder, #page-inbound { overflow-y: auto; overflow-x: hidden; }
+  #page-reorder { overflow-y: auto; overflow-x: hidden; }
+  #page-inbound { overflow: hidden; }
   .reorder-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 70vh; color: var(--text-2); text-align: center; gap: 14px; }
   .reorder-placeholder svg { opacity: 0.30; }
   .reorder-placeholder h2 { font-size: 20px; font-weight: 600; color: var(--text-1); }
@@ -889,7 +890,7 @@
     background: linear-gradient(90deg, transparent, rgba(255,255,255,0.50) 25%, rgba(255,255,255,0.82) 50%, rgba(255,255,255,0.50) 75%, transparent);
     pointer-events: none; z-index: 3;
   }
-  .inbound-tbl-inner { overflow-x: auto; }
+  .inbound-tbl-inner { overflow: auto; max-height: calc(100vh - 160px); }
   .inbound-summary-bar {
     display: flex; gap: 0; border-bottom: 1px solid rgba(255,255,255,0.14);
     background: rgba(255,255,255,0.06);
@@ -904,11 +905,15 @@
   table.inbound-tbl thead tr {
     background: rgba(255,255,255,0.10);
     border-bottom: 1px solid rgba(255,255,255,0.20);
+    position: sticky; top: 0; z-index: 5;
   }
   table.inbound-tbl th {
     padding: 11px 14px; text-align: left; font-size: 11px; font-weight: 700;
     color: rgba(255,255,255,0.65); text-transform: uppercase; letter-spacing: 0.5px;
     white-space: nowrap; border-right: 1px solid rgba(255,255,255,0.08);
+    background: rgba(56, 76, 118, 0.92);
+    backdrop-filter: blur(28px) saturate(1.7);
+    -webkit-backdrop-filter: blur(28px) saturate(1.7);
   }
   table.inbound-tbl th:last-child { border-right: none; }
   table.inbound-tbl th.num { text-align: right; }
@@ -1301,7 +1306,7 @@
 <!-- Firm Receipt Detail Popup -->
 <div class="rp-overlay" id="frDetailOverlay">
   <div class="rp-box">
-    <h3>Firm Receipt Details</h3>
+    <h3 id="frDetailTitle">Firm Receipt Details</h3>
     <div class="rp-sub" id="frDetailSub"></div>
     <div id="frDetailContent" style="margin-top:12px;"></div>
     <div class="rp-actions">
@@ -1598,8 +1603,8 @@ function calcRows(p) {
   const suof = [], wos = [];
 
   if (s.atsConnected) {
-    // Pivot: current week Ending INV = live ATS on-hand value
-    endInv[curIdx] = s.onHandMerkury;
+    // Pivot: current week Ending INV = on-hand + any receipts/reorders arriving this week - sales this week
+    endInv[curIdx] = Math.max(0, s.onHandMerkury + (s.reorders[curIdx] || 0) + (s.firmReceipts[curIdx] || 0) - liveSR[curIdx]);
     // Forward calculation from current week
     for (let i = curIdx + 1; i < weeks.length; i++) {
       endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - liveSR[i-1]);
@@ -1610,9 +1615,8 @@ function calcRows(p) {
     }
     // Weeks before trackingStartIdx stay 0 (item wasn't tracked yet)
   } else {
-    // Non-ATS: anchor current week to live onHandMerkury, then project forward and backward.
-    // This mirrors the ATS path so WOS always reflects real on-hand rather than a drifted chain.
-    endInv[curIdx] = s.onHandMerkury;
+    // Non-ATS: anchor current week to live onHandMerkury + this week's receipts, then project forward and backward.
+    endInv[curIdx] = Math.max(0, s.onHandMerkury + (s.reorders[curIdx] || 0) + (s.firmReceipts[curIdx] || 0) - liveSR[curIdx]);
     for (let i = curIdx + 1; i < weeks.length; i++) {
       endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - liveSR[i-1]);
     }
@@ -1704,11 +1708,11 @@ function buildProduct(p) {
     </div>
     <div class="product-body" id="body-${p.sku}">
     <div class="kpi-strip">
-      <div class="kpi-item">
+      <div class="kpi-item" style="flex:0.65;min-width:90px;">
         <div class="k">Avg weekly sales</div>
         <div class="v" id="kpi-avgsales-${p.sku}">${displayAvg.toLocaleString()}</div>
       </div>
-      <div class="kpi-item" style="flex:2;min-width:300px;align-items:center;gap:10px;flex-wrap:nowrap;">
+      <div class="kpi-item" style="flex:3;min-width:320px;align-items:center;gap:10px;flex-wrap:nowrap;">
         <div class="k" style="white-space:nowrap;">On hand (Merkury)</div>
         <div class="v" id="kpi-merkury-${p.sku}">${s.onHandMerkury.toLocaleString()}</div>
         <div class="kpi-sub-item" style="">
@@ -1732,8 +1736,8 @@ function buildProduct(p) {
             onblur="this.value=parseFloat(this.value)||0;this.value=(parseFloat(this.value)||0).toLocaleString()" />
         </div>
       </div>
-      <div class="kpi-item"><div class="k">On hand (THD)</div><div class="v" id="kpi-thd-${p.sku}">${p.onHandTHD.toLocaleString()}</div></div>
-      <div class="kpi-item"><div class="k">Current WOS</div><div class="v" id="kpi-wos-${p.sku}">${currentWos}</div></div>
+      <div class="kpi-item" style="flex:0.65;min-width:90px;"><div class="k">On hand (THD)</div><div class="v" id="kpi-thd-${p.sku}">${p.onHandTHD.toLocaleString()}</div></div>
+      <div class="kpi-item" style="flex:0.55;min-width:80px;"><div class="k">Current WOS</div><div class="v" id="kpi-wos-${p.sku}">${currentWos}</div></div>
     </div>
   `;
 
@@ -2117,10 +2121,21 @@ function buildThdSalesOrders() {
 
   const curIdx = getCurrentWeekIdx();
 
-  // Helper: convert Excel serial or string date to JS Date (UTC)
+  // Helper: convert Excel serial or string date to local-midnight JS Date
   const toJsDate = v => {
     if (!v) return null;
-    if (typeof v === 'number') return new Date(Math.round((v - 25569) * 86400 * 1000));
+    if (typeof v === 'number') {
+      // Excel serial → UTC midnight; extract UTC y/m/d to build a local midnight Date
+      // This avoids timezone-offset errors when comparing with parseDt() (which is local)
+      const utc = new Date(Math.round((v - 25569) * 86400 * 1000));
+      return new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
+    }
+    // String date: parse as local (split m/d/y if possible, else let browser parse)
+    const parts = String(v).split('/');
+    if (parts.length === 3) {
+      const [mo, dy, yr] = parts.map(Number);
+      return new Date(yr, mo - 1, dy);
+    }
     const d = new Date(String(v));
     return isNaN(d) ? null : d;
   };
@@ -2146,12 +2161,14 @@ function buildThdSalesOrders() {
     const reqQty = Math.round(parseFloat(String(reqQtyRaw || '').replace(/[^0-9.]/g, ''))) || 0;
     if (reqQty === 0) continue;
 
-    // Determine which week this order belongs to via start date, then req date, then current week
+    // Determine which week this order belongs to via start date, then req date
+    // Skip orders whose date falls before the display range (past orders already fulfilled)
     const startVal = SO_START_COL    >= 0 ? row[SO_START_COL]    : null;
     const reqVal   = SO_REQ_DATE_COL >= 0 ? row[SO_REQ_DATE_COL] : null;
     const dateJs   = toJsDate(startVal) || toJsDate(reqVal);
     const weekIdx  = (dateJs ? findWeekIdx(dateJs) : -1);
-    const wIdx     = weekIdx >= 0 ? weekIdx : curIdx;
+    if (weekIdx < 0) continue; // skip orders outside display range
+    const wIdx = weekIdx;
 
     // Format dates for display
     const fmtDate = v => {
@@ -2198,6 +2215,7 @@ function buildThdSalesOrders() {
 function openThdSoPopup(sku, weekIdx) {
   const p = products.find(x => x.sku === sku);
   const details = (state[sku].thdSoDetails || [])[weekIdx];
+  document.getElementById('frDetailTitle').textContent = 'THD Sales Order Details';
   document.getElementById('frDetailSub').textContent =
     `${weeks[weekIdx].fw} (${weeks[weekIdx].dt}) — ${p ? p.model : sku} — THD Sales Orders`;
 
@@ -3446,8 +3464,19 @@ function submitAddItem() {
     alert('Model # is required.');
     return;
   }
-  if (products.find(p => p.model === model)) {
+  const existingP = products.find(p => p.model === model);
+  if (existingP) {
     alert(`Model # ${model} is already in the list.`);
+    // Close modal and scroll to highlight the existing item
+    document.getElementById('addItemModal').style.display = 'none';
+    showPage('inventory');
+    const block = document.getElementById('block-' + existingP.sku);
+    if (block) {
+      block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      block.style.outline = '2px solid rgba(100,180,255,0.8)';
+      block.style.borderRadius = '10px';
+      setTimeout(() => { block.style.outline = ''; block.style.borderRadius = ''; }, 2500);
+    }
     return;
   }
 
@@ -3647,7 +3676,7 @@ function computeCpWeeklyQtys(sku) {
         // Pad/truncate qtys to current weeks length
         const qtys = new Array(weeks.length).fill(0);
         (v.qtys || []).forEach((q, i) => { if (i < qtys.length) qtys[i] = q; });
-        result[k] = { qtys, cp: v.cp, caseConf: v.caseConf, model: v.model };
+        result[k] = { qtys, cp: v.cp, caseConf: v.caseConf, model: v.model, projDesc: v.projDesc || '' };
       });
       // Also add any additionalModels not already covered
       const p0 = products.find(x => x.sku === sku);
@@ -3743,7 +3772,8 @@ function computeCpWeeklyQtys(sku) {
 
     const rawQty = colQty !== -1 ? String(row[colQty] || '') : '';
     const qty    = parseFloat(rawQty.replace(/[^0-9.]/g, '')) || 0;
-    if (!result[groupKey]) result[groupKey] = { qtys: new Array(weeks.length).fill(0), cp, caseConf, model: pid };
+    if (!result[groupKey]) result[groupKey] = { qtys: new Array(weeks.length).fill(0), cp, caseConf, model: pid, projDesc: edit.projDesc || '' };
+    else if (!result[groupKey].projDesc && edit.projDesc) result[groupKey].projDesc = edit.projDesc;
     result[groupKey].qtys[weekIdx] += qty;
   }
   const p3 = products.find(x => x.sku === sku);
@@ -3780,7 +3810,7 @@ function buildFrSubRows(sku) {
   const baseModel = p2 ? p2.model.toUpperCase().trim() : '';
 
   entries.forEach(([groupKey, info]) => {
-    const { qtys, cp, caseConf, model } = info;
+    const { qtys, cp, caseConf, model, projDesc } = info;
     const col = cp ? cpColors[cp] : null;
 
     // Build label: "Case pack of {cp} + {caseConf}" or just "Case pack of {cp}"
@@ -3802,7 +3832,12 @@ function buildFrSubRows(sku) {
     const removeBtn = isAddlModel
       ? `<button onclick="removeAdditionalModel('${sku}','${safeModel}')" title="Remove ${model}" class="fr-ctrl-btn" style="color:rgba(255,120,120,1);border-color:rgba(255,100,100,0.45);background:rgba(255,100,100,0.12);font-size:11px;width:16px;height:16px;">✕</button>`
       : '';
-    tdLbl.innerHTML = `<span style="color:rgba(180,190,200,0.65);font-style:italic;">${labelText}</span>${removeBtn}`;
+    // Auto-scale project description font: shrink proportionally for longer strings
+    const pdFontSize = projDesc ? Math.max(7, Math.min(10, Math.floor(200 / Math.max(projDesc.length, 1)))) : 10;
+    const pdHtml = projDesc
+      ? `<div style="font-size:${pdFontSize}px;color:rgba(255,210,120,0.80);font-style:normal;margin-top:1px;white-space:normal;word-break:break-word;line-height:1.2;">${projDesc}</div>`
+      : '';
+    tdLbl.innerHTML = `<span style="color:rgba(180,190,200,0.65);font-style:italic;">${labelText}</span>${removeBtn}${pdHtml}`;
     tr.appendChild(tdLbl);
 
     weeks.forEach((w, i) => {
@@ -4319,6 +4354,7 @@ document.getElementById('rpOverlay').addEventListener('click', function(e) {
 function openFrDetailPopup(sku, weekIdx) {
   const p = products.find(x => x.sku === sku);
   const model = p ? p.model.toLowerCase().trim() : '';
+  document.getElementById('frDetailTitle').textContent = 'Firm Receipt Details';
   document.getElementById('frDetailSub').textContent =
     `${weeks[weekIdx].fw} (${weeks[weekIdx].dt}) — ${p ? p.model : sku}`;
 
