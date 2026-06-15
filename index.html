@@ -139,9 +139,9 @@
     letter-spacing: 0.5px; white-space: nowrap; }
   .kpi-item .v { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.96); white-space: nowrap; }
   .kpi-merkury-input { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.96); background: transparent;
-    border: none; border-bottom: 1px dashed rgba(255,255,255,0.35); border-radius: 0;
+    border: none; border-radius: 0;
     padding: 0 2px; width: 90px; outline: none; cursor: text; }
-  .kpi-merkury-input:focus { border-bottom-color: rgba(255,255,255,0.80); background: rgba(255,255,255,0.08); border-radius: 4px; border-bottom-style: solid; }
+  .kpi-merkury-input:focus { background: rgba(255,255,255,0.08); border-radius: 4px; }
   /* On Hand (Merkury) sub-cells */
   .kpi-merkury-wrap { display:flex; flex-direction:column; gap:3px; flex:1; min-width:0; }
   .kpi-merkury-main { display:flex; align-items:center; gap:8px; }
@@ -5130,6 +5130,15 @@ function initDragDrop() {
     floatClone.remove();
     placeholder.remove();
     dragSrc = null; floatClone = null; placeholder = null;
+
+    // Sync products array to new DOM order, then persist
+    const newOrder = [...container.querySelectorAll('.product-block')]
+      .map(el => el.id.replace('block-', ''))
+      .map(sku => products.find(p => p.sku === sku))
+      .filter(Boolean);
+    products.length = 0;
+    newOrder.forEach(p => products.push(p));
+    saveState();
   };
   document.addEventListener('pointerup',     endDrag);
   document.addEventListener('pointercancel', endDrag);
