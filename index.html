@@ -138,6 +138,10 @@
   .kpi-item .k { font-size: 10px; color: rgba(255,255,255,0.58); text-transform: uppercase;
     letter-spacing: 0.5px; white-space: nowrap; }
   .kpi-item .v { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.96); white-space: nowrap; }
+  .kpi-merkury-input { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.96); background: transparent;
+    border: none; border-bottom: 1px dashed rgba(255,255,255,0.35); border-radius: 0;
+    padding: 0 2px; width: 90px; outline: none; cursor: text; }
+  .kpi-merkury-input:focus { border-bottom-color: rgba(255,255,255,0.80); background: rgba(255,255,255,0.08); border-radius: 4px; border-bottom-style: solid; }
   /* On Hand (Merkury) sub-cells */
   .kpi-merkury-wrap { display:flex; flex-direction:column; gap:3px; flex:1; min-width:0; }
   .kpi-merkury-main { display:flex; align-items:center; gap:8px; }
@@ -1512,6 +1516,7 @@ products.forEach(p => {
     openStock: 0,
     skinnyQP: 0,
     salesRates: sr,
+    salesRatesManual: new Array(weeks.length).fill(false),
     posUnits:          new Array(weeks.length).fill(0),
     avgWeeklySalesVD:  null,
     vdConnected:       false,
@@ -1577,13 +1582,17 @@ function calcRows(p) {
   const curIdx = getCurrentWeekIdx();
 
   // Build live sales-rate array: always read from the DOM input if it exists.
-  // This is the single source of truth — eliminates every state/display mismatch.
+  // For non-manual cells, fall back to SUOF value when available.
   const liveSR = weeks.map(function(_, i) {
     var inp = document.querySelector('input[data-sku="' + p.sku + '"][data-row="salesRate"][data-idx="' + i + '"]');
     if (inp && !inp.readOnly) {
       var v = parseFloat(inp.value.replace(/,/g, '')) || 0;
-      s.salesRates[i] = v; // keep state in sync
+      if (s.salesRatesManual && s.salesRatesManual[i]) s.salesRates[i] = v; // only persist manual edits
       return v;
+    }
+    // No DOM input yet — use SUOF for non-manual cells
+    if (!(s.salesRatesManual && s.salesRatesManual[i]) && s.suofFromExcel && s.suofFromExcel[i] != null) {
+      return s.suofFromExcel[i];
     }
     return s.salesRates[i] || 0;
   });
@@ -1603,9 +1612,9 @@ function calcRows(p) {
   const suof = [], wos = [];
 
   if (s.atsConnected) {
-    // Pivot: current week Ending INV = on-hand + any receipts/reorders arriving this week - sales this week
-    endInv[curIdx] = Math.max(0, s.onHandMerkury + (s.reorders[curIdx] || 0) + (s.firmReceipts[curIdx] || 0) - liveSR[curIdx]);
-    // Forward calculation from current week
+    // Pivot: current week Ending INV = ON HAND (Merkury) exactly
+    endInv[curIdx] = s.onHandMerkury;
+    // Forward: each week builds off previous ending INV + that week's receipts/reorders - sales
     for (let i = curIdx + 1; i < weeks.length; i++) {
       endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - liveSR[i-1]);
     }
@@ -1615,8 +1624,8 @@ function calcRows(p) {
     }
     // Weeks before trackingStartIdx stay 0 (item wasn't tracked yet)
   } else {
-    // Non-ATS: anchor current week to live onHandMerkury + this week's receipts, then project forward and backward.
-    endInv[curIdx] = Math.max(0, s.onHandMerkury + (s.reorders[curIdx] || 0) + (s.firmReceipts[curIdx] || 0) - liveSR[curIdx]);
+    // Non-ATS: same logic — current week Ending INV = ON HAND exactly
+    endInv[curIdx] = s.onHandMerkury;
     for (let i = curIdx + 1; i < weeks.length; i++) {
       endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - liveSR[i-1]);
     }
@@ -1630,8 +1639,8 @@ function calcRows(p) {
     const sr = liveSR[i];
     const suofVal = (s.suofFromExcel && s.suofFromExcel[i] != null) ? s.suofFromExcel[i] : sr;
     suof.push(suofVal);
-    // WOS = MAX(Ending INV / Sales Rate, 0)
-    wos.push(sr > 0 ? Math.max(endInv[i] / sr, 0) : (endInv[i] > 0 ? null : 0));
+    // WOS = Ending INV / Sales Rate; show — when no sales rate (avoids false 0.0 red on new items)
+    wos.push(sr > 0 ? Math.max(endInv[i] / sr, 0) : null);
   }
 
   return { endInv, suof, wos, curIdx };
@@ -1714,7 +1723,12 @@ function buildProduct(p) {
       </div>
       <div class="kpi-item" style="flex:3;min-width:320px;align-items:center;gap:10px;flex-wrap:nowrap;">
         <div class="k" style="white-space:nowrap;">On hand (Merkury)</div>
-        <div class="v" id="kpi-merkury-${p.sku}">${s.onHandMerkury.toLocaleString()}</div>
+        <input type="text" inputmode="numeric" class="v kpi-merkury-input" id="kpi-merkury-${p.sku}"
+          value="${s.onHandMerkury.toLocaleString()}"
+          data-sku="${p.sku}"
+          onfocus="this.value=this.value.replace(/,/g,'')"
+          onblur="this.value=(parseFloat(this.value.replace(/,/g,''))||0).toLocaleString()"
+          onchange="handleOnHandMerkuryEdit(this)" />
         <div class="kpi-sub-item" style="">
           <label>Open Stock</label>
           <input type="text" inputmode="numeric"
@@ -1818,7 +1832,7 @@ function buildProduct(p) {
         const rawVal = rd.key === 'firmReceipt' ? (s.firmReceipts[i] || 0)
                      : rd.key === 'reorder'     ? (s.reorders[i] || 0)
                      : rd.key === 'posUnits'    ? (s.posUnits[i] || 0)
-                     : (s.salesRates[i] || 0);
+                     : (() => { const isMnl = s.salesRatesManual && s.salesRatesManual[i]; return isMnl ? (s.salesRates[i] || 0) : (s.suofFromExcel && s.suofFromExcel[i] != null ? s.suofFromExcel[i] : (s.salesRates[i] || 0)); })();
         inp.value = fmtInput(rawVal);
         inp.dataset.sku = p.sku;
         inp.dataset.row = rd.key;
@@ -1929,6 +1943,24 @@ function buildProduct(p) {
   return wrap;
 }
 
+async function handleOnHandMerkuryEdit(input) {
+  const sku = input.dataset.sku;
+  const val = parseFloat(input.value.replace(/,/g, '')) || 0;
+  state[sku].onHandMerkury = val;
+  const p = products.find(x => x.sku === sku);
+  if (p) p.onHandMerkury = val;
+  // Re-render this product's rows so Ending INV and WOS update immediately
+  updateKpiDisplay(sku);
+  buildProduct(p);
+  saveState();
+  // Persist to Supabase
+  if (!isTestMode && sbClient) {
+    try {
+      await sbClient.from('sku_meta').upsert({ sku, on_hand_merkury: val }, { onConflict: 'sku' });
+    } catch(e) { console.warn('onHandMerkury save failed:', e.message); }
+  }
+}
+
 function handleMerkurySubField(input) {
   const sku  = input.dataset.sku;
   const field = input.dataset.subfield;
@@ -1951,6 +1983,8 @@ function handleChange(input) {
   }
   if (row === 'salesRate') {
     state[sku].salesRates[idx] = val;
+    if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
+    state[sku].salesRatesManual[idx] = true;
     // Direct immediate WOS update — reads endInv straight from the DOM cell,
     // guaranteed to be correct regardless of state/Supabase sync lag.
     var eiCell = document.getElementById('cell-' + sku + '-endInv-' + idx);
@@ -2012,7 +2046,7 @@ function updateCalcs(sku) {
   const avgEl = document.getElementById(`kpi-avgsales-${sku}`);
   if (avgEl) avgEl.textContent = effectiveAvg.toLocaleString();
   const merkuryEl = document.getElementById(`kpi-merkury-${sku}`);
-  if (merkuryEl) merkuryEl.textContent = state[sku].onHandMerkury.toLocaleString();
+  if (merkuryEl) merkuryEl.value = state[sku].onHandMerkury.toLocaleString();
   renderSummary();
 }
 
@@ -3565,11 +3599,12 @@ function submitAddItem() {
 
   // Init state
   state[sku] = {
-    firmReceipts:  [...firmReceipts],
-    reorders:      new Array(weeks.length).fill(0),
-    salesRates:    [...salesRates],
-    posUnits:      new Array(weeks.length).fill(0),
-    suofFromExcel: null,
+    firmReceipts:      [...firmReceipts],
+    reorders:          new Array(weeks.length).fill(0),
+    salesRates:        [...salesRates],
+    salesRatesManual:  new Array(weeks.length).fill(false),
+    posUnits:          new Array(weeks.length).fill(0),
+    suofFromExcel:     null,
     atsConnected,
     onHandMerkury
   };
@@ -3767,7 +3802,8 @@ function computeCpWeeklyQtys(sku) {
     const caseConf  = edit.caseConfig || '';
     // For additional models show even without a case pack; use model as fallback key
     const isAddl    = addlModels.includes(pid);
-    const groupKey  = cp ? `${cp}||${caseConf}||${pid}` : (isAddl ? `__no_cp__||${pid}` : '');
+    const projDescKey = edit.projDesc || '';
+    const groupKey  = cp ? `${cp}||${caseConf}||${pid}||${projDescKey}` : (isAddl ? `__no_cp__||${pid}` : '');
     if (!groupKey) continue;
 
     const rawQty = colQty !== -1 ? String(row[colQty] || '') : '';
@@ -4813,6 +4849,7 @@ function saveState() {
         reorders:          s.reorders,
         reorderData:       s.reorderData,
         salesRates:        s.salesRates,
+        salesRatesManual:  s.salesRatesManual || null,
         posUnits:          s.posUnits,
         avgWeeklySalesVD:  s.avgWeeklySalesVD,
         vdConnected:       s.vdConnected,
@@ -4865,7 +4902,8 @@ function loadState() {
           state[newP.sku] = {
             firmReceipts: fr, reorders: new Array(weeks.length).fill(0),
             reorderData: new Array(weeks.length).fill(null).map(() => ({qty:0,casePack:'',config:''})),
-            salesRates: sr, posUnits: new Array(weeks.length).fill(0),
+            salesRates: sr, salesRatesManual: new Array(weeks.length).fill(false),
+            posUnits: new Array(weeks.length).fill(0),
             avgWeeklySalesVD: null, vdConnected: false, suofFromExcel: null,
             atsConnected: false, onHandMerkury: newP.onHandMerkury
           };
@@ -4888,11 +4926,13 @@ function loadState() {
       const s = state[p.sku];
       const pad = (arr, len) => { const a = arr ? [...arr] : []; while(a.length < len) a.push(0); return a; };
       const padNull = (arr, len) => { const a = arr ? [...arr] : []; while(a.length < len) a.push(null); return a; };
+      const padBool = (arr, len) => { const a = arr ? [...arr] : []; while(a.length < len) a.push(false); return a; };
       const padRD = (arr, len) => { const a = arr ? [...arr] : []; while(a.length < len) a.push({qty:0,casePack:'',config:''}); return a; };
       s.firmReceipts     = pad(saved.firmReceipts, weeks.length);
       s.reorders         = pad(saved.reorders, weeks.length);
       s.reorderData      = padRD(saved.reorderData, weeks.length);
       s.salesRates       = pad(saved.salesRates, weeks.length);
+      s.salesRatesManual = padBool(saved.salesRatesManual, weeks.length);
       s.posUnits         = pad(saved.posUnits, weeks.length);
       s.avgWeeklySalesVD = saved.avgWeeklySalesVD != null ? saved.avgWeeklySalesVD : null;
       s.vdConnected      = !!saved.vdConnected;
