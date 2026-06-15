@@ -1727,8 +1727,7 @@ function buildProduct(p) {
           value="${s.onHandMerkury.toLocaleString()}"
           data-sku="${p.sku}"
           onfocus="this.value=this.value.replace(/,/g,'')"
-          onblur="this.value=(parseFloat(this.value.replace(/,/g,''))||0).toLocaleString()"
-          onchange="handleOnHandMerkuryEdit(this)" />
+          onblur="this.value=(parseFloat(this.value.replace(/,/g,''))||0).toLocaleString();handleOnHandMerkuryEdit(this)" />
         <div class="kpi-sub-item" style="">
           <label>Open Stock</label>
           <input type="text" inputmode="numeric"
@@ -1949,9 +1948,8 @@ async function handleOnHandMerkuryEdit(input) {
   state[sku].onHandMerkury = val;
   const p = products.find(x => x.sku === sku);
   if (p) p.onHandMerkury = val;
-  // Re-render this product's rows so Ending INV and WOS update immediately
-  updateKpiDisplay(sku);
-  buildProduct(p);
+  // Full recalc: updates all Ending INV, WOS, and KPI strip
+  updateCalcs(sku);
   saveState();
   // Persist to Supabase
   if (!isTestMode && sbClient) {
