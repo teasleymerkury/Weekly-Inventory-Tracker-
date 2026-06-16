@@ -3886,6 +3886,13 @@ function buildFrSubRows(sku) {
       inp.readOnly = true;
       inp.value = qty > 0 ? qty.toLocaleString() : '';
       inp.style.cssText = 'text-align:center;width:100%;background:transparent;border:none;color:inherit;font-size:12px;';
+      if (qty > 0) {
+        td.style.cursor = 'pointer';
+        td.title = 'Double-click to view firm receipt details';
+        td.addEventListener('dblclick', (function(weekIdx, subModel, subCp, subCaseConf, subProjDesc) {
+          return function() { openFrSubDetailPopup(sku, weekIdx, subModel, subCp, subCaseConf, subProjDesc); };
+        })(i, model, cp, caseConf, projDesc));
+      }
       td.appendChild(inp);
       tr.appendChild(td);
     });
@@ -4387,7 +4394,10 @@ document.getElementById('rpOverlay').addEventListener('click', function(e) {
 // ── Firm Receipt Detail Popup ─────────────────────────────────────────────────
 function openFrDetailPopup(sku, weekIdx) {
   const p = products.find(x => x.sku === sku);
-  const model = p ? p.model.toLowerCase().trim() : '';
+  const allModels = new Set([
+    p ? p.model.toLowerCase().trim() : '',
+    ...(state[sku].additionalModels || []).map(m => m.toLowerCase().trim())
+  ].filter(Boolean));
   document.getElementById('frDetailTitle').textContent = 'Firm Receipt Details';
   document.getElementById('frDetailSub').textContent =
     `${weeks[weekIdx].fw} (${weeks[weekIdx].dt}) — ${p ? p.model : sku}`;
@@ -4442,7 +4452,7 @@ function openFrDetailPopup(sku, weekIdx) {
     if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
     if (colProductId === -1) continue;
     const pid = String(row[colProductId] || '').trim().toLowerCase();
-    if (pid !== model) continue;
+    if (!allModels.has(pid)) continue;
 
     // Filter by delivery date falling within this fiscal week
     if (colDelivDate !== -1) {
@@ -4509,6 +4519,105 @@ function openFrDetailPopup(sku, weekIdx) {
 
 function closeFrDetailPopup() {
   document.getElementById('frDetailOverlay').classList.remove('open');
+}
+
+// Opens firm receipt detail for a specific sub-row (filtered by model + case pack + config + projDesc)
+function openFrSubDetailPopup(sku, weekIdx, subModel, cp, caseConf, projDesc) {
+  const p = products.find(x => x.sku === sku);
+  const subModelLower = (subModel || '').toLowerCase().trim();
+  document.getElementById('frDetailTitle').textContent = 'Firm Receipt Details';
+  document.getElementById('frDetailSub').textContent =
+    `${weeks[weekIdx].fw} (${weeks[weekIdx].dt}) — ${subModel ? subModel.toUpperCase() : (p ? p.model : sku)}`;
+
+  let content = '';
+  if (!lastInboundData || lastInboundData.length === 0) {
+    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No inbound data loaded.</p>`;
+    document.getElementById('frDetailContent').innerHTML = content;
+    document.getElementById('frDetailOverlay').classList.add('open');
+    return;
+  }
+
+  let headerRowIdx = 0;
+  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
+    if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
+      headerRowIdx = i; break;
+    }
+  }
+  const headerRow = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
+  function findCol(...terms) {
+    for (const term of terms) {
+      const idx = headerRow.findIndex(h => h.toLowerCase().includes(term.toLowerCase()));
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  }
+  const colProductId = findCol('product id','productid','model','item no','item number','item #');
+  const colPoId      = findCol('purchase order id','po id','po number','order id','po#','po no');
+  const colQty       = findCol('delivery notification quantity','notification quantity','delivery qty','quantity','units','qty');
+  const colDelivDate = findCol('planned delivery date','delivery date','eta','arrival date','ship date');
+
+  const fwStartStr = weeks[weekIdx].dt;
+  const fwEndStr   = weekIdx + 1 < weeks.length ? weeks[weekIdx + 1].dt : null;
+  const parseDate  = s => { const pts = s.split('/'); return new Date(+pts[2], +pts[0]-1, +pts[1]); };
+  const fwStart    = parseDate(fwStartStr);
+  const fwEnd      = fwEndStr ? parseDate(fwEndStr) : null;
+
+  const editData = _loadInboundEdits();
+  const matches  = [];
+  for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
+    const row = lastInboundData[r];
+    if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
+    if (colProductId === -1) continue;
+    const pid = String(row[colProductId] || '').trim().toLowerCase();
+    if (pid !== subModelLower) continue;
+
+    if (colDelivDate !== -1) {
+      const rawDate = String(row[colDelivDate] || '').trim();
+      if (rawDate) {
+        const d = new Date(rawDate);
+        if (!isNaN(d)) {
+          d.setHours(0,0,0,0);
+          if (d < fwStart) continue;
+          if (fwEnd && d >= fwEnd) continue;
+        }
+      }
+    }
+
+    const rawPoId = colPoId      !== -1 ? String(row[colPoId]      || '').trim() : '';
+    const rawDate = colDelivDate !== -1 ? String(row[colDelivDate] || '').trim() : '';
+    const qty     = colQty       !== -1 ? Math.round(parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, ''))) : null;
+    const rowKey  = `${rawPoId}|${pid}|${rawDate}`;
+    const saved   = editData[rowKey] || {};
+
+    // Filter to just this sub-row's case pack / config / projDesc
+    if (cp       && (saved.casePack  || '') !== cp)       continue;
+    if (caseConf && (saved.caseConfig || '') !== caseConf) continue;
+    if (projDesc && (saved.projDesc   || '') !== projDesc) continue;
+
+    const poId = saved.poId || rawPoId;
+    matches.push({ poId, rawDate, qty, saved });
+  }
+
+  if (matches.length === 0) {
+    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No matching inbound rows found for this sub-row.</p>`;
+  } else {
+    content = matches.map((m, idx) => `
+      ${matches.length > 1 ? `<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Entry ${idx + 1}</div>` : ''}
+      <div class="rp-field"><label>Purchase Order ID</label>
+        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.poId || '<span style="opacity:0.4">—</span>'}</div></div>
+      <div class="rp-field"><label>Delivery Notification Qty</label>
+        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${(m.qty != null && !isNaN(m.qty)) ? m.qty.toLocaleString() : '—'}</div></div>
+      <div class="rp-field"><label>Case Pack</label>
+        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.casePack || '<span style="opacity:0.4">—</span>'}</div></div>
+      <div class="rp-field"><label>Case Configuration</label>
+        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.caseConfig || '<span style="opacity:0.4">—</span>'}</div></div>
+      <div class="rp-field"><label>Project Description</label>
+        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.projDesc || '<span style="opacity:0.4">—</span>'}</div></div>
+      ${idx < matches.length - 1 ? '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.14);margin:12px 0;">' : ''}
+    `).join('');
+  }
+  document.getElementById('frDetailContent').innerHTML = content;
+  document.getElementById('frDetailOverlay').classList.add('open');
 }
 
 document.getElementById('frDetailOverlay').addEventListener('click', function(e) {
