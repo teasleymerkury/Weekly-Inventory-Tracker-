@@ -5913,7 +5913,7 @@ function doLogin() {
         overlay.classList.add('hidden');
         overlay.style.opacity = '';
         overlay.style.transition = '';
-        if (!isTestMode) loadFromSupabase();
+        loadFromSupabase();
         startInactivityWatch();
       }, 460);
     }
@@ -5983,7 +5983,7 @@ function doLogin() {
         overlay.classList.add('hidden');
         overlay.style.opacity = '';
         overlay.style.transition = '';
-        if (!isTestMode) loadFromSupabase();
+        loadFromSupabase();
         startInactivityWatch();
       }, 460);
     }
