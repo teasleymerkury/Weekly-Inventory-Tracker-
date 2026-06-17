@@ -4718,12 +4718,21 @@ async function saveThdSalesOrdersCache() {
   if (isTestMode || !sbClient) return;
   try {
     const map = {};
+    const detailsMap = {};
     products.forEach(p => {
       const orders = state[p.sku] && state[p.sku].thdSalesOrders;
-      if (orders && orders.some(v => v > 0)) map[p.sku] = orders;
+      if (orders && orders.some(v => v > 0)) {
+        map[p.sku] = orders;
+        const details = state[p.sku].thdSoDetails;
+        if (details && details.some(d => d != null)) detailsMap[p.sku] = details;
+      }
     });
     await sbClient.from('app_cache').upsert(
       { key: 'thd_sales_orders', data: map, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+    await sbClient.from('app_cache').upsert(
+      { key: 'thd_sales_order_details', data: detailsMap, updated_at: new Date().toISOString() },
       { onConflict: 'key' }
     );
   } catch(e) { console.warn('Supabase thdSalesOrders cache save failed:', e.message); }
@@ -4755,13 +4764,14 @@ async function upsertZeroReorder(sku, week_idx) {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         sbClient.from('sku_weekly').select('*'),
         sbClient.from('app_cache').select('*').eq('key', 'inbound_rows'),
         sbClient.from('app_cache').select('*').eq('key', 'additional_models'),
-        sbClient.from('app_cache').select('*').eq('key', 'thd_sales_orders')
+        sbClient.from('app_cache').select('*').eq('key', 'thd_sales_orders'),
+        sbClient.from('app_cache').select('*').eq('key', 'thd_sales_order_details')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -4795,6 +4805,18 @@ async function loadFromSupabase() {
         Object.keys(map).forEach(sku => {
           if (state[sku] && Array.isArray(map[sku])) {
             state[sku].thdSalesOrders = map[sku];
+          }
+        });
+      }
+    }
+
+    // Restore THD Sales Order details (drill-down popup data) from Supabase
+    if (thdSoDetailRows && thdSoDetailRows.length > 0) {
+      const detailMap = thdSoDetailRows[0].data;
+      if (detailMap && typeof detailMap === 'object') {
+        Object.keys(detailMap).forEach(sku => {
+          if (state[sku] && Array.isArray(detailMap[sku])) {
+            state[sku].thdSoDetails = detailMap[sku];
           }
         });
       }
