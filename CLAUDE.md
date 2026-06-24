@@ -67,6 +67,29 @@ Login handled by `doLogin()`. Two accounts:
 | `sku_weekly` | `sku`, `week_idx`, `firm_receipt`, `suof_forecast`, `pos_units`, `reorder_qty`, `reorder_case_pack`, `reorder_config` |
 | `app_cache` | `key` (string), `data` (JSON) — keys: `inbound_rows`, `additional_models`, `thd_sales_orders`, `thd_sales_order_details` |
 
+### Forecast Engine — M3 Two-Signal Method
+
+`computeFcRates(sku, startIdx, endIdx)` (~line 6508) is the core forecast function. It uses **Method 3 (M3)**, chosen after backtesting 12 forecast scenarios across 7 SKUs. Do not change the methodology without re-running the backtests.
+
+**Signal 1 — Store-Matched YoY Ratio:**
+- Scans the YTD window (FW1 → current−1) for week pairs where TY/LY store count ratio is within ±30%.
+- Computes avg TY SPS ÷ avg LY SPS from matched weeks only. Requires ≥4 matches; falls back to full YTD ratio if fewer.
+- Purpose: isolates true demand velocity from store expansion noise (e.g., stores doubled in Q1/Q2 2026 vs 2025 for most SKUs).
+
+**Signal 2 — Recent SPS Trend:**
+- Compares TY SPS in last 4 weeks vs prior 4 weeks (same year only).
+- Suppression rule: if YoY ratio < 0.85 AND trend is positive → set trend = 1.0. Prevents false optimism on confirmed declining SKUs.
+
+**Final formula:** `LY same-week SPS × YoY ratio × trend multiplier × current store count`
+
+**Backtested avg error:** M3 = 17.8% vs M1 (full YTD) = 32.3%, M2 (store-matched only) = 26.6%.
+
+**Key variables returned:** `m3YoYRatio`, `m3YoYSource` (`'store-matched'` | `'ytd-fallback'` | `'snapshot-fallback'`), `storeMatchedCount`, `trendMultiplier`.
+
+The chip detail popup (double-click a forecast chip) calls `showFcChipDetail` (~line 6746) and renders the full two-signal breakdown.
+
+`POS_HISTORY` (~line 1791) is the per-SKU per-FW historical store count + units object used by `computeFcRates` for the LY anchor and store-matching logic.
+
 ## Development Notes
 
 - No build step. Edit the HTML files directly and refresh the browser.
