@@ -2905,6 +2905,17 @@ async function syncFromATS(autoBuffer = null) {
         }
       });
       state[sku].firmReceiptEntries = entries;
+      // Recompute firmReceipts from firmReceiptEntries — single source of truth
+      const newFR = new Array(weeks.length).fill(0);
+      entries.forEach(({ weekIdx, qty }) => { newFR[weekIdx] = (newFR[weekIdx] || 0) + qty; });
+      state[sku].firmReceipts = newFR;
+      // Refresh FR inputs in DOM
+      const blk = document.getElementById('block-' + sku);
+      if (blk) {
+        blk.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
+          inp.value = fmtInput(newFR[parseInt(inp.dataset.idx)] || 0);
+        });
+      }
     });
 
     // Pre-compute and store case-pack breakdown so sub-rows survive logout/refresh
@@ -4259,8 +4270,7 @@ function computeCpWeeklyQtys(sku) {
     const caseConf = edit.caseConfig || '';
     const isAddl   = addlModels.includes(model.toLowerCase()) && model.toLowerCase() !== baseModel;
     const projDescKey = edit.projDesc || '';
-    const groupKey = cp ? `${cp}||${caseConf}||${model.toLowerCase()}||${projDescKey}` : (isAddl ? `__no_cp__||${model.toLowerCase()}` : '');
-    if (!groupKey) continue;
+    const groupKey = cp ? `${cp}||${caseConf}||${model.toLowerCase()}||${projDescKey}` : `__no_cp__||${model.toLowerCase()}`;
     if (!result[groupKey]) result[groupKey] = { qtys: new Array(weeks.length).fill(0), cp, caseConf, model: model.toLowerCase(), projDesc: edit.projDesc || '' };
     else if (!result[groupKey].projDesc && edit.projDesc) result[groupKey].projDesc = edit.projDesc;
     result[groupKey].qtys[weekIdx] += qty;
@@ -4371,15 +4381,14 @@ function removeAdditionalModel(sku, model) {
     });
     saveInboundCache(lastInboundData);
   }
-  // Rebuild firmReceipts from scratch: base model + all remaining additionalModels
+  // Remove deleted model's entries from firmReceiptEntries, then recompute firmReceipts
   const p = products.find(x => x.sku === sku);
   if (p) {
-    const allModels = [p.model.toLowerCase(), ...(state[sku].additionalModels || []).map(m => m.toLowerCase())];
+    state[sku].firmReceiptEntries = (state[sku].firmReceiptEntries || [])
+      .filter(e => e.model.toLowerCase() !== modelLower);
     const newFR = new Array(weeks.length).fill(0);
-    allModels.forEach(m => {
-      getEtaEntriesForModel(m).forEach(({ weekIdx, qty }) => {
-        newFR[weekIdx] = (newFR[weekIdx] || 0) + qty;
-      });
+    (state[sku].firmReceiptEntries || []).forEach(({ weekIdx, qty }) => {
+      newFR[weekIdx] = (newFR[weekIdx] || 0) + qty;
     });
     state[sku].firmReceipts = newFR;
     // Update firm receipt input cells in the DOM
@@ -4545,12 +4554,12 @@ function saveAddModel() {
   saveState();
   saveAdditionalModelsCache();
 
-  // Refresh firm receipts for this SKU from firmReceiptEntries
-  (state[sku].firmReceiptEntries || [])
-    .filter(e => e.model.toLowerCase() === model.toLowerCase())
-    .forEach(({ weekIdx, qty }) => {
-      state[sku].firmReceipts[weekIdx] = (state[sku].firmReceipts[weekIdx] || 0) + qty;
-    });
+  // Rebuild firmReceipts from all firmReceiptEntries — avoids double-counting on re-add
+  const newFRAdd = new Array(weeks.length).fill(0);
+  (state[sku].firmReceiptEntries || []).forEach(({ weekIdx, qty }) => {
+    newFRAdd[weekIdx] = (newFRAdd[weekIdx] || 0) + qty;
+  });
+  state[sku].firmReceipts = newFRAdd;
 
   // Update FR inputs in the DOM
   const block = document.getElementById('block-' + sku);
