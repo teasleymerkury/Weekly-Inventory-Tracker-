@@ -287,6 +287,9 @@
   table.grid td.col-cur.editable input { background: rgba(251,191,36,0.08) !important; }
   table.grid td.col-cur.editable input:focus { background: rgba(255,255,255,0.18) !important; }
 
+  /* Sales rate input showing SUOF fallback value (not manually set) */
+  input.sr-suof-display { color: rgba(150,200,255,0.65) !important; font-style: italic; }
+
   .xls-badge {
     display: inline-block; font-size: 9px; font-weight: 700;
     background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.92);
@@ -2381,7 +2384,14 @@ function handleChange(input) {
   if (row === 'salesRate') {
     state[sku].salesRates[idx] = val;
     if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
-    state[sku].salesRatesManual[idx] = true;
+    if (val === 0) {
+      // Typing 0 clears the manual override — fall back to SUOF if available
+      state[sku].salesRatesManual[idx] = false;
+    } else {
+      delete input.dataset.suofDisplay;
+      input.classList.remove('sr-suof-display');
+      state[sku].salesRatesManual[idx] = true;
+    }
     // Direct immediate WOS update — reads endInv straight from the DOM cell,
     // guaranteed to be correct regardless of state/Supabase sync lag.
     var eiCell = document.getElementById('cell-' + sku + '-endInv-' + idx);
@@ -2399,9 +2409,10 @@ function handleChange(input) {
 }
 
 function updateCalcs(sku) {
-  // Sync all salesRate DOM inputs into state first — prevents display/state mismatch
+  // Sync all salesRate DOM inputs into state first — prevents display/state mismatch.
+  // Skip inputs showing SUOF fallback (data-suof-display) — those are not manually set.
   document.querySelectorAll(`input[data-sku="${sku}"][data-row="salesRate"]`).forEach(function(inp) {
-    if (!inp.readOnly) {
+    if (!inp.readOnly && !inp.dataset.suofDisplay) {
       var idx2 = parseInt(inp.dataset.idx);
       var v2 = parseFloat(inp.value.replace(/,/g, '')) || 0;
       if (!isNaN(idx2)) state[sku].salesRates[idx2] = v2;
@@ -2409,9 +2420,25 @@ function updateCalcs(sku) {
   });
   const p = products.find(x => x.sku === sku);
   const rows = calcRows(p);
+  const s = state[sku];
   weeks.forEach((w, i) => {
     const isPast = i < rows.curIdx;
     const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (i === rows.curIdx ? 'col-cur' : ''));
+    // Update sales rate input: show SUOF value when SR is 0 and not manually set
+    const srInp = document.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
+    if (srInp && !srInp.readOnly && document.activeElement !== srInp) {
+      const isManual = s.salesRatesManual && s.salesRatesManual[i];
+      const srVal = s.salesRates[i] || 0;
+      const suofVal = s.suofFromExcel && s.suofFromExcel[i];
+      if (!isManual && srVal === 0 && suofVal) {
+        srInp.value = fmtInput(suofVal);
+        srInp.dataset.suofDisplay = 'true';
+        srInp.classList.add('sr-suof-display');
+      } else {
+        delete srInp.dataset.suofDisplay;
+        srInp.classList.remove('sr-suof-display');
+      }
+    }
     const ei = document.getElementById(`cell-${sku}-endInv-${i}`);
     const su = document.getElementById(`cell-${sku}-suof-${i}`);
     const wo = document.getElementById(`cell-${sku}-wos-${i}`);
@@ -2512,18 +2539,19 @@ function findWeekIdx(date) {
 // Returns array of {weekIdx, qty}, merging quantities that land in the same week.
 function parseEtaField(etaStr) {
   if (!etaStr) return [];
-  const weekMap = {};
+  const entries = [];
   const parts = String(etaStr).split(/\s*&\s*/);
   for (const part of parts) {
     const m = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
     if (!m) continue;
+    const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
     const date = new Date(parseInt(m[3]), parseInt(m[1]) - 1, parseInt(m[2]));
     const qty  = parseInt(m[4]);
     const wIdx = findWeekIdx(date);
     if (wIdx < 0) continue;
-    weekMap[wIdx] = (weekMap[wIdx] || 0) + qty;
+    entries.push({ weekIdx: wIdx, qty, date: dateStr });
   }
-  return Object.entries(weekMap).map(([idx, qty]) => ({ weekIdx: parseInt(idx), qty }));
+  return entries;
 }
 
 let autoSyncAtsTimer = null;
@@ -2680,6 +2708,73 @@ function connectATS() {
   document.getElementById('inputAts').click();
 }
 
+// Builds lastInboundData rows from wb.
+// Prefers the actual "Inbound" tab (full detail); falls back to parsing the ETA column on the ATS tab.
+function buildInboundRows(wb, atsData) {
+  // Try actual Inbound tab first
+  const wsInbound = wb.Sheets['Inbound'] || wb.Sheets['inbound'] || wb.Sheets['INBOUND'];
+  if (wsInbound) {
+    const rows = XLSX.utils.sheet_to_json(wsInbound, { header: 1, defval: null, raw: true });
+    // Find the header row (first row with ≥3 non-blank cells)
+    let hdrIdx = 0;
+    for (let i = 0; i < Math.min(6, rows.length); i++) {
+      if (rows[i] && rows[i].filter(c => c != null && String(c).trim() !== '').length >= 3) { hdrIdx = i; break; }
+    }
+    // Filter to only rows whose model is known (on the Weekly Recap page)
+    const knownModels = new Set();
+    products.forEach(p => {
+      knownModels.add(p.model.toLowerCase().trim());
+      (state[p.sku].additionalModels || []).forEach(m => knownModels.add(m.toLowerCase().trim()));
+    });
+    const hdr = rows[hdrIdx] || [];
+    // Find model column index
+    const modelColIdx = hdr.findIndex(h => h && /material id$|product id$|model/i.test(String(h).trim()) && !/text/i.test(String(h).trim()));
+    const filtered = [rows[hdrIdx]];
+    for (let i = hdrIdx + 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
+      if (modelColIdx !== -1) {
+        const pid = String(row[modelColIdx] || '').trim().toLowerCase();
+        if (pid && !knownModels.has(pid)) continue;
+      }
+      filtered.push(row);
+    }
+    return filtered;
+  }
+
+  // Fallback: synthesize from ATS tab ETA column
+  const syntheticHeader = [
+    'Product ID', 'Product ID (Text)', 'Purchase Order ID',
+    'Planned Delivery Date', 'Delivery Notification Quantity'
+  ];
+  const syntheticRows = [syntheticHeader];
+  const allModels = new Map(); // model → matchSku (null = not matched)
+  for (let ri = 2; ri < atsData.length; ri++) {
+    const row = atsData[ri];
+    if (!row || row[ATS_MODEL_COL] == null) continue;
+    const model = String(row[ATS_MODEL_COL]).trim();
+    let sku = modelToSku[model] || null;
+    if (!sku) {
+      for (const p of products) {
+        if ((state[p.sku].additionalModels || []).map(m => m.toUpperCase()).includes(model.toUpperCase())) { sku = p.sku; break; }
+      }
+    }
+    if (!sku) continue;
+    const p = products.find(x => x.sku === sku);
+    const productText = (p ? p.desc : '') || model;
+    const etaStr = row[ATS_ETA_COL];
+    if (!etaStr) continue;
+    for (const part of String(etaStr).split(/\s*&\s*/)) {
+      const m = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
+      if (!m) continue;
+      const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
+      const qty = parseInt(m[4]);
+      syntheticRows.push([model, productText, '', dateStr, qty]);
+    }
+  }
+  return syntheticRows;
+}
+
 async function syncFromATS(autoBuffer = null) {
   const isAutoLoad = !!autoBuffer;
   if (!atsFile && !isAutoLoad) return;
@@ -2709,60 +2804,12 @@ async function syncFromATS(autoBuffer = null) {
       buildThdSalesOrders();
     }
 
-    // Build Inbound Detail from ATS tab PO Detail ETA column
-    // Each ETA entry per SKU becomes one row (no Inbound tab needed)
+    // Build Inbound Detail — prefer actual Inbound tab, fall back to ETA column parsing
     {
-      const syntheticHeader = [
-        'Product ID', 'Product ID (Text)', 'Purchase Order ID',
-        'Planned Delivery Date', 'Delivery Notification Quantity'
-      ];
-      const syntheticRows = [syntheticHeader];
-      for (let ri = 2; ri < data.length; ri++) {
-        const row = data[ri];
-        if (!row || row[ATS_MODEL_COL] == null) continue;
-        const model = String(row[ATS_MODEL_COL]).trim();
-        if (!modelToSku[model]) continue;
-        const sku = modelToSku[model];
-        const p = products.find(x => x.sku === sku);
-        const productText = p ? p.desc : '';
-        const etaStr = row[ATS_ETA_COL];
-        if (!etaStr) continue;
-        const parts = String(etaStr).split(/\s*&\s*/);
-        for (const part of parts) {
-          const m = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
-          if (!m) continue;
-          const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
-          const qty = parseInt(m[4]);
-          const wi1 = findWeekIdx(new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2])));
-          syntheticRows.push([model, productText, '', dateStr, qty, wi1]);
-        }
-      }
-      for (let ri = 2; ri < data.length; ri++) {
-        const row = data[ri];
-        if (!row || row[ATS_MODEL_COL] == null) continue;
-        const addlModel = String(row[ATS_MODEL_COL]).trim();
-        if (modelToSku[addlModel]) continue;
-        let matchSku = null;
-        for (const p of products) {
-          if ((state[p.sku].additionalModels || []).map(m => m.toUpperCase()).includes(addlModel.toUpperCase())) {
-            matchSku = p.sku; break;
-          }
-        }
-        if (!matchSku) continue;
-        const etaStr2 = row[ATS_ETA_COL];
-        if (!etaStr2) continue;
-        for (const part of String(etaStr2).split(/\s*&\s*/)) {
-          const m2 = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
-          if (!m2) continue;
-          const dateStr2 = m2[1]+'/'+m2[2]+'/'+m2[3];
-          const wi2 = findWeekIdx(new Date(parseInt(m2[3]), parseInt(m2[1])-1, parseInt(m2[2])));
-          const addlDesc = (row[ATS_DESC_COL] != null ? String(row[ATS_DESC_COL]).trim() : '') || addlModel;
-          syntheticRows.push([addlModel, addlDesc, '', dateStr2, parseInt(m2[4]), wi2]);
-        }
-      }
-      lastInboundData = syntheticRows;
-      if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(syntheticRows)); } catch(e) {}
-      saveInboundCache(syntheticRows);
+      const inboundRows = buildInboundRows(wb, data);
+      lastInboundData = inboundRows;
+      if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(inboundRows)); } catch(e) {}
+      saveInboundCache(inboundRows);
       // Re-render inbound page if it's currently visible
       const inboundPage = document.getElementById('page-inbound');
       if (inboundPage && inboundPage.classList.contains('active')) renderInboundPage();
@@ -2794,7 +2841,7 @@ async function syncFromATS(autoBuffer = null) {
       const newFirmReceipts = new Array(weeks.length).fill(0);
       const etaEntries = parseEtaField(row[ATS_ETA_COL]);
       for (const { weekIdx, qty } of etaEntries) {
-        newFirmReceipts[weekIdx] = qty;
+        newFirmReceipts[weekIdx] = (newFirmReceipts[weekIdx] || 0) + qty;
       }
 
       if (!skusAddlModelsDone.has(sku)) {
@@ -2837,6 +2884,29 @@ async function syncFromATS(autoBuffer = null) {
     if (synced === 0) throw new Error('No matching model numbers found in ATS sheet.');
 
     renderSummary();
+    // Build firmReceiptEntries for each updated SKU (exact date + qty per entry)
+    skusUpdated.forEach(sku => {
+      const entries = [];
+      for (let ri = 2; ri < data.length; ri++) {
+        const row = data[ri];
+        if (!row || row[ATS_MODEL_COL] == null) continue;
+        const model = String(row[ATS_MODEL_COL]).trim();
+        if (modelToSku[model] !== sku) continue;
+        parseEtaField(row[ATS_ETA_COL]).forEach(e => entries.push({ model: model.toLowerCase(), date: e.date, qty: e.qty, weekIdx: e.weekIdx }));
+      }
+      (state[sku].additionalModels || []).forEach(addlModel => {
+        const addlUp = addlModel.toUpperCase();
+        for (let ri = 2; ri < data.length; ri++) {
+          const row = data[ri];
+          if (!row || row[ATS_MODEL_COL] == null) continue;
+          const model = String(row[ATS_MODEL_COL]).trim();
+          if (model.toUpperCase() !== addlUp) continue;
+          parseEtaField(row[ATS_ETA_COL]).forEach(e => entries.push({ model: model.toLowerCase(), date: e.date, qty: e.qty, weekIdx: e.weekIdx }));
+        }
+      });
+      state[sku].firmReceiptEntries = entries;
+    });
+
     // Pre-compute and store case-pack breakdown so sub-rows survive logout/refresh
     products.forEach(p => {
       if (state[p.sku].atsConnected) {
@@ -2927,60 +2997,10 @@ async function refreshInboundPage() {
     const ws     = wb.Sheets['ATS'];
     if (!ws) throw new Error('"ATS" sheet not found.');
     const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
-
-    const syntheticHeader = [
-      'Product ID', 'Product ID (Text)', 'Purchase Order ID',
-      'Planned Delivery Date', 'Delivery Notification Quantity'
-    ];
-    const syntheticRows = [syntheticHeader];
-    for (let ri = 2; ri < data.length; ri++) {
-      const row = data[ri];
-      if (!row || row[ATS_MODEL_COL] == null) continue;
-      const model = String(row[ATS_MODEL_COL]).trim();
-      if (!modelToSku[model]) continue;
-      const sku = modelToSku[model];
-      const p = products.find(x => x.sku === sku);
-      const productText = p ? p.desc : '';
-      const etaStr = row[ATS_ETA_COL];
-      if (!etaStr) continue;
-      const parts = String(etaStr).split(/\s*&\s*/);
-      for (const part of parts) {
-        const m = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
-        if (!m) continue;
-        const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
-        const qty = parseInt(m[4]);
-        const wi2 = findWeekIdx(new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2])));
-        syntheticRows.push([model, productText, '', dateStr, qty, wi2]);
-      }
-    }
-    // Also add rows for additional models (added via + button) from the ATS file
-    for (let ri = 2; ri < data.length; ri++) {
-      const row = data[ri];
-      if (!row || row[ATS_MODEL_COL] == null) continue;
-      const model = String(row[ATS_MODEL_COL]).trim();
-      if (modelToSku[model]) continue; // already handled above
-      // Check if this model is in any SKU's additionalModels
-      let matchSku = null;
-      for (const p of products) {
-        if ((state[p.sku].additionalModels || []).map(m => m.toUpperCase()).includes(model.toUpperCase())) {
-          matchSku = p.sku; break;
-        }
-      }
-      if (!matchSku) continue;
-      const etaStr = row[ATS_ETA_COL];
-      if (!etaStr) continue;
-      const parts2 = String(etaStr).split(/\s*&\s*/);
-      for (const part of parts2) {
-        const m2 = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
-        if (!m2) continue;
-        const dateStr = `${m2[1]}/${m2[2]}/${m2[3]}`;
-        const qty = parseInt(m2[4]);
-        syntheticRows.push([model, model, '', dateStr, qty]);
-      }
-    }
-    lastInboundData = syntheticRows;
-    if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(syntheticRows)); } catch(e) {}
-    saveInboundCache(syntheticRows);
+    const inboundRows = buildInboundRows(wb, data);
+    lastInboundData = inboundRows;
+    if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(inboundRows)); } catch(e) {}
+    saveInboundCache(inboundRows);
     renderInboundPage();
   } catch(e) {
     document.getElementById('inboundContent').innerHTML =
@@ -3000,15 +3020,15 @@ function saveSentReorders() { if (isTestMode) return; localStorage.setItem(SENT_
 function _loadInboundEdits() {
   try {
     const raw = JSON.parse(localStorage.getItem(INBOUND_EDIT_KEY) || '{}');
-    // Migrate: drop old-format keys where the 3rd segment is a bare integer (position index).
-    // New format is "poId|pid|deliveryDateString" — date strings contain "/" so they are not pure integers.
+    // Migrate: keep only new-format keys — exactly 3 pipe-separated segments where
+    // segment[1] is a date (MM/DD/YYYY) and segment[2] is a pure integer qty.
     let dirty = false;
     for (const key of Object.keys(raw)) {
       const parts = key.split('|');
-      if (parts.length >= 3 && /^\d+$/.test(parts[2].trim())) {
-        delete raw[key];
-        dirty = true;
-      }
+      const validNew = parts.length === 3 &&
+        /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(parts[1].trim()) &&
+        /^\d+$/.test(parts[2].trim());
+      if (!validNew) { delete raw[key]; dirty = true; }
     }
     if (dirty) localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(raw));
     return raw;
@@ -3029,170 +3049,77 @@ function _saveInboundEdit(rowKey, field, value) {
 
 function renderInboundPage() {
   const container = document.getElementById('inboundContent');
-  if (!lastInboundData || lastInboundData.length === 0) {
-    container.innerHTML = '<div class="inbound-empty">No data in Inbound tab.</div>';
+
+  // Collect all firm receipt entries across all products
+  const allEntries = [];
+  // Map: model.toLowerCase() → product description
+  const modelToDesc = {};
+  products.forEach(p => {
+    modelToDesc[p.model.toLowerCase().trim()] = p.desc || p.model;
+    (state[p.sku].additionalModels || []).forEach(m => {
+      modelToDesc[m.toLowerCase().trim()] = p.desc || p.model;
+    });
+    const entries = state[p.sku] && state[p.sku].firmReceiptEntries;
+    if (!entries || entries.length === 0) return;
+    entries.forEach(e => allEntries.push(e));
+  });
+
+  if (allEntries.length === 0) {
+    container.innerHTML = '<div class="inbound-empty">No firm receipt data loaded. Sync ATS to populate inbound entries.</div>';
     return;
   }
 
-  // ── Find header row (first row with ≥3 non-blank cells) ──────────────────────
-  let headerRowIdx = 0;
-  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
-    if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
-      headerRowIdx = i; break;
-    }
-  }
-  const headerRow = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
-
-  // ── Column finder ─────────────────────────────────────────────────────────────
-  function findCol(...terms) {
-    for (const term of terms) {
-      const idx = headerRow.findIndex(h => h.toLowerCase().includes(term.toLowerCase()));
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  }
-
-  const colProductId   = findCol('product id',   'productid',  'material id', 'model', 'item no', 'item number', 'item #');
-  const colProductText = findCol('material id (text)', 'product id (text)', 'product name', 'description', 'item desc', 'item description');
-  const colPoId        = findCol('purchase order id', 'po id', 'po number', 'order id', 'po#', 'po no');
-  const colDelivDate   = findCol('planned delivery date', 'delivery date', 'eta', 'arrival date', 'ship date');
-  const colQty         = findCol('delivery notification quantity', 'notification quantity', 'delivery qty', 'quantity', 'units', 'qty');
-
-  // Build the column definitions we actually want to show
-  const colDefs = [
-    { idx: colProductId,   label: 'Model Number',          cls: 'model-cell' },
-    { idx: colProductText, label: 'Product Description',   cls: 'desc-cell'  },
-    { idx: colPoId,        label: 'Purchase Order ID',     cls: ''           },
-    { idx: colDelivDate,   label: 'Planned Delivery Date', cls: 'date-cell'  },
-    { idx: colQty,         label: 'Delivery Notification Qty', cls: 'qty-cell' },
-  ].filter(c => c.idx !== -1);
-
-  // ── Build set of known model numbers from the main page ───────────────────────
-  // Drive from the live products array (base model + additionalModels) so that:
-  //   • User-added products appear immediately after being added
-  //   • Deleted products disappear immediately (they're removed from products[])
-  const knownModels = new Set();
-  // Map: additionalModel (lowercase) → parent product name, for desc-cell fallback
-  const addlModelToName = {};
-  products.forEach(p => {
-    knownModels.add(p.model.toLowerCase().trim());
-    (state[p.sku].additionalModels || []).forEach(m => {
-      const ml = m.toLowerCase().trim();
-      knownModels.add(ml);
-      addlModelToName[ml] = p.name || p.model;
-    });
+  // Sort by model then exact date
+  allEntries.sort((a, b) => {
+    if (a.model !== b.model) return a.model.localeCompare(b.model);
+    const [am, ad, ay] = a.date.split('/').map(Number);
+    const [bm, bd, by] = b.date.split('/').map(Number);
+    return new Date(ay, am-1, ad) - new Date(by, bm-1, bd);
   });
 
-  // ── Collect & filter data rows ────────────────────────────────────────────────
-  const dataRows = [];
-  for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
-    const row = lastInboundData[r];
-    if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
-
-    // Filter to only items that appear on the main Weekly Recap page
-    if (colProductId !== -1) {
-      const pid = String(row[colProductId] || '').trim().toLowerCase();
-      if (pid && !knownModels.has(pid)) continue;
-    }
-
-    dataRows.push(row);
-  }
-
-  // ── Merge duplicate rows (same Product ID + PO ID + Delivery Date) ──────────
-  const mergedMap = new Map();
-  for (const row of dataRows) {
-    const pid  = colProductId  !== -1 ? String(row[colProductId]  || '').trim() : '';
-    const poid = colPoId       !== -1 ? String(row[colPoId]       || '').trim() : '';
-    const ddt  = colDelivDate  !== -1 ? String(row[colDelivDate]  || '').trim() : '';
-    const key  = `${pid}||${poid}||${ddt}`;
-    if (!mergedMap.has(key)) {
-      mergedMap.set(key, row.slice()); // clone row
-    } else {
-      // Sum the Qty column
-      if (colQty !== -1) {
-        const parseQty = v => { const n = parseFloat(String(v || '').replace(/[^0-9.]/g, '')); return isNaN(n) ? 0 : n; };
-        const existQty = parseQty(mergedMap.get(key)[colQty]);
-        const addQty   = parseQty(row[colQty]);
-        mergedMap.get(key)[colQty] = existQty + addQty;
-      }
-    }
-  }
-  const mergedRows = [...mergedMap.values()];
-
-  // ── Load persisted editable values ────────────────────────────────────────────
+  // Orphan cleanup: remove editData keys for entries that no longer exist
+  const currentKeys = new Set(allEntries.map(e => `${e.model.toLowerCase()}|${e.date}|${e.qty}`));
   const editData = _loadInboundEdits();
-
-  // ── Summary ───────────────────────────────────────────────────────────────────
-  let totalQty = 0;
-  if (colQty !== -1) {
-    for (const row of mergedRows) {
-      const v = parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, ''));
-      if (!isNaN(v)) totalQty += v;
-    }
+  let editsChanged = false;
+  for (const key of Object.keys(editData)) {
+    if (!currentKeys.has(key)) { delete editData[key]; editsChanged = true; }
   }
+  if (editsChanged && !isTestMode) localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(editData));
 
-  let html = ``;
-
-  // ── Search bar ────────────────────────────────────────────────────────────────
-  html += `<div class="inbound-search-bar">
+  let html = `<div class="inbound-search-bar">
     <input class="inbound-search-input" id="inboundSearch" type="text" placeholder="Search inbound…" oninput="filterInboundTable(this.value)" />
-    <span class="inbound-row-count" id="inboundRowCount">${mergedRows.length} rows</span>
+    <span class="inbound-row-count" id="inboundRowCount">${allEntries.length} rows</span>
   </div>`;
 
-  // ── Table ─────────────────────────────────────────────────────────────────────
-  let sortCol = null, sortDir = 1;
-  const allEditableCols = ['Case Pack', 'Case Configuration', 'Project Description', 'Purchase Order ID'];
-  html += `<div class="inbound-tbl-inner"><table class="inbound-tbl" id="inboundTable"><thead><tr>`;
-  for (const col of colDefs) {
-    html += `<th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('${col.label}')">${col.label} <span style="opacity:0.5;font-size:10px;">⇅</span></th>`;
-  }
-  html += `<th>Case Pack</th><th>Case Configuration</th><th>Project Description</th></tr></thead><tbody id="inboundTbody">`;
+  html += `<div class="inbound-tbl-inner"><table class="inbound-tbl" id="inboundTable"><thead><tr>
+    <th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('Model Number')">Model Number <span style="opacity:0.5;font-size:10px;">⇅</span></th>
+    <th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('Product Description')">Product Description <span style="opacity:0.5;font-size:10px;">⇅</span></th>
+    <th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('Purchase Order ID')">Purchase Order ID <span style="opacity:0.5;font-size:10px;">⇅</span></th>
+    <th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('Planned Delivery Date')">Planned Delivery Date <span style="opacity:0.5;font-size:10px;">⇅</span></th>
+    <th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('Delivery Notification Qty')">Delivery Notification Qty <span style="opacity:0.5;font-size:10px;">⇅</span></th>
+    <th>Case Pack</th>
+    <th>Case Configuration</th>
+    <th>Project Description</th>
+  </tr></thead><tbody id="inboundTbody">`;
 
-  for (let ri = 0; ri < mergedRows.length; ri++) {
-    const row = mergedRows[ri];
-    // Build a stable row key from PO ID + Product ID
-    const pid  = (colProductId !== -1 ? String(row[colProductId] || '').trim() : '').toLowerCase();
-    const poid = colPoId      !== -1 ? String(row[colPoId]      || '').trim() : '';
-    const ddt  = colDelivDate !== -1 ? String(row[colDelivDate] || '').trim() : '';
-    const rowKey = `${poid}|${pid}|${ddt}`;
-
-    const saved = editData[rowKey] || {};
-
-    html += `<tr data-rowkey="${rowKey}">`;
-    for (const col of colDefs) {
-      const raw = row[col.idx];
-      const val = raw != null ? String(raw).trim() : '';
-      // Purchase Order ID — editable (saved value takes precedence over raw)
-      if (col.label === 'Purchase Order ID') {
-        const poSaved = saved.poId || val;
-        html += `<td class="editable-inbound"><input type="text" value="${poSaved.replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="poId" onchange="saveInboundEdit(this)" /></td>`;
-        continue;
-      }
-      let display = val;
-      // For Product ID (Text): if blank, substitute parent product name from addlModelToName
-      if (col.cls === 'desc-cell' && !display && addlModelToName[pid]) {
-        display = addlModelToName[pid];
-      }
-      // Format quantity numbers with commas
-      if (col.cls === 'qty-cell') {
-        const qn = parseFloat(val.replace(/[^0-9.]/g,''));
-        if (!isNaN(qn)) { display = qn.toLocaleString(); }
-      }
-      html += `<td class="${col.cls}">${display}</td>`;
-    }
-
-    // Editable: Case Pack
-    const cpVal   = saved.casePack   || '';
-    const cfgVal  = saved.caseConfig || '';
-    const pdVal   = saved.projDesc  || '';
-    html += `<td class="editable-inbound"><input type="text" value="${cpVal.replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="casePack" onchange="saveInboundEdit(this)" /></td>`;
-    html += `<td class="editable-inbound"><input type="text" value="${cfgVal.replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="caseConfig" onchange="saveInboundEdit(this)" /></td>`;
-    html += `<td class="editable-inbound"><input type="text" value="${pdVal.replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="projDesc" onchange="saveInboundEdit(this)" /></td>`;
-    html += `</tr>`;
+  for (const entry of allEntries) {
+    const rowKey = `${entry.model.toLowerCase()}|${entry.date}|${entry.qty}`;
+    const saved  = editData[rowKey] || {};
+    const desc   = modelToDesc[entry.model.toLowerCase()] || entry.model.toUpperCase();
+    html += `<tr data-rowkey="${rowKey}">
+      <td class="model-cell">${entry.model.toUpperCase()}</td>
+      <td class="desc-cell">${desc}</td>
+      <td class="editable-inbound"><input type="text" value="${(saved.poId || '').replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="poId" onchange="saveInboundEdit(this)" /></td>
+      <td class="date-cell">${entry.date}</td>
+      <td class="qty-cell">${entry.qty.toLocaleString()}</td>
+      <td class="editable-inbound"><input type="text" value="${(saved.casePack || '').replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="casePack" onchange="saveInboundEdit(this)" /></td>
+      <td class="editable-inbound"><input type="text" value="${(saved.caseConfig || '').replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="caseConfig" onchange="saveInboundEdit(this)" /></td>
+      <td class="editable-inbound"><input type="text" value="${(saved.projDesc || '').replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="projDesc" onchange="saveInboundEdit(this)" /></td>
+    </tr>`;
   }
 
-  if (mergedRows.length === 0) {
-    html += `<tr><td colspan="${colDefs.length + 3}" style="text-align:center;padding:40px 20px;color:var(--text-3);font-size:13px;">No inbound rows matched the products on the Weekly Recap page.</td></tr>`;
+  if (allEntries.length === 0) {
+    html += `<tr><td colspan="8" style="text-align:center;padding:40px 20px;color:var(--text-3);font-size:13px;">No inbound rows found.</td></tr>`;
   }
 
   html += `</tbody></table></div>`;
@@ -4275,23 +4202,22 @@ function submitAddItem() {
 // ── Firm Receipt Expand / Shrink / Add Model ─────────────────────────────────
 
 // Compute per-case-pack weekly quantities for a SKU.
-// Returns { casePack: Float32Array(weeks.length) }
+// Returns { groupKey: { qtys, cp, caseConf, model, projDesc } }
 function computeCpWeeklyQtys(sku) {
-  // If no ATS data, use saved cpData snapshot (from last ATS sync) if available
-  if (!lastInboundData || lastInboundData.length < 2) {
+  const firmEntries = state[sku] && state[sku].firmReceiptEntries;
+  const p0 = products.find(x => x.sku === sku);
+  const baseUp = p0 ? p0.model.toUpperCase().trim() : '';
+
+  if (!firmEntries || firmEntries.length === 0) {
+    // Fall back to savedCpData snapshot (from last ATS sync) if available
     const saved = state[sku] && state[sku].savedCpData;
     if (saved && Object.keys(saved).length > 0) {
-      // Return saved breakdown; ensure any new additionalModels not yet in saved are included
       const result = {};
       Object.entries(saved).forEach(([k, v]) => {
-        // Pad/truncate qtys to current weeks length
         const qtys = new Array(weeks.length).fill(0);
         (v.qtys || []).forEach((q, i) => { if (i < qtys.length) qtys[i] = q; });
         result[k] = { qtys, cp: v.cp, caseConf: v.caseConf, model: v.model, projDesc: v.projDesc || '' };
       });
-      // Also add any additionalModels not already covered
-      const p0 = products.find(x => x.sku === sku);
-      const baseUp = p0 ? p0.model.toUpperCase().trim() : '';
       (state[sku].additionalModels || []).forEach(am => {
         const amLower = am.toLowerCase().trim();
         const key = '__no_cp__||' + amLower;
@@ -4301,10 +4227,8 @@ function computeCpWeeklyQtys(sku) {
       });
       return result;
     }
-    // No saved data — return placeholders for additionalModels only
+    // No data — placeholders for additionalModels only
     const result = {};
-    const p0 = products.find(x => x.sku === sku);
-    const baseUp = p0 ? p0.model.toUpperCase().trim() : '';
     (state[sku].additionalModels || []).forEach(am => {
       if (am.toUpperCase().trim() !== baseUp) {
         result['__no_cp__||' + am.toLowerCase().trim()] = {
@@ -4320,76 +4244,29 @@ function computeCpWeeklyQtys(sku) {
   if (p) allModels.add(p.model.toLowerCase().trim());
   (state[sku].additionalModels || []).forEach(m => allModels.add(m.toLowerCase().trim()));
 
-  // Locate header
-  let hdrIdx = 0;
-  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
-    if ((lastInboundData[i] || []).filter(c => c != null && String(c).trim()).length >= 3) { hdrIdx = i; break; }
-  }
-  const hdr = (lastInboundData[hdrIdx] || []).map(c => String(c || '').trim());
-  const fC = (...terms) => { for (const t of terms) { const i = hdr.findIndex(h => h.toLowerCase().includes(t.toLowerCase())); if (i !== -1) return i; } return -1; };
-  const colPid  = fC('product id','productid','model','item no','item #');
-  const colPo   = fC('purchase order id','po id','po number','order id','po#','po no');
-  const colQty  = fC('delivery notification quantity','notification quantity','delivery qty','quantity','units','qty');
-  const colDate = fC('planned delivery date','delivery date','eta','arrival date','ship date');
-
-  const edits   = _loadInboundEdits();
-  const parseDt = s => { const pp = s.split('/'); return new Date(+pp[2], +pp[0]-1, +pp[1]); };
-  const result  = {};
-
-  // Also track additional models (no case pack yet) so they show as rows
-  const p2 = products.find(x => x.sku === sku);
-  const baseModel = p2 ? p2.model.toLowerCase().trim() : '';
+  const edits = _loadInboundEdits();
+  const result = {};
+  const baseModel = p ? p.model.toLowerCase().trim() : '';
   const addlModels = (state[sku].additionalModels || []).map(m => m.toLowerCase());
 
-  for (let r = hdrIdx + 1; r < lastInboundData.length; r++) {
-    const row = lastInboundData[r];
-    if (!row) continue;
-    const pid = String(row[colPid] || '').trim().toLowerCase();
-    if (!allModels.has(pid)) continue;
-
-    const rawD = colDate !== -1 ? String(row[colDate] || '').trim() : '';
-    if (!rawD) continue;
-    // Use parseDt for consistent local-time parsing (avoids UTC timezone offset)
-    let d;
-    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawD)) {
-      d = parseDt(rawD);
-    } else {
-      d = new Date(rawD);
-      if (!isNaN(d)) d.setHours(0,0,0,0);
-    }
-    if (!d || isNaN(d)) continue;
-
-    // Use pre-computed weekIdx from col 5 if available (ensures consistency with syncFromATS)
-    let weekIdx = (row.length > 5 && row[5] != null && row[5] !== '') ? parseInt(row[5]) : -1;
-    if (weekIdx === -1) {
-      // Fall back to date-based derivation
-      for (let wi = 0; wi < weeks.length; wi++) {
-        const fwS = parseDt(weeks[wi].dt);
-        const fwE = wi + 1 < weeks.length ? parseDt(weeks[wi + 1].dt) : null;
-        if (d >= fwS && (!fwE || d < fwE)) { weekIdx = wi; break; }
-      }
-    }
-    if (weekIdx === -1 || weekIdx >= weeks.length) continue;
-
-    const poId      = colPo !== -1 ? String(row[colPo] || '').trim() : '';
-    const rowKey    = `${poId}|${pid}|${rawD}`;
-    const edit      = edits[rowKey] || {};
-    const cp        = edit.casePack   || '';
-    const caseConf  = edit.caseConfig || '';
-    // For additional models show even without a case pack; use model as fallback key
-    const isAddl    = addlModels.includes(pid);
+  for (const entry of firmEntries) {
+    const { model, date, qty, weekIdx } = entry;
+    if (!allModels.has(model.toLowerCase())) continue;
+    if (weekIdx < 0 || weekIdx >= weeks.length) continue;
+    const rowKey   = `${model.toLowerCase()}|${date}|${qty}`;
+    const edit     = edits[rowKey] || {};
+    const cp       = edit.casePack  || '';
+    const caseConf = edit.caseConfig || '';
+    const isAddl   = addlModels.includes(model.toLowerCase()) && model.toLowerCase() !== baseModel;
     const projDescKey = edit.projDesc || '';
-    const groupKey  = cp ? `${cp}||${caseConf}||${pid}||${projDescKey}` : (isAddl ? `__no_cp__||${pid}` : '');
+    const groupKey = cp ? `${cp}||${caseConf}||${model.toLowerCase()}||${projDescKey}` : (isAddl ? `__no_cp__||${model.toLowerCase()}` : '');
     if (!groupKey) continue;
-
-    const rawQty = colQty !== -1 ? String(row[colQty] || '') : '';
-    const qty    = parseFloat(rawQty.replace(/[^0-9.]/g, '')) || 0;
-    if (!result[groupKey]) result[groupKey] = { qtys: new Array(weeks.length).fill(0), cp, caseConf, model: pid, projDesc: edit.projDesc || '' };
+    if (!result[groupKey]) result[groupKey] = { qtys: new Array(weeks.length).fill(0), cp, caseConf, model: model.toLowerCase(), projDesc: edit.projDesc || '' };
     else if (!result[groupKey].projDesc && edit.projDesc) result[groupKey].projDesc = edit.projDesc;
     result[groupKey].qtys[weekIdx] += qty;
   }
-  const p3 = products.find(x => x.sku === sku);
-  const baseModelUp2 = p3 ? p3.model.toUpperCase().trim() : '';
+
+  const baseModelUp2 = p ? p.model.toUpperCase().trim() : '';
   (state[sku].additionalModels || []).forEach(am => {
     const amLower = am.toLowerCase().trim();
     const hasEntry = Object.values(result).some(v => v.model && v.model.toLowerCase() === amLower);
@@ -4651,14 +4528,29 @@ function saveAddModel() {
   // Register the additional model
   if (!state[sku].additionalModels) state[sku].additionalModels = [];
   state[sku].additionalModels.push(model.toLowerCase());
+
+  // Add entries to firmReceiptEntries for this SKU
+  if (!state[sku].firmReceiptEntries) state[sku].firmReceiptEntries = [];
+  if (lastAtsData) {
+    for (let r = 0; r < lastAtsData.length; r++) {
+      const row = lastAtsData[r];
+      if (!row) continue;
+      if (String(row[ATS_MODEL_COL] || '').trim().toUpperCase() !== model) continue;
+      parseEtaField(String(row[ATS_ETA_COL] || '')).forEach(e => {
+        state[sku].firmReceiptEntries.push({ model: model.toLowerCase(), date: e.date, qty: e.qty, weekIdx: e.weekIdx });
+      });
+    }
+  }
+
   saveState();
   saveAdditionalModelsCache();
 
-  // Refresh firm receipts for this SKU by re-aggregating from lastInboundData
-  const etaEntries = getEtaEntriesForModel(model.toLowerCase());
-  etaEntries.forEach(({ weekIdx, qty }) => {
-    state[sku].firmReceipts[weekIdx] = (state[sku].firmReceipts[weekIdx] || 0) + qty;
-  });
+  // Refresh firm receipts for this SKU from firmReceiptEntries
+  (state[sku].firmReceiptEntries || [])
+    .filter(e => e.model.toLowerCase() === model.toLowerCase())
+    .forEach(({ weekIdx, qty }) => {
+      state[sku].firmReceipts[weekIdx] = (state[sku].firmReceipts[weekIdx] || 0) + qty;
+    });
 
   // Update FR inputs in the DOM
   const block = document.getElementById('block-' + sku);
@@ -4966,126 +4858,47 @@ document.getElementById('rpOverlay').addEventListener('click', function(e) {
 // ── Firm Receipt Detail Popup ─────────────────────────────────────────────────
 function openFrDetailPopup(sku, weekIdx) {
   const p = products.find(x => x.sku === sku);
-  const allModels = new Set([
-    p ? p.model.toLowerCase().trim() : '',
-    ...(state[sku].additionalModels || []).map(m => m.toLowerCase().trim())
-  ].filter(Boolean));
   document.getElementById('frDetailTitle').textContent = 'Firm Receipt Details';
   document.getElementById('frDetailSub').textContent =
     `${weeks[weekIdx].fw} (${weeks[weekIdx].dt}) — ${p ? p.model : sku}`;
 
-  let content = '';
-
-  if (!lastInboundData || lastInboundData.length === 0) {
-    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">
+  const firmEntries = state[sku] && state[sku].firmReceiptEntries;
+  if (!firmEntries || firmEntries.length === 0) {
+    document.getElementById('frDetailContent').innerHTML = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">
       No inbound data loaded.<br>
       <span style="font-size:11px;opacity:0.7;">Sync ATS to load Inbound Detail data.</span>
     </p>`;
-    document.getElementById('frDetailContent').innerHTML = content;
     document.getElementById('frDetailOverlay').classList.add('open');
     return;
   }
 
-  // ── Locate header row and column indices ─────────────────────────────────
-  let headerRowIdx = 0;
-  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
-    if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
-      headerRowIdx = i; break;
-    }
-  }
-  const headerRow = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
-
-  function findCol(...terms) {
-    for (const term of terms) {
-      const idx = headerRow.findIndex(h => h.toLowerCase().includes(term.toLowerCase()));
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  }
-
-  const colProductId = findCol('product id', 'productid', 'model', 'item no', 'item number', 'item #');
-  const colPoId      = findCol('purchase order id', 'po id', 'po number', 'order id', 'po#', 'po no');
-  const colQty       = findCol('delivery notification quantity', 'notification quantity', 'delivery qty', 'quantity', 'units', 'qty');
-  const colDelivDate = findCol('planned delivery date', 'delivery date', 'eta', 'arrival date', 'ship date');
-
-  // Determine the date range for this fiscal week
-  const fwStartStr = weeks[weekIdx].dt;  // e.g. "6/1/2026"
-  const fwEndStr   = weekIdx + 1 < weeks.length ? weeks[weekIdx + 1].dt : null;
-  const parseDate  = s => { const p = s.split('/'); return new Date(+p[2], +p[0]-1, +p[1]); };
-  const fwStart    = parseDate(fwStartStr);
-  const fwEnd      = fwEndStr ? parseDate(fwEndStr) : null;
-
-  // ── Find inbound rows matching this model AND delivery date in this FW ────
   const editData = _loadInboundEdits();
-  const matches  = [];
+  const matches = firmEntries
+    .filter(e => e.weekIdx === weekIdx)
+    .map(e => {
+      const rowKey = `${e.model.toLowerCase()}|${e.date}|${e.qty}`;
+      return { model: e.model, date: e.date, qty: e.qty, saved: editData[rowKey] || {} };
+    });
 
-  for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
-    const row = lastInboundData[r];
-    if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
-    if (colProductId === -1) continue;
-    const pid = String(row[colProductId] || '').trim().toLowerCase();
-    if (!allModels.has(pid)) continue;
+  const displayRow = (m, idx) => `
+    ${matches.length > 1 ? `<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">${m.model.toUpperCase()} — Entry ${idx + 1}</div>` : ''}
+    <div class="rp-field"><label>Planned Delivery Date</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.date || '—'}</div></div>
+    <div class="rp-field"><label>Delivery Notification Qty</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.qty.toLocaleString('en-US')}</div></div>
+    <div class="rp-field"><label>Purchase Order ID</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.poId || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Case Pack</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.casePack || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Case Configuration</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.caseConfig || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Project Description</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.projDesc || '<span style="opacity:0.4">—</span>'}</div></div>
+    ${idx < matches.length - 1 ? '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.14);margin:12px 0;">' : ''}`;
 
-    // Filter by delivery date falling within this fiscal week
-    if (colDelivDate !== -1) {
-      const rawDate = String(row[colDelivDate] || '').trim();
-      if (rawDate) {
-        const d = new Date(rawDate);
-        if (!isNaN(d)) {
-          d.setHours(0,0,0,0);
-          if (d < fwStart) continue;
-          if (fwEnd && d >= fwEnd) continue;
-        }
-      }
-    }
-
-    const rawPoId = colPoId     !== -1 ? String(row[colPoId]     || '').trim() : '';
-    const rawDate = colDelivDate !== -1 ? String(row[colDelivDate] || '').trim() : '';
-    const qty     = colQty      !== -1 ? Math.round(parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, ''))) : null;
-    const rowKey  = `${rawPoId}|${pid}|${rawDate}`;   // stable: matches inbound table key
-    const saved   = editData[rowKey] || {};
-    // Use the user-edited PO ID if available, otherwise fall back to raw value
-    const poId    = saved.poId || rawPoId;
-
-    matches.push({ poId, rawDate, qty, saved });
-  }
-
-  if (matches.length === 0) {
-    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">
-      No inbound rows found for this product.<br>
-      <span style="font-size:11px;opacity:0.7;">Enter data in the Inbound Detail tab first.</span>
-    </p>`;
-  } else {
-    const displayRow = (m, idx) => {
-      const qtyDisplay = (m.qty != null && !isNaN(m.qty)) ? m.qty.toLocaleString('en-US') : '—';
-      return `
-        ${matches.length > 1 ? `<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Entry ${idx + 1}</div>` : ''}
-        <div class="rp-field">
-          <label>Purchase Order ID</label>
-          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.poId || '<span style="opacity:0.4">—</span>'}</div>
-        </div>
-        <div class="rp-field">
-          <label>Delivery Notification Qty</label>
-          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${qtyDisplay}</div>
-        </div>
-        <div class="rp-field">
-          <label>Case Pack</label>
-          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.casePack || '<span style="opacity:0.4">—</span>'}</div>
-        </div>
-        <div class="rp-field">
-          <label>Case Configuration</label>
-          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.caseConfig || '<span style="opacity:0.4">—</span>'}</div>
-        </div>
-        <div class="rp-field">
-          <label>Project Description</label>
-          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.projDesc || '<span style="opacity:0.4">—</span>'}</div>
-        </div>
-        ${idx < matches.length - 1 ? '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.14);margin:12px 0;">' : ''}`;
-    };
-    content = matches.map((m, i) => displayRow(m, i)).join('');
-  }
-
-  document.getElementById('frDetailContent').innerHTML = content;
+  document.getElementById('frDetailContent').innerHTML = matches.length === 0
+    ? `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No inbound rows found for this week.<br><span style="font-size:11px;opacity:0.7;">Sync ATS to load firm receipt data.</span></p>`
+    : matches.map((m, i) => displayRow(m, i)).join('');
   document.getElementById('frDetailOverlay').classList.add('open');
 }
 
@@ -5101,94 +4914,46 @@ function openFrSubDetailPopup(sku, weekIdx, subModel, cp, caseConf, projDesc) {
   document.getElementById('frDetailSub').textContent =
     `${weeks[weekIdx].fw} (${weeks[weekIdx].dt}) — ${subModel ? subModel.toUpperCase() : (p ? p.model : sku)}`;
 
-  let content = '';
-  if (!lastInboundData || lastInboundData.length === 0) {
-    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No inbound data loaded.</p>`;
-    document.getElementById('frDetailContent').innerHTML = content;
+  const firmEntries = state[sku] && state[sku].firmReceiptEntries;
+  if (!firmEntries || firmEntries.length === 0) {
+    document.getElementById('frDetailContent').innerHTML = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No inbound data loaded.</p>`;
     document.getElementById('frDetailOverlay').classList.add('open');
     return;
   }
 
-  let headerRowIdx = 0;
-  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
-    if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
-      headerRowIdx = i; break;
-    }
-  }
-  const headerRow = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
-  function findCol(...terms) {
-    for (const term of terms) {
-      const idx = headerRow.findIndex(h => h.toLowerCase().includes(term.toLowerCase()));
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  }
-  const colProductId = findCol('product id','productid','model','item no','item number','item #');
-  const colPoId      = findCol('purchase order id','po id','po number','order id','po#','po no');
-  const colQty       = findCol('delivery notification quantity','notification quantity','delivery qty','quantity','units','qty');
-  const colDelivDate = findCol('planned delivery date','delivery date','eta','arrival date','ship date');
-
-  const fwStartStr = weeks[weekIdx].dt;
-  const fwEndStr   = weekIdx + 1 < weeks.length ? weeks[weekIdx + 1].dt : null;
-  const parseDate  = s => { const pts = s.split('/'); return new Date(+pts[2], +pts[0]-1, +pts[1]); };
-  const fwStart    = parseDate(fwStartStr);
-  const fwEnd      = fwEndStr ? parseDate(fwEndStr) : null;
-
   const editData = _loadInboundEdits();
-  const matches  = [];
-  for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
-    const row = lastInboundData[r];
-    if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
-    if (colProductId === -1) continue;
-    const pid = String(row[colProductId] || '').trim().toLowerCase();
-    if (pid !== subModelLower) continue;
+  const matches = firmEntries
+    .filter(e => e.weekIdx === weekIdx && e.model.toLowerCase() === subModelLower)
+    .map(e => {
+      const rowKey = `${e.model.toLowerCase()}|${e.date}|${e.qty}`;
+      return { model: e.model, date: e.date, qty: e.qty, saved: editData[rowKey] || {} };
+    })
+    .filter(m => {
+      if (cp       && (m.saved.casePack  || '') !== cp)       return false;
+      if (caseConf && (m.saved.caseConfig || '') !== caseConf) return false;
+      if (projDesc && (m.saved.projDesc   || '') !== projDesc) return false;
+      return true;
+    });
 
-    if (colDelivDate !== -1) {
-      const rawDate = String(row[colDelivDate] || '').trim();
-      if (rawDate) {
-        const d = new Date(rawDate);
-        if (!isNaN(d)) {
-          d.setHours(0,0,0,0);
-          if (d < fwStart) continue;
-          if (fwEnd && d >= fwEnd) continue;
-        }
-      }
-    }
+  const displayRow = (m, idx) => `
+    ${matches.length > 1 ? `<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Entry ${idx + 1}</div>` : ''}
+    <div class="rp-field"><label>Planned Delivery Date</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.date || '—'}</div></div>
+    <div class="rp-field"><label>Delivery Notification Qty</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.qty.toLocaleString('en-US')}</div></div>
+    <div class="rp-field"><label>Purchase Order ID</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.poId || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Case Pack</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.casePack || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Case Configuration</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.caseConfig || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Project Description</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.projDesc || '<span style="opacity:0.4">—</span>'}</div></div>
+    ${idx < matches.length - 1 ? '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.14);margin:12px 0;">' : ''}`;
 
-    const rawPoId = colPoId      !== -1 ? String(row[colPoId]      || '').trim() : '';
-    const rawDate = colDelivDate !== -1 ? String(row[colDelivDate] || '').trim() : '';
-    const qty     = colQty       !== -1 ? Math.round(parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, ''))) : null;
-    const rowKey  = `${rawPoId}|${pid}|${rawDate}`;
-    const saved   = editData[rowKey] || {};
-
-    // Filter to just this sub-row's case pack / config / projDesc
-    if (cp       && (saved.casePack  || '') !== cp)       continue;
-    if (caseConf && (saved.caseConfig || '') !== caseConf) continue;
-    if (projDesc && (saved.projDesc   || '') !== projDesc) continue;
-
-    const poId = saved.poId || rawPoId;
-    matches.push({ poId, rawDate, qty, saved });
-  }
-
-  if (matches.length === 0) {
-    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No matching inbound rows found for this sub-row.</p>`;
-  } else {
-    content = matches.map((m, idx) => `
-      ${matches.length > 1 ? `<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Entry ${idx + 1}</div>` : ''}
-      <div class="rp-field"><label>Purchase Order ID</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.poId || '<span style="opacity:0.4">—</span>'}</div></div>
-      <div class="rp-field"><label>Delivery Notification Qty</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${(m.qty != null && !isNaN(m.qty)) ? m.qty.toLocaleString() : '—'}</div></div>
-      <div class="rp-field"><label>Case Pack</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.casePack || '<span style="opacity:0.4">—</span>'}</div></div>
-      <div class="rp-field"><label>Case Configuration</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.caseConfig || '<span style="opacity:0.4">—</span>'}</div></div>
-      <div class="rp-field"><label>Project Description</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.projDesc || '<span style="opacity:0.4">—</span>'}</div></div>
-      ${idx < matches.length - 1 ? '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.14);margin:12px 0;">' : ''}
-    `).join('');
-  }
-  document.getElementById('frDetailContent').innerHTML = content;
+  document.getElementById('frDetailContent').innerHTML = matches.length === 0
+    ? `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No matching inbound rows found for this sub-row.</p>`
+    : matches.map((m, i) => displayRow(m, i)).join('');
   document.getElementById('frDetailOverlay').classList.add('open');
 }
 
