@@ -420,7 +420,7 @@
   .period-custom select option { background:#3b4e78; color:#fff; }
   .period-custom span { font-size:11px; color:var(--text-2); }
 
-  .fc-card { background:var(--glass-bg); backdrop-filter:blur(28px) saturate(1.7); -webkit-backdrop-filter:blur(28px) saturate(1.7); border:1px solid var(--glass-border); box-shadow:var(--glass-shadow); border-radius:16px; margin-bottom:12px; overflow:hidden; position:relative; }
+  .fc-card { background:var(--glass-bg); backdrop-filter:blur(28px) saturate(1.7); -webkit-backdrop-filter:blur(28px) saturate(1.7); border:1px solid var(--glass-border); box-shadow:var(--glass-shadow); border-radius:16px; margin-bottom:12px; overflow:hidden; position:relative; padding-bottom:38px; }
   .fc-card::before { content:''; position:absolute; top:0; left:8%; width:84%; height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,.50) 25%,rgba(255,255,255,.82) 50%,rgba(255,255,255,.50) 75%,transparent); pointer-events:none; z-index:3; }
   .fc-card-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px 10px; gap:12px; flex-wrap:wrap; }
   .fc-sku-info { flex:1; min-width:0; }
@@ -526,10 +526,15 @@
 
   .fc-reorder-box { background:rgba(80,120,220,.15); border:1px solid rgba(80,120,220,.30); border-radius:10px; padding:12px 16px; margin:0 18px 14px; }
   .fc-reorder-box h4 { font-size:12px; font-weight:700; color:rgba(160,200,255,1); margin-bottom:8px; }
-  .fc-reorder-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:10px; }
+  .fc-reorder-row { display:flex; flex-direction:column; gap:8px; }
+  .fc-reorder-row-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .fc-reorder-grid { display:grid; grid-template-columns:1fr 1fr 1.6fr; gap:10px; }
   .fc-reorder-field { display:flex; flex-direction:column; gap:3px; }
   .fc-reorder-field label { font-size:10px; color:var(--text-3); font-weight:600; text-transform:uppercase; }
-  .fc-reorder-field input { background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.25); border-radius:7px; color:var(--text-1); font-size:13px; font-weight:600; padding:5px 9px; width:100%; }
+  .fc-reorder-field input[type=number] { background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.25); border-radius:7px; color:var(--text-1); font-size:13px; font-weight:600; padding:5px 9px; width:100%; -moz-appearance:textfield; }
+  .fc-reorder-field input[type=number]::-webkit-inner-spin-button,
+  .fc-reorder-field input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+  .fc-reorder-field select { background:rgba(30,40,70,1); border:1px solid rgba(255,255,255,.25); border-radius:7px; color:var(--text-1); font-size:12px; padding:5px 8px; width:100%; }
   .fc-reorder-field .ro-val { font-size:13px; font-weight:700; color:var(--text-1); padding:5px 0; }
 
   .fc-deny-box { background:rgba(255,80,80,.10); border:1px solid rgba(255,80,80,.25); border-radius:10px; padding:12px 16px; margin:0 18px 14px; }
@@ -567,7 +572,7 @@
   /* Agent suggestion */
   .fc-badge-agent { display:inline-block; padding:2px 8px; border-radius:6px; background:rgba(150,100,255,.25); border:1px solid rgba(150,100,255,.40); color:rgba(200,170,255,1); font-size:10px; font-weight:600; margin-left:8px; vertical-align:middle; }
   .fc-agent-box { margin:0 18px 14px; padding:12px 14px; background:rgba(120,80,255,.10); border:1px solid rgba(120,80,255,.25); border-radius:10px; }
-  .fc-history-btn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:6px; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.08); color:var(--text-3); cursor:pointer; transition:background .15s,color .15s; flex-shrink:0; }
+  .fc-history-btn { position:absolute; bottom:10px; left:14px; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:6px; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.08); color:var(--text-3); cursor:pointer; transition:background .15s,color .15s; flex-shrink:0; z-index:2; }
   .fc-history-btn:hover { background:rgba(255,255,255,.18); color:var(--text-1); }
   .fc-history-panel { overflow:hidden; max-height:0; transition:max-height .35s ease; }
   .fc-history-panel.open { max-height:600px; }
@@ -3648,6 +3653,8 @@ async function syncFromVD(autoBuffer = null) {
       } catch(sbErr) { console.warn('Supabase VD upsert failed:', sbErr.message); }
     }
 
+    saveState();
+    saveVdRatesCache();
     savePosHistory();
     updatePosHistoryStatus();
 
@@ -4818,9 +4825,9 @@ function openRpPopup(sku, idx) {
   const p = products.find(x => x.sku === sku);
   const d = state[sku].reorderData[idx];
   document.getElementById('rpSub').textContent = weeks[idx].fw + ' — ' + (p ? p.desc : sku);
-  document.getElementById('rpQty').value      = '';
-  document.getElementById('rpCasePack').value = '';
-  document.getElementById('rpConfig').value   = '';
+  document.getElementById('rpQty').value      = d && d.qty      ? d.qty      : '';
+  document.getElementById('rpCasePack').value = d && d.casePack ? d.casePack : '';
+  document.getElementById('rpConfig').value   = d && d.config   ? d.config   : '';
   document.getElementById('rpOverlay').classList.add('open');
   setTimeout(() => document.getElementById('rpQty').focus(), 50);
 }
@@ -5085,6 +5092,26 @@ async function saveThdSalesOrdersCache() {
 }
 
 // Save ATS inbound rows to Supabase app_cache so they persist across browser clears / devices
+async function saveVdRatesCache() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const map = {};
+    products.forEach(p => {
+      const s = state[p.sku];
+      if (!s || !s.vdConnected) return;
+      map[p.sku] = {
+        salesRates:      s.salesRates      || [],
+        posStoreCount:   s.posStoreCount   || [],
+        salesRatesManual: s.salesRatesManual || []
+      };
+    });
+    await sbClient.from('app_cache').upsert(
+      { key: 'sku_vd_rates', data: map, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+  } catch(e) { console.warn('Supabase VD rates cache save failed:', e.message); }
+}
+
 async function saveInboundCache(rows) {
   if (isTestMode || !sbClient) return;
   try {
@@ -5110,7 +5137,7 @@ async function upsertZeroReorder(sku, week_idx) {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         sbClient.from('sku_weekly').select('*'),
@@ -5119,7 +5146,8 @@ async function loadFromSupabase() {
         sbClient.from('app_cache').select('*').eq('key', 'thd_sales_orders'),
         sbClient.from('app_cache').select('*').eq('key', 'thd_sales_order_details'),
         sbClient.from('app_cache').select('*').eq('key', 'forecast_suggestions'),
-        sbClient.from('app_cache').select('*').eq('key', 'forecast_playbook')
+        sbClient.from('app_cache').select('*').eq('key', 'forecast_playbook'),
+        sbClient.from('app_cache').select('*').eq('key', 'sku_vd_rates')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -5166,6 +5194,20 @@ async function loadFromSupabase() {
           if (state[sku] && Array.isArray(detailMap[sku])) {
             state[sku].thdSoDetails = detailMap[sku];
           }
+        });
+      }
+    }
+
+    // Restore VD sales rates and store counts from Supabase cache
+    if (vdRatesRows && vdRatesRows.length > 0) {
+      const map = vdRatesRows[0].data;
+      if (map && typeof map === 'object') {
+        Object.keys(map).forEach(sku => {
+          if (!state[sku]) return;
+          const d = map[sku];
+          if (d.salesRates) state[sku].salesRates = d.salesRates.concat(new Array(Math.max(0, weeks.length - d.salesRates.length)).fill(0));
+          if (d.posStoreCount) state[sku].posStoreCount = d.posStoreCount.concat(new Array(Math.max(0, weeks.length - d.posStoreCount.length)).fill(0));
+          if (d.salesRatesManual) state[sku].salesRatesManual = d.salesRatesManual.concat(new Array(Math.max(0, weeks.length - d.salesRatesManual.length)).fill(false));
         });
       }
     }
@@ -5311,9 +5353,6 @@ async function loadFromSupabase() {
       savePosHistoryToSupabase();
     }
 
-    // Auto-load raw sync files from Storage so new items always auto-populate
-    autoLoadSyncFiles();
-
   } catch(e) {
     console.warn('Supabase loadFromSupabase failed:', e.message);
   }
@@ -5349,8 +5388,10 @@ function saveState() {
         posUnits:          s.posUnits,
         avgWeeklySalesVD:  s.avgWeeklySalesVD,
         vdConnected:       s.vdConnected,
+        posStoreCount:     s.posStoreCount || null,
         suofFromExcel:     s.suofFromExcel,
         atsConnected:      s.atsConnected,
+        firmReceiptEntries: s.firmReceiptEntries || null,
         onHandMerkury:     s.onHandMerkury,
         additionalModels:  s.additionalModels || [],
         openStock:         s.openStock  || 0,
@@ -5434,8 +5475,10 @@ function loadState() {
       s.posUnits         = pad(saved.posUnits, weeks.length);
       s.avgWeeklySalesVD = saved.avgWeeklySalesVD != null ? saved.avgWeeklySalesVD : null;
       s.vdConnected      = !!saved.vdConnected;
+      if (saved.posStoreCount) s.posStoreCount = pad(saved.posStoreCount, weeks.length);
       s.suofFromExcel    = saved.suofFromExcel ? padNull(saved.suofFromExcel, weeks.length) : null;
       s.atsConnected       = !!saved.atsConnected;
+      if (saved.firmReceiptEntries) s.firmReceiptEntries = saved.firmReceiptEntries;
       s.openStock          = saved.openStock || 0;
       s.skinnyQP           = saved.skinnyQP  || 0;
       s.additionalModels   = saved.additionalModels || [];
@@ -6619,6 +6662,13 @@ function computeReorderSuggestion(sku, startIdx, endIdx, forecastRates) {
   const arrivalDate = new Date();
   arrivalDate.setDate(arrivalDate.getDate() + LEAD_DAYS);
 
+  // Map arrival date to the nearest future week index
+  const arrMs = arrivalDate.getTime();
+  let arrivalWeekIdx = weeks.length - 1;
+  for (let i = 0; i < weeks.length; i++) {
+    if (new Date(weeks[i].dt).getTime() >= arrMs) { arrivalWeekIdx = i; break; }
+  }
+
   // PO deadline = arrival date - LEAD_DAYS (i.e., today — but show it explicitly)
   const poDate = new Date();
 
@@ -6628,6 +6678,7 @@ function computeReorderSuggestion(sku, startIdx, endIdx, forecastRates) {
     qty: roundedQty,
     masterCases,
     arrivalDate: arrivalDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
+    arrivalWeekIdx,
     placePOBy:   poDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
     riskFlag,
     stockoutWeek: stockoutIdx !== -1 ? weeks[stockoutIdx]?.fw : null,
@@ -6793,7 +6844,8 @@ function selectForecastQuarterRange(qStart, yearStart, qEnd, yearEnd) {
   document.getElementById('fcQtrYearStart').value = String(yearStart);
   document.getElementById('fcQtrQEnd').value      = qEnd;
   document.getElementById('fcQtrYearEnd').value   = String(yearEnd);
-  document.getElementById('fcWkStart').value = startIdx;
+  const nextWeekIdx = Math.min(getCurrentWeekIdx() + 1, weeks.length - 1);
+  document.getElementById('fcWkStart').value = nextWeekIdx;
   document.getElementById('fcWkEnd').value   = endIdx;
   renderForecastPage();
 }
@@ -7023,7 +7075,7 @@ function renderForecastPage() {
         <div class="fc-history-inner" id="fc-hist-inner-${sku}">${histTableHTML}</div>
       </div>`;
     const expandSvg = `<svg width="11" height="11" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" fill="none" style="pointer-events:none;display:block"><line x1="1" y1="9" x2="9" y2="1"/><polyline points="5,1 9,1 9,5"/><line x1="1" y1="9" x2="5" y2="9"/><polyline points="1,5 1,9 5,9"/></svg>`;
-    const histBtn = `<button class="fc-history-btn" id="fc-hist-btn-${sku}" onclick="toggleFcHistory('${sku}')">${expandSvg}</button>`;
+    const histBtn = `<button class="fc-history-btn" id="fc-hist-btn-${sku}" onclick="toggleFcHistory('${sku}',this)">${expandSvg}</button>`;
 
     // Projected store count UI
     const projSCState = s.projStoreCount || {};
@@ -7066,32 +7118,47 @@ function renderForecastPage() {
     // Reorder section (shown after Apply)
     let reorderHTML = '';
     if (fcState === 'applied' && reorder) {
-      const savedRO = s.fcReorder || {};
-      const qty       = savedRO.qty       || reorder.qty;
-      const cases     = savedRO.masterCases|| reorder.masterCases;
-      const arrival   = savedRO.arrivalDate|| reorder.arrivalDate;
+      fcEnsureReorderRows(sku, reorder);
+      const rowsHTML = s.fcReorderRows.map((row, ri) => {
+        const weekOpts = buildArrivalWeekOptions(row.arrivalWeekIdx);
+        const approvedStyle = row.approved ? 'opacity:0.55;pointer-events:none;' : '';
+        const approveLabel  = row.approved ? '✓ Approved' : '✓ Approve';
+        const tryOnActive   = row.tryOnActive || false;
+        const tryOnLabel    = tryOnActive ? '◼ Active' : '▶ Try it on';
+        const tryOnStyle    = tryOnActive
+          ? 'padding:4px 10px;font-size:12px;background:rgba(255,165,0,.55);border-color:rgba(255,165,0,.9);'
+          : 'padding:4px 10px;font-size:12px;';
+        return `
+        <div class="fc-reorder-row" data-row-idx="${ri}" style="${approvedStyle}">
+          <div class="fc-reorder-grid">
+            <div class="fc-reorder-field">
+              <label>Qty</label>
+              <input type="number" value="${row.qty}" min="0" step="${p.master||1}"
+                onchange="fcReorderRowQtyChanged('${sku}',${ri},this.value)"/>
+            </div>
+            <div class="fc-reorder-field">
+              <label>Master Cases</label>
+              <span class="ro-val" id="fcRoRowCases-${sku}-${ri}">${row.masterCases}</span>
+            </div>
+            <div class="fc-reorder-field" style="min-width:160px;">
+              <label>Warehouse Arrival</label>
+              <select onchange="fcReorderRowWeekChanged('${sku}',${ri},this.value)">${weekOpts}</select>
+            </div>
+          </div>
+          <div class="fc-reorder-row-actions">
+            <button class="fc-btn fc-btn-tryon" style="${tryOnStyle}" onclick="fcReorderTryOn('${sku}',${ri})">${tryOnLabel}</button>
+            <button class="fc-btn fc-btn-approve" style="padding:4px 10px;font-size:12px;" onclick="fcApproveReorderRow('${sku}',${ri})">${approveLabel}</button>
+            <button class="fc-btn" style="padding:4px 8px;font-size:12px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff8080;" onclick="fcRemoveReorderRow('${sku}',${ri})">✕</button>
+          </div>
+        </div>`;
+      }).join('<div style="height:6px;border-top:1px solid rgba(255,255,255,.07);margin:4px 0;"></div>');
       reorderHTML = `
       <div class="fc-reorder-box" id="fc-reorder-${sku}">
-        <h4>📦 Reorder Suggestion</h4>
-        <div class="fc-reorder-grid">
-          <div class="fc-reorder-field">
-            <label>Suggested Qty</label>
-            <input type="number" id="fcRoQty-${sku}" value="${qty}" min="0" step="${p.master||1}"
-              onchange="fcReorderQtyChanged('${sku}',this.value,${p.master||1})"/>
-          </div>
-          <div class="fc-reorder-field">
-            <label>Master Cases</label>
-            <div class="ro-val" id="fcRoCases-${sku}">${cases}</div>
-          </div>
-          <div class="fc-reorder-field">
-            <label>Warehouse Arrival</label>
-            <div class="ro-val">${arrival}</div>
-          </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <h4 style="margin:0;">📦 Reorder Suggestion</h4>
+          <button class="fc-btn" style="padding:3px 10px;font-size:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:var(--text-2);" onclick="fcAddReorderRow('${sku}')">+ Add order</button>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="fc-btn fc-btn-approve" onclick="fcApproveReorder('${sku}',${startIdx})">✓ Approve &amp; Send to Recap</button>
-          <span style="font-size:11px;color:var(--text-3);align-self:center;">or adjust quantity above first</span>
-        </div>
+        <div id="fc-reorder-rows-${sku}">${rowsHTML}</div>
       </div>`;
     }
 
@@ -7149,7 +7216,7 @@ function renderForecastPage() {
       <div class="fc-explanation">${explanation}</div>
       ${projSCHTML}
       <div class="fc-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${actionBtns}</div>
-      <div style="padding:4px 18px 10px;">${histBtn}</div>
+      ${histBtn}
       ${histHTML}
       ${reorderHTML}
       ${denyHTML}
@@ -7229,14 +7296,21 @@ async function savePlaybook() {
 
 // ── Agent suggestion handler ──────────────────────────────────────────────────
 
-function toggleFcHistory(sku) {
-  const panel = document.getElementById('fc-hist-' + sku);
+function toggleFcHistory(sku, btn) {
+  // Walk up from the button to find the panel within the same card —
+  // handles cloned cards in the try-on panel which share the same element IDs.
+  let panel;
+  if (btn) {
+    const card = btn.closest('.fc-card');
+    panel = card && card.querySelector('.fc-history-panel');
+  }
+  if (!panel) panel = document.getElementById('fc-hist-' + sku);
   if (!panel) return;
   const isOpening = !panel.classList.contains('open');
   panel.classList.toggle('open');
   if (isOpening) {
     requestAnimationFrame(() => {
-      const inner = document.getElementById('fc-hist-inner-' + sku);
+      const inner = panel.querySelector('.fc-history-inner');
       const target = inner && inner.querySelector('[data-hist-scroll-target="1"]');
       if (inner && target) {
         const stickyCol = inner.querySelector('.hist-row-lbl');
@@ -7332,6 +7406,11 @@ function fcApply(sku, startIdx, endIdx) {
   if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
 
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
+    // Mirror the same skip logic as fcTryOn — don't overwrite SUOF weeks or user-typed non-zero rates
+    const hasSuof = state[sku].suofFromExcel && state[sku].suofFromExcel[i] != null && state[sku].suofFromExcel[i] > 0;
+    const isManualNonZero = (state[sku].salesRatesManual[i]) && state[sku].salesRates[i] > 0;
+    if (hasSuof || isManualNonZero) continue;
+
     const rate = displayRates[i - startIdx] || 0;
     state[sku].salesRates[i] = rate;
     state[sku].salesRatesManual[i] = true;
@@ -7347,8 +7426,15 @@ function fcApply(sku, startIdx, endIdx) {
   const p = products.find(x => x.sku === sku);
   if (p) updateCalcs(sku);
   if (!isTestMode) saveState();
-  closeTryOnPanel();
   renderForecastPage();
+  // Keep side-by-side open — refresh both panels to reflect applied state
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    const card = document.getElementById('fc-card-' + sku);
+    const leftInner = document.getElementById('tryOnLeftInner');
+    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    refreshTryOnRight(sku, startIdx, endIdx);
+  }
 }
 
 function fcUnapply(sku, startIdx, endIdx) {
@@ -7395,9 +7481,29 @@ function openTryOnPanel(sku, startIdx, endIdx) {
   const leftInner = document.getElementById('tryOnLeftInner');
   leftInner.innerHTML = '';
   if (card) leftInner.appendChild(card.cloneNode(true));
-  // Right: render the live product block, then highlight and scroll
+  // Right: render the live product block and highlight forecast cells
   refreshTryOnRight(sku, startIdx, endIdx);
   document.getElementById('tryOnOverlay').classList.add('open');
+  // Scroll after the overlay is painted — 50ms ensures display:flex layout is fully committed
+  const s = state[sku];
+  const si = startIdx != null ? startIdx : (s && s.fcRange && s.fcRange.startIdx);
+  if (si != null) {
+    setTimeout(() => {
+      const rightPanel = document.getElementById('tryOnRight');
+      const rightInner = document.getElementById('tryOnRightInner');
+      if (!rightPanel || !rightInner) return;
+      const targetInp = rightInner.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${si}"]`);
+      if (!targetInp) return;
+      // Walk offsetLeft up through the DOM to get true layout distance from rightPanel
+      let offset = 0;
+      let el = targetInp.closest('td') || targetInp;
+      while (el && el !== rightPanel) {
+        offset += el.offsetLeft;
+        el = el.offsetParent;
+      }
+      rightPanel.scrollLeft = Math.max(0, offset - 160);
+    }, 50);
+  }
 }
 
 function refreshTryOnRight(sku, startIdx, endIdx) {
@@ -7406,8 +7512,24 @@ function refreshTryOnRight(sku, startIdx, endIdx) {
   const s = state[sku];
   const rightInner = document.getElementById('tryOnRightInner');
   if (!rightInner) return;
+
+  // Temporarily inject all active try-on reorders so the right panel reflects them
+  const origReorders = {};
+  if (s.fcReorderRows) {
+    s.fcReorderRows.forEach(row => {
+      if (row.tryOnActive && !row.approved) {
+        const wi = row.arrivalWeekIdx;
+        origReorders[wi] = s.reorders[wi];
+        s.reorders[wi] = row.qty;
+      }
+    });
+  }
+
   rightInner.innerHTML = '';
   rightInner.appendChild(buildProduct(p));
+
+  // Restore reorder state
+  Object.keys(origReorders).forEach(wi => { s.reorders[+wi] = origReorders[+wi]; });
 
   // Apply orange highlight to forecast week sales rate cells in the right panel
   const si = startIdx != null ? startIdx : (s.fcRange && s.fcRange.startIdx);
@@ -7425,20 +7547,15 @@ function refreshTryOnRight(sku, startIdx, endIdx) {
         inp.dataset.origVal = '0';
       }
     }
-    // Scroll right panel so forecast start week is visible
-    requestAnimationFrame(() => {
-      const rightPanel = document.getElementById('tryOnRight');
-      const targetInp  = rightInner.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${si}"]`);
-      if (rightPanel && targetInp) {
-        const panelRect = rightPanel.getBoundingClientRect();
-        const cellRect  = targetInp.getBoundingClientRect();
-        rightPanel.scrollLeft = Math.max(0, rightPanel.scrollLeft + cellRect.left - panelRect.left - 160);
-      }
-    });
   }
 }
 
 function closeTryOnPanel() {
+  // Clear all reorder try-on active states
+  products.forEach(p => {
+    const s = state[p.sku];
+    if (s && s.fcReorderRows) s.fcReorderRows.forEach(r => { r.tryOnActive = false; });
+  });
   // If still in tryOn state, revert rates before closing
   const sku = tryOnPanelSku;
   if (sku && state[sku] && state[sku].fcStatus === 'tryOn') {
@@ -7448,6 +7565,7 @@ function closeTryOnPanel() {
   }
   document.getElementById('tryOnOverlay').classList.remove('open');
   tryOnPanelSku = null;
+  renderForecastPage();
 }
 
 function fcRevertTryOn(sku, startIdx, endIdx, fromClose) {
@@ -7532,6 +7650,137 @@ function fcReorderQtyChanged(sku, val, masterPack) {
   state[sku].fcReorder.masterCases = cases;
 }
 
+// ── Multi-row reorder helpers ─────────────────────────────────────────────────
+
+function buildArrivalWeekOptions(selectedIdx) {
+  const curIdx = getCurrentWeekIdx();
+  return weeks.map((w, i) => {
+    if (i < curIdx) return '';
+    return `<option value="${i}"${i === selectedIdx ? ' selected' : ''}>${w.fw} (${w.dt})</option>`;
+  }).join('');
+}
+
+function fcEnsureReorderRows(sku, reorder) {
+  const s = state[sku];
+  if (s.fcReorderRows && s.fcReorderRows.length > 0) return;
+  s.fcReorderRows = [{
+    qty:            reorder.qty,
+    masterCases:    reorder.masterCases,
+    arrivalWeekIdx: reorder.arrivalWeekIdx,
+    approved:       false
+  }];
+}
+
+function fcReorderRowQtyChanged(sku, rowIdx, val) {
+  const p = products.find(x => x.sku === sku);
+  const master = p ? (p.master || 1) : 1;
+  const qty    = Math.ceil(parseFloat(val) / master) * master || 0;
+  const cases  = p && p.master > 0 ? Math.ceil(qty / p.master) : 0;
+  const s = state[sku];
+  if (!s.fcReorderRows || !s.fcReorderRows[rowIdx]) return;
+  s.fcReorderRows[rowIdx].qty = qty;
+  s.fcReorderRows[rowIdx].masterCases = cases;
+  const el = document.getElementById(`fcRoRowCases-${sku}-${rowIdx}`);
+  if (el) el.textContent = cases;
+  // If this row is active in the try-on panel, refresh the right panel immediately
+  const row = s.fcReorderRows[rowIdx];
+  if (row.tryOnActive) {
+    const overlay = document.getElementById('tryOnOverlay');
+    if (overlay && overlay.classList.contains('open')) {
+      const fc = s.fcRange || {};
+      refreshTryOnRight(sku, fc.startIdx, fc.endIdx);
+    }
+  }
+}
+
+function fcReorderRowWeekChanged(sku, rowIdx, weekIdx) {
+  const s = state[sku];
+  if (!s.fcReorderRows || !s.fcReorderRows[rowIdx]) return;
+  s.fcReorderRows[rowIdx].arrivalWeekIdx = parseInt(weekIdx);
+}
+
+function fcAddReorderRow(sku) {
+  const s = state[sku];
+  const curIdx = getCurrentWeekIdx();
+  const used = new Set((s.fcReorderRows || []).map(r => r.arrivalWeekIdx));
+  let defaultIdx = curIdx + 1;
+  while (used.has(defaultIdx) && defaultIdx < weeks.length - 1) defaultIdx++;
+  if (!s.fcReorderRows) s.fcReorderRows = [];
+  s.fcReorderRows.push({ qty: 0, masterCases: 0, arrivalWeekIdx: defaultIdx, approved: false });
+  renderForecastPage();
+  // Re-clone left panel if side-by-side is open
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    const card = document.getElementById('fc-card-' + sku);
+    const leftInner = document.getElementById('tryOnLeftInner');
+    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+  }
+}
+
+function fcRemoveReorderRow(sku, rowIdx) {
+  const s = state[sku];
+  if (!s.fcReorderRows) return;
+  s.fcReorderRows.splice(rowIdx, 1);
+  renderForecastPage();
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    const card = document.getElementById('fc-card-' + sku);
+    const leftInner = document.getElementById('tryOnLeftInner');
+    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+  }
+}
+
+function fcReorderTryOn(sku, rowIdx) {
+  const s = state[sku];
+  const row = s.fcReorderRows && s.fcReorderRows[rowIdx];
+  if (!row) return;
+  row.tryOnActive = !row.tryOnActive; // toggle
+  const fc = s.fcRange || {};
+  const startIdx = fc.startIdx != null ? fc.startIdx : getCurrentWeekIdx();
+  const endIdx   = fc.endIdx   != null ? fc.endIdx   : startIdx + 12;
+  renderForecastPage();
+  // Re-clone left panel to reflect updated button state
+  const card = document.getElementById('fc-card-' + sku);
+  const leftInner = document.getElementById('tryOnLeftInner');
+  if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    refreshTryOnRight(sku, startIdx, endIdx);
+  } else {
+    openTryOnPanel(sku, startIdx, endIdx);
+  }
+}
+
+function fcApproveReorderRow(sku, rowIdx) {
+  const s = state[sku];
+  const p = products.find(x => x.sku === sku);
+  const row = s.fcReorderRows && s.fcReorderRows[rowIdx];
+  if (!row || !p) return;
+  const weekIdx = row.arrivalWeekIdx;
+  const qty     = row.qty;
+  s.reorders[weekIdx]    = qty;
+  s.reorderData[weekIdx] = { qty, casePack: (p.inner ? p.inner + '/' : '') + String(p.master), config: 'Forecast auto-generated' };
+  // Update Weekly Recap grid DOM immediately
+  const inp = document.querySelector(`input[data-sku="${sku}"][data-row="reorder"][data-idx="${weekIdx}"]`);
+  if (inp) {
+    inp.value = fmtInput(qty);
+    applyReorderColor(inp.closest('td'), String(p.master));
+  }
+  updateCalcs(sku);
+  if (!isTestMode) { saveState(); saveStateSupabase(); }
+  row.approved = true;
+  renderReorderTab();
+  renderForecastPage();
+  // Re-clone left panel if open
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    const card = document.getElementById('fc-card-' + sku);
+    const leftInner = document.getElementById('tryOnLeftInner');
+    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    refreshTryOnRight(sku, (s.fcRange||{}).startIdx, (s.fcRange||{}).endIdx);
+  }
+}
+
 function fcApproveReorder(sku, startIdx) {
   const s = state[sku];
   const p = products.find(x => x.sku === sku);
@@ -7584,12 +7833,14 @@ function initForecastSelectors() {
     endSel.innerHTML   += `<option value="${i}">${w.fw}</option>`;
   });
 
-  // Sync custom selects to current period if already set, otherwise default to full range
+  // Sync custom selects to current period if already set, otherwise default to next week → end
   if (fcPeriod.startIdx >= 0) {
     startSel.value = fcPeriod.startIdx;
     endSel.value   = fcPeriod.endIdx;
   } else {
-    endSel.value = weeks.length - 1;
+    const nextWeek = Math.min(getCurrentWeekIdx() + 1, weeks.length - 1);
+    startSel.value = nextWeek;
+    endSel.value   = weeks.length - 1;
   }
 }
 
