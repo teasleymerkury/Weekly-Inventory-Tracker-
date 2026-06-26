@@ -7440,23 +7440,37 @@ function fcApply(sku, startIdx, endIdx) {
 }
 
 function fcUnapply(sku, startIdx, endIdx) {
+  const prevRates = state[sku].fcPrevRates || [];
   state[sku].fcStatus = 'none';
   state[sku].fcDenyOpen = false;
+  delete state[sku].fcPrevRates;
   if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
 
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
-    state[sku].salesRates[i] = 0;
-    state[sku].salesRatesManual[i] = false;
-    const inp = document.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
-    if (inp) {
+    const orig = prevRates[i - startIdx] != null ? prevRates[i - startIdx] : 0;
+    state[sku].salesRates[i] = orig;
+    state[sku].salesRatesManual[i] = orig > 0;
+    // Only update the main-page input (not duplicates in the right panel)
+    const allInps = document.querySelectorAll(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
+    allInps.forEach(inp => {
       inp.classList.remove('fc-tryOn-cell','fc-applied-cell');
-      inp.value = '0';
-    }
+      inp.value = orig > 0 ? orig.toLocaleString() : '0';
+    });
   }
+  // Clear only the inner content (not the scroll container) so stale inputs don't corrupt state
+  const tryOnRightInner = document.getElementById('tryOnRightInner');
+  if (tryOnRightInner) tryOnRightInner.innerHTML = '';
   const p = products.find(x => x.sku === sku);
   if (p) updateCalcs(sku);
   if (!isTestMode) saveState();
   renderForecastPage();
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    const card = document.getElementById('fc-card-' + sku);
+    const leftInner = document.getElementById('tryOnLeftInner');
+    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    refreshTryOnRight(sku, startIdx, endIdx);
+  }
 }
 
 function fcSetProjSC(sku, weekIdxStr, countStr) {
@@ -7515,6 +7529,10 @@ function refreshTryOnRight(sku, startIdx, endIdx) {
   const rightInner = document.getElementById('tryOnRightInner');
   if (!rightInner) return;
 
+  // Preserve scroll position across the rebuild
+  const rightPanel = document.getElementById('tryOnRight');
+  const savedScroll = rightPanel ? rightPanel.scrollLeft : 0;
+
   // Temporarily inject all active try-on reorders so the right panel reflects them
   const origReorders = {};
   if (s.fcReorderRows) {
@@ -7529,6 +7547,7 @@ function refreshTryOnRight(sku, startIdx, endIdx) {
 
   rightInner.innerHTML = '';
   rightInner.appendChild(buildProduct(p));
+  if (rightPanel && savedScroll > 0) rightPanel.scrollLeft = savedScroll;
 
   // Restore reorder state
   Object.keys(origReorders).forEach(wi => { s.reorders[+wi] = origReorders[+wi]; });
@@ -7729,6 +7748,9 @@ function fcRemoveReorderRow(sku, rowIdx) {
     const card = document.getElementById('fc-card-' + sku);
     const leftInner = document.getElementById('tryOnLeftInner');
     if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    // Refresh right panel so deleted active rows no longer appear
+    const fc = s.fcRange || {};
+    refreshTryOnRight(sku, fc.startIdx, fc.endIdx);
   }
 }
 
