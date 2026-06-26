@@ -5230,6 +5230,8 @@ async function loadFromSupabase() {
           state[sku].onHandTHD = row.on_hand_thd;
           const prod = products.find(x => x.sku === sku);
           if (prod) prod.onHandTHD = row.on_hand_thd;
+          const thdEl = document.getElementById('kpi-thd-' + sku);
+          if (thdEl) thdEl.textContent = row.on_hand_thd.toLocaleString();
         }
       });
     }
