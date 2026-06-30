@@ -501,13 +501,29 @@
     display:flex; flex:1; overflow:hidden; padding:16px 16px 0 16px; gap:14px;
   }
   #tryOnLeft {
-    flex:0 0 420px; display:flex; flex-direction:column; overflow-y:auto;
+    flex:1 1 0; min-width:0; display:flex; flex-direction:column; overflow-y:auto;
     padding-right:4px;
   }
   #tryOnLeft .fc-card { margin-bottom:0; }
   #tryOnLeft .fc-card:hover { transform:none; }
   #tryOnDivider {
-    width:1px; background:rgba(255,255,255,.12); flex-shrink:0; margin:8px 0 16px;
+    width:10px; flex-shrink:0; margin:8px 0 16px; cursor:col-resize;
+    display:flex; align-items:center; justify-content:center;
+    position:relative; user-select:none;
+  }
+  #tryOnDivider::before {
+    content:''; position:absolute; top:0; bottom:0; left:50%; transform:translateX(-50%);
+    width:2px; background:rgba(255,255,255,.15); border-radius:2px; transition:background .15s;
+  }
+  #tryOnDivider:hover::before, #tryOnDivider.dragging::before {
+    background:rgba(130,180,255,.55);
+  }
+  #tryOnDivider::after {
+    content:'⋮'; color:rgba(255,255,255,.25); font-size:14px; letter-spacing:1px;
+    pointer-events:none; position:relative; z-index:1;
+  }
+  #tryOnDivider:hover::after, #tryOnDivider.dragging::after {
+    color:rgba(130,180,255,.7);
   }
   #tryOnRight {
     flex:1; overflow:auto; padding:16px 16px 16px 16px;
@@ -1670,6 +1686,8 @@ let lastAgentRunTimestamp = localStorage.getItem('agent_last_run_ts') || null;
 // Agent forecast suggestions loaded from Supabase on login
 let agentSuggestions = null;
 let forecastPlaybook = '';
+let fcAccuracyLog = {};  // { sku: [{weekIdx, forecasted, actual, pctError, date}] }
+let fcSnapshot    = {};  // { skus: { sku: { weekIdx: rawRate } }, runDate: string }
 
 const DEFAULT_PLAYBOOK = `FORECAST PLAYBOOK — Merkury Innovations Home Depot Lighting
 
@@ -1712,11 +1730,19 @@ You are a forecasting agent for Merkury Innovations. Every Monday you analyze ea
    - Recommend a purchase order when projected WOS is forecasted to drop below 8 weeks within the next 20 weeks.
    - PO quantity = (weeks of safety stock needed × forecasted weekly rate), rounded up to the nearest master case pack.
 
+6. FORECAST ACCURACY & BIAS CORRECTION
+   - The context includes a fc_accuracy_summary per SKU with: avgPctError (positive = over-forecasting, negative = under-forecasting), weeks of non-zero POS history, and current biasCorrectionFactor already applied to M3 rates.
+   - Always reference this in your reasoning when ≥4 weeks of history exist. Example: "M3 signals 635/week. This SKU's forecasts have run 18% above actual over the past 5 weeks (bias factor: 0.85x applied). Adjusted forecast: ~540/week."
+   - If avgPctError > 10%: flag systematic over-forecasting and lower confidence.
+   - If avgPctError < -10%: flag systematic under-forecasting and note inventory risk.
+   - If < 4 weeks of history: note that bias correction is not yet active and confidence is lower.
+   - The biasCorrectionFactor is capped at ±30% (0.70–1.30). If the raw error exceeds this cap, flag it explicitly — it likely signals a structural change needing manual review.
+
 OUTPUT FORMAT (per SKU):
 {
   "suggestedRate": <integer units/week>,
   "confidence": "high" | "medium" | "low",
-  "reasoning": "<2–4 sentence explanation of key factors driving this rate>",
+  "reasoning": "<2–4 sentence explanation of key factors driving this rate, always referencing bias correction if active>",
   "reorderUrgent": <true|false>,
   "reorderNote": "<brief note on reorder timing and quantity if urgent>"
 }`;
@@ -1919,6 +1945,7 @@ products.forEach(p => {
     skinnyQP: 0,
     salesRates: sr,
     salesRatesManual: new Array(weeks.length).fill(false),
+    biasCorrectionFactor: 1.0,
     posUnits:          new Array(weeks.length).fill(0),
     posStoreCount:     new Array(weeks.length).fill(0),
     posHistorical:     POS_HISTORY[p.sku] ? Object.assign({}, POS_HISTORY[p.sku]) : {},
@@ -1988,8 +2015,17 @@ function calcRows(p) {
   // Build live sales-rate array: always read from the DOM input if it exists.
   // For non-manual cells, fall back to SUOF value when available.
   const liveSR = weeks.map(function(_, i) {
-    var inp = document.querySelector('input[data-sku="' + p.sku + '"][data-row="salesRate"][data-idx="' + i + '"]');
-    if (inp && !inp.readOnly) {
+    // When the try-on right panel is open, duplicate inputs exist (main page + right panel).
+    // Prefer whichever one is focused, else the last non-readonly match (right panel wins
+    // since it appears later in DOM order) — avoids reading a stale main-page value.
+    var inp = null, focusedInp = null;
+    document.querySelectorAll('input[data-sku="' + p.sku + '"][data-row="salesRate"][data-idx="' + i + '"]').forEach(function(cand) {
+      if (cand.readOnly) return;
+      inp = cand; // last non-readonly match wins (right panel, if open, comes after main page)
+      if (document.activeElement === cand) focusedInp = cand;
+    });
+    inp = focusedInp || inp;
+    if (inp) {
       var v = parseFloat(inp.value.replace(/,/g, '')) || 0;
       if (s.salesRatesManual && s.salesRatesManual[i]) s.salesRates[i] = v; // only persist manual edits
       // If manual but value is 0, fall back to SUOF (treat 0 as "not set")
@@ -2263,6 +2299,13 @@ function buildProduct(p) {
         // Always attach listeners — guard in handleChange prevents past-week mutations
         inp.addEventListener('focus', function() {
           if (this.readOnly) return;
+          if (this.dataset.suofDisplay) {
+            // Clear SUOF fallback so user can type a fresh value
+            this.value = '';
+            delete this.dataset.suofDisplay;
+            this.classList.remove('sr-suof-display');
+            return;
+          }
           this.value = this.value.replace(/,/g, '');
           this.select();
         });
@@ -2442,6 +2485,10 @@ function updateCalcs(sku) {
       } else {
         delete srInp.dataset.suofDisplay;
         srInp.classList.remove('sr-suof-display');
+        // Keep the displayed value in sync with state — without this, edits made in a
+        // duplicate input (e.g. the try-on right panel) never propagate to this one, and
+        // a later calcRows() call would read this stale value back and overwrite state.
+        srInp.value = fmtInput(srVal);
       }
     }
     const ei = document.getElementById(`cell-${sku}-endInv-${i}`);
@@ -2468,8 +2515,11 @@ function updateCalcs(sku) {
       setWosStyle(wo, rows.wos[i]);
     }
   });
-  // Refresh the live right panel if this SKU is open in the try-on overlay
-  if (tryOnPanelSku === sku) refreshTryOnRight(sku);
+  // Refresh the live right panel if this SKU is open in the try-on overlay,
+  // but skip if the user is actively editing an input inside that panel (would destroy their input)
+  const rightInnerEl = document.getElementById('tryOnRightInner');
+  const activeInRightPanel = rightInnerEl && rightInnerEl.contains(document.activeElement);
+  if (tryOnPanelSku === sku && !activeInRightPanel) refreshTryOnRight(sku);
 
   const effectiveAvg = state[sku].avgWeeklySalesVD != null ? state[sku].avgWeeklySalesVD : p.avgWeeklySales;
   const wosEl = document.getElementById(`kpi-wos-${sku}`);
@@ -3657,6 +3707,7 @@ async function syncFromVD(autoBuffer = null) {
     saveVdRatesCache();
     savePosHistory();
     updatePosHistoryStatus();
+    compareSnapshotWithPOS();
 
     const ts = new Date().toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit', second:'2-digit' });
     if (!isAutoLoad) {
@@ -4823,7 +4874,17 @@ let rpCurrentSku = null, rpCurrentIdx = null;
 function openRpPopup(sku, idx) {
   rpCurrentSku = sku; rpCurrentIdx = idx;
   const p = products.find(x => x.sku === sku);
-  const d = state[sku].reorderData[idx];
+  const s = state[sku];
+  let d = s.reorderData[idx];
+  // If an active-but-unapproved AI reorder suggestion owns this week, always use its
+  // data — the cell shows the suggestion qty (injected transiently for preview, never
+  // persisted to reorderData), so reorderData may be stale or from a prior manual entry.
+  if (s.fcReorderRows) {
+    const activeRow = s.fcReorderRows.find(row => row.tryOnActive && !row.approved && row.arrivalWeekIdx === idx);
+    if (activeRow) {
+      d = { qty: activeRow.qty, casePack: (p && p.inner ? p.inner + '/' : '') + String(p ? p.master : ''), config: 'Forecast auto-generated (not yet approved)' };
+    }
+  }
   document.getElementById('rpSub').textContent = weeks[idx].fw + ' — ' + (p ? p.desc : sku);
   document.getElementById('rpQty').value      = d && d.qty      ? d.qty      : '';
   document.getElementById('rpCasePack').value = d && d.casePack ? d.casePack : '';
@@ -4844,6 +4905,17 @@ function saveRpPopup() {
   const config   = document.getElementById('rpConfig').value.trim();
   state[rpCurrentSku].reorderData[rpCurrentIdx] = { qty, casePack, config };
   state[rpCurrentSku].reorders[rpCurrentIdx] = qty;
+  // If an active suggestion owns this week, update its qty too — otherwise the
+  // try-on preview re-injects the old suggestion qty and the edit appears lost.
+  const fcRows = state[rpCurrentSku].fcReorderRows;
+  if (fcRows) {
+    const activeRow = fcRows.find(r => r.tryOnActive && !r.approved && r.arrivalWeekIdx === rpCurrentIdx);
+    if (activeRow) {
+      const p = products.find(x => x.sku === rpCurrentSku);
+      activeRow.qty = qty;
+      activeRow.masterCases = p && p.master > 0 ? Math.ceil(qty / p.master) : qty;
+    }
+  }
   // Update the cell input display
   const block = document.getElementById('block-' + rpCurrentSku);
   if (block) {
@@ -5122,6 +5194,88 @@ async function saveInboundCache(rows) {
   } catch(e) { console.warn('Supabase inbound cache save failed:', e.message); }
 }
 
+// ── Forecast Accuracy & Bias Correction ──────────────────────────────────────
+
+function computeBiasCorrection(sku) {
+  const log = (fcAccuracyLog[sku] || []).filter(e => e.actual > 0);
+  const recent = log.slice(-6);
+  if (recent.length < 4) return 1.0;
+  const avgPctError = recent.reduce((s, e) => s + e.pctError, 0) / recent.length;
+  // avgPctError > 0 = over-forecasting → factor < 1 to pull rates down
+  let factor = 1.0 / (1.0 + avgPctError / 100);
+  return Math.max(0.70, Math.min(1.30, Math.round(factor * 1000) / 1000));
+}
+
+function applyAllBiasCorrections() {
+  products.forEach(p => {
+    if (state[p.sku]) state[p.sku].biasCorrectionFactor = computeBiasCorrection(p.sku);
+  });
+}
+
+function getFcAccuracySummary(sku) {
+  const log = (fcAccuracyLog[sku] || []).filter(e => e.actual > 0);
+  const recent = log.slice(-6);
+  if (recent.length < 1) return null;
+  const avgPctError = Math.round((recent.reduce((s, e) => s + e.pctError, 0) / recent.length) * 10) / 10;
+  const factor = (state[sku] && state[sku].biasCorrectionFactor) || 1.0;
+  return { weeks: recent.length, avgPctError, factor, entries: recent };
+}
+
+// Called after VD sync — compare stored M3 snapshot vs newly loaded POS actuals
+async function compareSnapshotWithPOS() {
+  if (!fcSnapshot || !fcSnapshot.skus) return;
+  let updated = false;
+  products.forEach(p => {
+    const sku = p.sku;
+    const s = state[sku];
+    const skuSnap = fcSnapshot.skus[sku];
+    if (!skuSnap || !s) return;
+    if (!fcAccuracyLog[sku]) fcAccuracyLog[sku] = [];
+    Object.entries(skuSnap).forEach(([wiStr, forecasted]) => {
+      const wi = parseInt(wiStr);
+      const actual = s.posUnits[wi] || 0;
+      if (actual === 0) return;
+      if (fcAccuracyLog[sku].some(e => e.weekIdx === wi)) return;
+      const pctError = forecasted > 0 ? Math.round(((forecasted - actual) / actual) * 1000) / 10 : null;
+      if (pctError === null) return;
+      fcAccuracyLog[sku].push({ weekIdx: wi, forecasted, actual, pctError, date: fcSnapshot.runDate || '' });
+      updated = true;
+    });
+    if (updated) state[sku].biasCorrectionFactor = computeBiasCorrection(sku);
+  });
+  if (updated && !isTestMode && sbClient) {
+    try {
+      await sbClient.from('app_cache').upsert({ key: 'fc_accuracy_log', data: fcAccuracyLog }, { onConflict: 'key' });
+    } catch(e) { console.warn('fc_accuracy_log save failed:', e.message); }
+  }
+}
+
+// Called after loading agent suggestions — snapshots raw M3 rates for next week's comparison
+async function logFcSnapshot() {
+  if (isTestMode || !sbClient) return;
+  const curIdx = getCurrentWeekIdx();
+  const startIdx = curIdx;
+  const endIdx = Math.min(curIdx + 12, weeks.length - 1);
+  const skus = {};
+  products.forEach(p => {
+    const sku = p.sku;
+    // Temporarily remove bias so we log raw M3 rates, not already-adjusted rates
+    const savedFactor = state[sku] ? state[sku].biasCorrectionFactor : 1.0;
+    if (state[sku]) state[sku].biasCorrectionFactor = 1.0;
+    const fc = computeFcRates(sku, startIdx, endIdx);
+    if (state[sku]) state[sku].biasCorrectionFactor = savedFactor;
+    const weekRates = {};
+    fc.rawRates.forEach((r, i) => { weekRates[startIdx + i] = r; });
+    skus[sku] = weekRates;
+  });
+  fcSnapshot = { skus, runDate: new Date().toISOString().split('T')[0] };
+  try {
+    await sbClient.from('app_cache').upsert({ key: 'fc_snapshot', data: fcSnapshot }, { onConflict: 'key' });
+  } catch(e) { console.warn('fc_snapshot save failed:', e.message); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Explicitly zero a single reorder row in Supabase (called when row is deleted or PO placed)
 async function upsertZeroReorder(sku, week_idx) {
   if (isTestMode || !sbClient) return;
@@ -5137,7 +5291,7 @@ async function upsertZeroReorder(sku, week_idx) {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         sbClient.from('sku_weekly').select('*'),
@@ -5147,7 +5301,9 @@ async function loadFromSupabase() {
         sbClient.from('app_cache').select('*').eq('key', 'thd_sales_order_details'),
         sbClient.from('app_cache').select('*').eq('key', 'forecast_suggestions'),
         sbClient.from('app_cache').select('*').eq('key', 'forecast_playbook'),
-        sbClient.from('app_cache').select('*').eq('key', 'sku_vd_rates')
+        sbClient.from('app_cache').select('*').eq('key', 'sku_vd_rates'),
+        sbClient.from('app_cache').select('*').eq('key', 'fc_accuracy_log'),
+        sbClient.from('app_cache').select('*').eq('key', 'fc_snapshot')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -5340,6 +5496,23 @@ async function loadFromSupabase() {
       if (rawTs) {
         lastAgentRunTimestamp = new Date(rawTs).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
         if (!isTestMode) localStorage.setItem('agent_last_run_ts', lastAgentRunTimestamp);
+      }
+    }
+
+    // Load forecast accuracy log + snapshot, apply bias corrections
+    if (fcAccuracyRows && fcAccuracyRows.length > 0 && fcAccuracyRows[0].data) {
+      fcAccuracyLog = fcAccuracyRows[0].data;
+    }
+    if (fcSnapshotRows && fcSnapshotRows.length > 0 && fcSnapshotRows[0].data) {
+      fcSnapshot = fcSnapshotRows[0].data;
+    }
+    applyAllBiasCorrections();
+
+    // If agent suggestions are newer than last snapshot, take a fresh snapshot
+    if (agentSuggestions && agentSuggestions.generatedAt) {
+      const agentDate = agentSuggestions.generatedAt.split('T')[0];
+      if (!fcSnapshot.runDate || fcSnapshot.runDate < agentDate) {
+        logFcSnapshot();
       }
     }
 
@@ -6619,8 +6792,13 @@ function computeFcRates(sku, startIdx, endIdx) {
     rateDetails.push(detail);
   }
 
+  // Apply bias correction (raw rates stored separately for snapshot logging)
+  const rawRates = [...rates];
+  const biasFactor = (state[sku] && state[sku].biasCorrectionFactor) || 1.0;
+  const biasedRates = biasFactor !== 1.0 ? rates.map(r => Math.max(0, Math.round(r * biasFactor))) : rates;
+
   return {
-    rates, rateDetails,
+    rates: biasedRates, rawRates, rateDetails,
     baseRate:        Math.round(baseRate),
     yoyRatio,
     hasRealData,
@@ -6934,6 +7112,11 @@ function renderForecastPage() {
     const riskBadge  = (reorder && reorder.riskFlag) ? '<span class="fc-badge-risk">⚠ Stock Risk</span>' : '';
     const newBadge   = isNew ? '<span class="fc-badge-new">New Launch</span>' : '';
     const agentBadge = agentSug ? '<span class="fc-badge-agent">🤖 AI Suggestion</span>' : '';
+    const accSum = getFcAccuracySummary(sku);
+    const biasColor = accSum && accSum.factor < 1.0 ? 'rgba(255,180,80,1)' : 'rgba(120,200,255,1)';
+    const biasBadge = accSum && accSum.weeks >= 4
+      ? `<span class="fc-badge-bias" title="Avg forecast error: ${accSum.avgPctError > 0 ? '+' : ''}${accSum.avgPctError}% over ${accSum.weeks}wk — bias factor ${accSum.factor}x applied" style="padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;background:rgba(0,0,0,.25);color:${biasColor};cursor:default;">📊 ${accSum.factor}x bias</span>`
+      : '';
     let statusBadge = '';
     if      (fcState === 'tryOn')   statusBadge = '<span class="fc-status-badge fc-status-tryOn">● Previewing</span>';
     else if (fcState === 'applied') statusBadge = '<span class="fc-status-badge fc-status-applied">✓ Applied</span>';
@@ -6969,11 +7152,17 @@ function renderForecastPage() {
         ? new Date(agentSuggestions.generatedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
         : '';
       const confBadge = agentSug.confidence === 'high' ? 'rgba(100,220,130,1)' : agentSug.confidence === 'low' ? 'rgba(255,150,100,1)' : 'rgba(180,150,255,1)';
+      const biasLine = accSum && accSum.weeks >= 4
+        ? `<div style="margin-bottom:6px;padding:4px 8px;background:rgba(0,0,0,.2);border-radius:6px;font-size:11px;color:${biasColor};">📊 Bias correction active — avg ${accSum.avgPctError > 0 ? '+' : ''}${accSum.avgPctError}% error over ${accSum.weeks} weeks · factor ${accSum.factor}x applied to M3 rates</div>`
+        : accSum && accSum.weeks > 0
+          ? `<div style="margin-bottom:6px;font-size:11px;color:var(--text-3);">📊 ${accSum.weeks}/4 weeks of accuracy data — bias correction not yet active</div>`
+          : '';
       explanation = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">`
         + `<span style="font-size:11px;font-weight:700;color:rgba(180,150,255,1);">🤖 AI Forecast Analysis</span>`
         + (agentSug.confidence ? `<span style="font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(0,0,0,.2);color:${confBadge};font-weight:600;text-transform:capitalize;">${agentSug.confidence} confidence</span>` : '')
         + (genDate ? `<span style="font-size:10px;color:var(--text-3);">Updated ${genDate}</span>` : '')
         + `</div>`
+        + biasLine
         + `<div style="font-size:12.5px;color:var(--text-1);line-height:1.7;">${agentSug.reasoning}</div>`
         + (agentSug.reorderUrgent && agentSug.reorderNote
             ? `<div style="margin-top:8px;padding:6px 10px;background:rgba(255,100,100,.12);border-left:3px solid rgba(255,120,120,.7);border-radius:4px;color:rgba(255,160,160,1);font-size:12px;">⚠ ${agentSug.reorderNote}</div>`
@@ -7209,7 +7398,7 @@ function renderForecastPage() {
       <div class="fc-card-head">
         <div class="fc-sku-info">
           <div class="fc-sku-model">${p.model} &nbsp;·&nbsp; ${sku}</div>
-          <div class="fc-sku-desc">${p.desc}${newBadge}${riskBadge}${agentBadge}</div>
+          <div class="fc-sku-desc">${p.desc}${newBadge}${riskBadge}${agentBadge}${biasBadge}</div>
           <div class="fc-sku-sub">Period: ${fcPeriod.label} &nbsp;·&nbsp; ${displayRates.length} weeks &nbsp;·&nbsp; Avg forecast: ${displayRates.length ? Math.round(displayRates.reduce((a,b)=>a+b,0)/displayRates.length).toLocaleString() : 0} units/wk${usingAgentRates ? ' &nbsp;·&nbsp; <span style="color:#a78bfa;font-size:10px;">🤖 AI</span>' : ''}</div>
         </div>
         ${statusBadge}
@@ -7529,9 +7718,14 @@ function refreshTryOnRight(sku, startIdx, endIdx) {
   const rightInner = document.getElementById('tryOnRightInner');
   if (!rightInner) return;
 
-  // Preserve scroll position across the rebuild
+  // Preserve scroll position across the rebuild.
+  // The horizontal scrollbar under the grid belongs to the .scroll-wrap div created
+  // fresh inside buildProduct() — not #tryOnRight itself — so it must be saved/restored
+  // separately, or every rebuild snaps the table back to scrollLeft 0.
   const rightPanel = document.getElementById('tryOnRight');
   const savedScroll = rightPanel ? rightPanel.scrollLeft : 0;
+  const oldScrollWrap = rightInner.querySelector('.scroll-wrap');
+  const savedGridScroll = oldScrollWrap ? oldScrollWrap.scrollLeft : 0;
 
   // Temporarily inject all active try-on reorders so the right panel reflects them
   const origReorders = {};
@@ -7548,6 +7742,10 @@ function refreshTryOnRight(sku, startIdx, endIdx) {
   rightInner.innerHTML = '';
   rightInner.appendChild(buildProduct(p));
   if (rightPanel && savedScroll > 0) rightPanel.scrollLeft = savedScroll;
+  if (savedGridScroll > 0) {
+    const newScrollWrap = rightInner.querySelector('.scroll-wrap');
+    if (newScrollWrap) newScrollWrap.scrollLeft = savedGridScroll;
+  }
 
   // Restore reorder state
   Object.keys(origReorders).forEach(wi => { s.reorders[+wi] = origReorders[+wi]; });
@@ -7974,6 +8172,43 @@ products.forEach(p => {
 
 initFilterBar();
 initDragDrop();
+
+// ── Try-on panel divider drag-to-resize ──────────────────────────────────────
+(function() {
+  const divider = document.getElementById('tryOnDivider');
+  const leftPanel = document.getElementById('tryOnLeft');
+  const panel = document.getElementById('tryOnPanel');
+  if (!divider || !leftPanel || !panel) return;
+
+  let dragging = false, startX = 0, startWidth = 0;
+
+  divider.addEventListener('pointerdown', function(e) {
+    e.preventDefault();
+    dragging = true;
+    startX = e.clientX;
+    startWidth = leftPanel.getBoundingClientRect().width;
+    divider.classList.add('dragging');
+    divider.setPointerCapture(e.pointerId);
+  });
+
+  divider.addEventListener('pointermove', function(e) {
+    if (!dragging) return;
+    const panelWidth = panel.getBoundingClientRect().width;
+    const delta = e.clientX - startX;
+    const newWidth = Math.max(280, Math.min(panelWidth - 280, startWidth + delta));
+    leftPanel.style.flex = '0 0 ' + newWidth + 'px';
+  });
+
+  divider.addEventListener('pointerup', function(e) {
+    dragging = false;
+    divider.classList.remove('dragging');
+  });
+
+  divider.addEventListener('pointercancel', function() {
+    dragging = false;
+    divider.classList.remove('dragging');
+  });
+})();
 
 // File input change listeners
 document.getElementById('inputSuof').addEventListener('change', function(e) {
