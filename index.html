@@ -1529,6 +1529,9 @@
     </div>
   </div>
 
+  <!-- Agent accuracy banner — populated by renderForecastPage() when forecast_accuracy exists -->
+  <div id="agentAccuracyBanner" style="display:none;margin:0 0 14px;padding:10px 16px;background:rgba(120,80,255,.10);border:1px solid rgba(120,80,255,.25);border-radius:10px;font-size:12.5px;color:var(--text-2);line-height:1.6;"></div>
+
   <!-- SKU Cards rendered here -->
   <div id="forecastCards"></div>
 
@@ -1688,6 +1691,7 @@ let agentSuggestions = null;
 let forecastPlaybook = '';
 let fcAccuracyLog = {};  // { sku: [{weekIdx, forecasted, actual, pctError, date}] }
 let fcSnapshot    = {};  // { skus: { sku: { weekIdx: rawRate } }, runDate: string }
+let agentAccuracyReport = null; // written by scheduled agent: { generatedAt, overallMAPE, weeksCompared, skus: { sku: { mape, bias, flag } } }
 
 const DEFAULT_PLAYBOOK = `FORECAST PLAYBOOK — Merkury Innovations Home Depot Lighting
 
@@ -2457,11 +2461,19 @@ function handleChange(input) {
 }
 
 function updateCalcs(sku) {
-  // Sync all salesRate DOM inputs into state first — prevents display/state mismatch.
-  // Skip inputs showing SUOF fallback (data-suof-display) — those are not manually set.
+  // Sync main-page salesRate inputs into state. Right-panel inputs are skipped entirely —
+  // they're a preview display and handleChange already writes their edits to state.
+  // Additionally skip main-page inputs for any index where focus is in the right panel,
+  // so a stale main-page value doesn't overwrite a right-panel edit in progress.
+  const tryOnRightInner = document.getElementById('tryOnRightInner');
+  const ae = document.activeElement;
+  const focusedInRight = tryOnRightInner && tryOnRightInner.contains(ae);
+  const focusedRightIdx = focusedInRight && ae.dataset.row === 'salesRate' ? parseInt(ae.dataset.idx) : -1;
   document.querySelectorAll(`input[data-sku="${sku}"][data-row="salesRate"]`).forEach(function(inp) {
+    if (tryOnRightInner && tryOnRightInner.contains(inp)) return; // skip right panel always
+    var idx2 = parseInt(inp.dataset.idx);
+    if (idx2 === focusedRightIdx) return; // skip main-page input when right panel has focus for same idx
     if (!inp.readOnly && !inp.dataset.suofDisplay) {
-      var idx2 = parseInt(inp.dataset.idx);
       var v2 = parseFloat(inp.value.replace(/,/g, '')) || 0;
       if (!isNaN(idx2)) state[sku].salesRates[idx2] = v2;
     }
@@ -5054,6 +5066,26 @@ document.getElementById('frDetailOverlay').addEventListener('click', function(e)
 // ── localStorage persistence ─────────────────────────────────────────────────
 const STORE_KEY = 'merkury_inv_v3';
 
+// ── Cross-tab live sync via BroadcastChannel ──────────────────────────────────
+const _syncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('merkury_inv_sync') : null;
+if (_syncChannel) {
+  _syncChannel.onmessage = function(ev) {
+    if (!ev.data || ev.data.type !== 'state_update') return;
+    // Another tab saved — reload from localStorage and re-render all SKUs
+    try {
+      const snap = JSON.parse(localStorage.getItem(STORE_KEY));
+      if (!snap || !snap.state) return;
+      products.forEach(p => {
+        const s = snap.state[p.sku];
+        if (!s) return;
+        Object.assign(state[p.sku], s);
+      });
+      products.forEach(p => updateCalcs(p.sku));
+      renderSummary();
+    } catch(e) { console.warn('sync receive error', e); }
+  };
+}
+
 // ── Supabase persistence helpers ──────────────────────────────────────────────
 
 // Fire-and-forget: upsert reorder data to Supabase sku_weekly
@@ -5291,7 +5323,7 @@ async function upsertZeroReorder(sku, week_idx) {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         sbClient.from('sku_weekly').select('*'),
@@ -5303,7 +5335,8 @@ async function loadFromSupabase() {
         sbClient.from('app_cache').select('*').eq('key', 'forecast_playbook'),
         sbClient.from('app_cache').select('*').eq('key', 'sku_vd_rates'),
         sbClient.from('app_cache').select('*').eq('key', 'fc_accuracy_log'),
-        sbClient.from('app_cache').select('*').eq('key', 'fc_snapshot')
+        sbClient.from('app_cache').select('*').eq('key', 'fc_snapshot'),
+        sbClient.from('app_cache').select('*').eq('key', 'forecast_accuracy')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -5523,6 +5556,11 @@ async function loadFromSupabase() {
       forecastPlaybook = DEFAULT_PLAYBOOK;
     }
 
+    // Load agent accuracy report (written by scheduled task after each run)
+    if (agentAccuracyRows && agentAccuracyRows.length > 0 && agentAccuracyRows[0].data) {
+      agentAccuracyReport = agentAccuracyRows[0].data;
+    }
+
     // One-time: push embedded POS_HISTORY to Supabase so the weekly agent can access it
     if (!localStorage.getItem('merkury_pos_history_synced')) {
       savePosHistoryToSupabase();
@@ -5578,6 +5616,7 @@ function saveState() {
       snapshot.collapsed[p.sku] = b ? b.classList.contains('collapsed') : false;
     });
     localStorage.setItem(STORE_KEY, JSON.stringify(snapshot));
+    if (_syncChannel) _syncChannel.postMessage({ type: 'state_update' });
   } catch(e) { /* storage full or unavailable */ }
   // Also persist reorder data to Supabase (fire-and-forget)
   saveStateSupabase().catch(e => console.warn('Supabase saveState:', e));
@@ -6016,6 +6055,7 @@ function resetInactivityTimer() {
 }
 
 function autoLogout() {
+  if (!isTestMode) saveState();
   isTestMode = false;
   const box = document.getElementById('loginBox');
   box.classList.remove('expanding');
@@ -6040,6 +6080,11 @@ function startInactivityWatch() {
   });
   resetInactivityTimer();
 }
+
+// Auto-save on browser close or page refresh
+window.addEventListener('beforeunload', function() {
+  if (!isTestMode) saveState();
+});
 
 // ── Login modal ───────────────────────────────────────────────────────────────
 
@@ -7088,6 +7133,35 @@ function renderForecastPage() {
   const { startIdx, endIdx } = fcPeriod;
   const curIdx = getCurrentWeekIdx();
 
+  // Agent accuracy banner — shown when a report exists with real comparison data
+  const accBannerEl = document.getElementById('agentAccuracyBanner');
+  if (accBannerEl) {
+    const r = agentAccuracyReport;
+    if (r && r.weeksCompared > 0) {
+      const mape = r.overallMAPE != null ? r.overallMAPE.toFixed(1) : '—';
+      const skuCount = Object.keys(r.skus || {}).length;
+      const overCount  = Object.values(r.skus || {}).filter(x => x.flag === 'over').length;
+      const underCount = Object.values(r.skus || {}).filter(x => x.flag === 'under').length;
+      const dateStr = r.prevForecastGeneratedAt
+        ? new Date(r.prevForecastGeneratedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})
+        : '';
+      let flagText = '';
+      if (overCount)  flagText += ` · <span style="color:rgba(255,180,80,1)">⬆ ${overCount} over-forecast</span>`;
+      if (underCount) flagText += ` · <span style="color:rgba(130,200,255,1)">⬇ ${underCount} under-forecast</span>`;
+      accBannerEl.innerHTML = `<span style="font-weight:600;color:var(--text-1);">📊 Last forecast accuracy</span>`
+        + (dateStr ? ` <span style="color:var(--text-3);font-size:11px;">(${dateStr} forecast vs actuals)</span>` : '')
+        + ` · Overall MAPE <strong>${mape}%</strong> across ${r.weeksCompared} week${r.weeksCompared !== 1 ? 's' : ''} · ${skuCount} SKUs`
+        + flagText
+        + ` <button onclick="showAgentAccuracyDetail()" style="margin-left:10px;font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:var(--text-2);cursor:pointer;">Details</button>`;
+      accBannerEl.style.display = '';
+    } else if (r && r.weeksCompared === 0) {
+      accBannerEl.innerHTML = `<span style="color:var(--text-3);font-size:12px;">📊 No prior forecast available for accuracy comparison yet — check back after next Wednesday's run.</span>`;
+      accBannerEl.style.display = '';
+    } else {
+      accBannerEl.style.display = 'none';
+    }
+  }
+
   container.innerHTML = '';
   const skusToShow = Object.keys(state).filter(sku => products.find(p => p.sku === sku));
 
@@ -7450,6 +7524,112 @@ async function triggerAgentRun() {
   setTimeout(() => { btn.textContent = orig; }, 3000);
 }
 
+function showAgentAccuracyDetail() {
+  const r = agentAccuracyReport;
+  if (!r) return;
+  const dateStr = r.prevForecastGeneratedAt
+    ? new Date(r.prevForecastGeneratedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    : 'unknown date';
+
+  // Helper: map week index → fiscal week label using the weeks[] array
+  function fwLabel(wi) {
+    if (wi == null || !weeks[wi]) return 'wk ' + wi;
+    return weeks[wi].fw || ('wk ' + wi);
+  }
+
+  let rows = '';
+  Object.entries(r.skus || {}).sort((a, b) => (b[1].mape || 0) - (a[1].mape || 0)).forEach(([sku, d]) => {
+    const p = products.find(x => x.sku === sku);
+    const model = p ? p.model : sku;
+    const desc  = p ? p.desc  : '';
+    const flagIcon = d.flag === 'over' ? '⬆' : d.flag === 'under' ? '⬇' : '✓';
+    const flagColor = d.flag === 'over' ? 'rgba(255,180,80,1)' : d.flag === 'under' ? 'rgba(130,200,255,1)' : 'rgba(100,220,130,1)';
+    const biasSign = d.bias > 0 ? '+' : '';
+    const n = d.weeksCompared || 1;
+
+    // MAPE calculation shown: avg of |fc−actual|/actual × 100 across n weeks
+    const mapeCalc = d.mape != null
+      ? `avg(|forecast − actual| ÷ actual × 100) over ${n} week${n !== 1 ? 's' : ''} = <strong>${d.mape.toFixed(1)}%</strong>`
+      : '—';
+
+    // Bias calculation shown: avg of (fc−actual)/actual × 100 across n weeks
+    const biasCalc = d.bias != null
+      ? `avg((forecast − actual) ÷ actual × 100) over ${n} week${n !== 1 ? 's' : ''} = <strong>${biasSign}${d.bias.toFixed(1)}%</strong>`
+      : '—';
+
+    // Worst week example
+    let worstHtml = '';
+    if (d.worstWeek && d.worstWeek.actual != null && d.worstWeek.forecast != null) {
+      const ww = d.worstWeek;
+      const fw = fwLabel(ww.weekIdx);
+      const absErr = Math.abs(ww.forecast - ww.actual);
+      const errPct = ww.actual > 0 ? (absErr / ww.actual * 100).toFixed(1) : '—';
+      worstHtml = `<div style="margin-top:5px;padding:5px 8px;background:rgba(255,255,255,.04);border-radius:6px;font-size:10.5px;color:rgba(255,255,255,.45);">
+        Worst week (${fw}): forecast <span style="color:rgba(255,255,255,.7);">${ww.forecast.toLocaleString()}</span>
+        vs actual <span style="color:rgba(255,255,255,.7);">${ww.actual.toLocaleString()}</span>
+        → |${ww.forecast.toLocaleString()} − ${ww.actual.toLocaleString()}| ÷ ${ww.actual.toLocaleString()} × 100 = <span style="color:rgba(255,200,100,.9);">${errPct}%</span>
+      </div>`;
+    }
+
+    rows += `<tr style="border-bottom:1px solid rgba(255,255,255,.06);">
+      <td style="padding:10px 10px 8px;" colspan="4">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+          <div style="min-width:0;flex:1;">
+            <div style="font-size:12.5px;font-weight:600;color:#f0f0f8;">${model}</div>
+            ${desc ? `<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:1px;">${desc}</div>` : ''}
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <span style="font-size:13px;font-weight:700;color:#f0f0f8;">${d.mape != null ? d.mape.toFixed(1) + '%' : '—'}</span>
+            <span style="font-size:11px;color:rgba(255,255,255,.4);margin-left:4px;">MAPE</span>
+            <span style="font-size:12px;color:rgba(255,255,255,.5);margin:0 6px;">·</span>
+            <span style="font-size:13px;font-weight:700;color:#f0f0f8;">${d.bias != null ? biasSign + d.bias.toFixed(1) + '%' : '—'}</span>
+            <span style="font-size:11px;color:rgba(255,255,255,.4);margin-left:4px;">Bias</span>
+            <span style="font-size:15px;color:${flagColor};margin-left:8px;">${flagIcon}</span>
+          </div>
+        </div>
+        <div style="margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.04);border-left:2px solid rgba(120,80,255,.5);border-radius:0 6px 6px 0;font-size:11px;color:rgba(255,255,255,.5);line-height:1.8;">
+          <div>MAPE = ${mapeCalc}</div>
+          <div>Bias = ${biasCalc}</div>
+        </div>
+        ${worstHtml}
+      </td>
+    </tr>`;
+  });
+
+  const html = `<div style="position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+    <div style="background:#1e1e2e;border:1px solid rgba(255,255,255,.18);border-radius:18px;padding:28px 30px;width:min(640px,95vw);max-height:88vh;overflow:auto;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:#f0f0f8;">📊 Forecast Accuracy Report</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:2px;">${dateStr} forecast vs actuals · ${r.weeksCompared} week${r.weeksCompared !== 1 ? 's' : ''} compared</div>
+        </div>
+        <button onclick="this.closest('[style*=fixed]').remove()" style="background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.20);border-radius:8px;padding:4px 12px;color:rgba(255,255,255,.7);cursor:pointer;font-size:13px;">✕</button>
+      </div>
+
+      <!-- Definitions -->
+      <div style="margin-bottom:14px;padding:12px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);border-radius:10px;font-size:12px;color:rgba(255,255,255,.6);line-height:1.8;">
+        <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Definitions</div>
+        <div><span style="color:#f0f0f8;font-weight:600;">MAPE</span> (Mean Absolute Percentage Error) — how far off the forecast was on average, regardless of direction. Formula: <span style="font-family:monospace;font-size:11px;color:rgba(200,180,255,.8);">avg( |forecast − actual| ÷ actual × 100 )</span>. Target: &lt;20%.</div>
+        <div style="margin-top:4px;"><span style="color:#f0f0f8;font-weight:600;">Bias</span> — whether the forecast consistently runs high or low. Formula: <span style="font-family:monospace;font-size:11px;color:rgba(200,180,255,.8);">avg( (forecast − actual) ÷ actual × 100 )</span>. Positive (+) = over-forecast. Negative (−) = under-forecast.</div>
+        <div style="margin-top:4px;"><span style="color:rgba(255,180,80,1);">⬆ over-forecast</span> = bias &gt; +20% &nbsp;·&nbsp; <span style="color:rgba(130,200,255,1);">⬇ under-forecast</span> = bias &lt; −20% &nbsp;·&nbsp; <span style="color:rgba(100,220,130,1);">✓ on target</span> = within ±20%</div>
+      </div>
+
+      <!-- Overall MAPE -->
+      <div style="margin-bottom:14px;padding:10px 14px;background:rgba(120,80,255,.20);border:1px solid rgba(120,80,255,.35);border-radius:8px;font-size:13px;color:#f0f0f8;">
+        Overall MAPE: <strong>${r.overallMAPE != null ? r.overallMAPE.toFixed(1) + '%' : '—'}</strong>
+        <span style="color:rgba(255,255,255,.45);font-size:11px;margin-left:8px;">(weighted average across all SKUs)</span>
+      </div>
+
+      <!-- Per-SKU rows -->
+      <table style="width:100%;border-collapse:collapse;">
+        <tbody>${rows || '<tr><td style="padding:16px;text-align:center;color:rgba(255,255,255,.4);">No per-SKU data available.</td></tr>'}</tbody>
+      </table>
+      ${r.note ? `<div style="margin-top:12px;font-size:11px;color:rgba(255,255,255,.35);">${r.note}</div>` : ''}
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
 function openPlaybookModal() {
   const ta = document.getElementById('playbookText');
   ta.value = forecastPlaybook || DEFAULT_PLAYBOOK;
@@ -7562,55 +7742,51 @@ function fcTryOn(sku, startIdx, endIdx) {
   state[sku].fcDenyOpen = false;
 
   if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
-  // Save original rates before overwriting
-  const prevRates = displayRates.map((_, i) => state[sku].salesRates[startIdx + i]);
-  state[sku].fcPrevRates = prevRates;
 
-  // Write forecast rates to state AND update DOM inputs before updateCalcs reads them back
+  // Save original rates before any overwrite — needed to restore on deny/close
+  state[sku].fcPrevRates = displayRates.map((_, i) => state[sku].salesRates[startIdx + i]);
+
+  // Write AI rates for non-manual weeks; keep user values (like 666) for manual weeks
   state[sku].fcWrittenIdx = new Set();
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
     const hasSuof = state[sku].suofFromExcel && state[sku].suofFromExcel[i] != null && state[sku].suofFromExcel[i] > 0;
-    const isManualNonZero = (state[sku].salesRatesManual && state[sku].salesRatesManual[i]) && state[sku].salesRates[i] > 0;
-    if (hasSuof || isManualNonZero) continue; // don't overwrite SUOF weeks or user-typed non-zero weeks
+    const isManual = state[sku].salesRatesManual[i] && state[sku].salesRates[i] > 0;
+    if (hasSuof || isManual) continue;
     const newRate = displayRates[i - startIdx] || 0;
     state[sku].salesRates[i] = newRate;
-    state[sku].fcWrittenIdx.add(i); // track which weeks we actually wrote
-    // Update main page input so updateCalcs reads correct value (not stale 0)
+    state[sku].fcWrittenIdx.add(i);
     const inp = document.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
     if (inp && !inp.readOnly) inp.value = newRate.toLocaleString();
   }
+
   const p = products.find(x => x.sku === sku);
   if (p) updateCalcs(sku);
-
   renderForecastPage();
   openTryOnPanel(sku, startIdx, endIdx);
 }
 
 function fcApply(sku, startIdx, endIdx) {
-  const fc = computeFcRates(sku, startIdx, endIdx);
-  const displayRates = getDisplayRates(sku, startIdx, fc.rates);
-  state[sku].fcRates  = displayRates;
-  state[sku].fcStatus = 'applied';
-  state[sku].fcRange  = { startIdx, endIdx };
-  state[sku].fcDenyOpen = false;
+  const s = state[sku];
+  // State already has correct values from fcTryOn:
+  //   - AI rates for non-manual weeks (written by fcTryOn)
+  //   - User values for manual weeks (kept as-is)
+  //   - Any right-panel edits the user made during try-on
+  // Just commit: mark all fcWrittenIdx weeks as manual and update status.
+  s.fcStatus = 'applied';
+  s.fcRange  = { startIdx, endIdx };
+  s.fcDenyOpen = false;
+  // fcPrevRates already saved by fcTryOn — kept here for Undo Apply
 
-  if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
-
+  if (!s.salesRatesManual) s.salesRatesManual = new Array(weeks.length).fill(false);
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
-    // Mirror the same skip logic as fcTryOn — don't overwrite SUOF weeks or user-typed non-zero rates
-    const hasSuof = state[sku].suofFromExcel && state[sku].suofFromExcel[i] != null && state[sku].suofFromExcel[i] > 0;
-    const isManualNonZero = (state[sku].salesRatesManual[i]) && state[sku].salesRates[i] > 0;
-    if (hasSuof || isManualNonZero) continue;
-
-    const rate = displayRates[i - startIdx] || 0;
-    state[sku].salesRates[i] = rate;
-    state[sku].salesRatesManual[i] = true;
-
+    const hasSuof = s.suofFromExcel && s.suofFromExcel[i] != null && s.suofFromExcel[i] > 0;
+    if (hasSuof) continue;
+    s.salesRatesManual[i] = true; // commit whatever value is in state as intentional
     const inp = document.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
     if (inp) {
       inp.classList.remove('fc-tryOn-cell');
       inp.classList.add('fc-applied-cell');
-      inp.value = rate.toLocaleString();
+      inp.value = (s.salesRates[i] || 0).toLocaleString();
       delete inp.dataset.origVal;
     }
   }
@@ -7618,7 +7794,6 @@ function fcApply(sku, startIdx, endIdx) {
   if (p) updateCalcs(sku);
   if (!isTestMode) saveState();
   renderForecastPage();
-  // Keep side-by-side open — refresh both panels to reflect applied state
   const overlay = document.getElementById('tryOnOverlay');
   if (overlay && overlay.classList.contains('open')) {
     const card = document.getElementById('fc-card-' + sku);
@@ -7750,21 +7925,14 @@ function refreshTryOnRight(sku, startIdx, endIdx) {
   // Restore reorder state
   Object.keys(origReorders).forEach(wi => { s.reorders[+wi] = origReorders[+wi]; });
 
-  // Apply orange highlight to forecast week sales rate cells in the right panel
+  // Highlight weeks where AI rates were written (non-manual weeks in the forecast period)
   const si = startIdx != null ? startIdx : (s.fcRange && s.fcRange.startIdx);
   const ei = endIdx   != null ? endIdx   : (s.fcRange && s.fcRange.endIdx);
-  const prevRates = s.fcPrevRates || [];
   if (si != null && ei != null && s.fcStatus === 'tryOn') {
     for (let i = si; i <= Math.min(ei, weeks.length - 1); i++) {
-      const prev = prevRates[i - si] || 0;
-      const current = s.salesRates[i] || 0;
-      // Only highlight weeks where we actually wrote a new forecast rate
-      if (!s.fcWrittenIdx || !s.fcWrittenIdx.has(i)) continue; // only highlight weeks fcTryOn actually wrote
+      if (!s.fcWrittenIdx || !s.fcWrittenIdx.has(i)) continue;
       const inp = rightInner.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
-      if (inp) {
-        inp.classList.add('fc-tryOn-cell');
-        inp.dataset.origVal = '0';
-      }
+      if (inp) inp.classList.add('fc-tryOn-cell');
     }
   }
 }
@@ -7792,20 +7960,19 @@ function fcRevertTryOn(sku, startIdx, endIdx, fromClose) {
   state[sku].fcStatus = fromClose ? 'none' : 'denied';
   state[sku].fcDenyOpen = false;
   delete state[sku].fcPrevRates;
+  // Restore original rates — fcTryOn only wrote to non-manual weeks, so this safely undoes that
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
     const orig = prevRates[i - startIdx] != null ? prevRates[i - startIdx] : 0;
     state[sku].salesRates[i] = orig;
-    if (state[sku].salesRatesManual) state[sku].salesRatesManual[i] = false;
-    // Clear highlights in both main page and right panel
+    if (state[sku].salesRatesManual) state[sku].salesRatesManual[i] = orig > 0;
     document.querySelectorAll(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`).forEach(inp => {
       inp.classList.remove('fc-tryOn-cell','fc-applied-cell');
-      inp.value = orig.toLocaleString();
+      inp.value = orig > 0 ? orig.toLocaleString() : '0';
       delete inp.dataset.origVal;
     });
   }
   const p = products.find(x => x.sku === sku);
   if (p) updateCalcs(sku);
-  // Close the overlay without triggering another revert
   document.getElementById('tryOnOverlay').classList.remove('open');
   tryOnPanelSku = null;
   renderForecastPage();
@@ -7833,12 +8000,18 @@ function fcSubmitDeny(sku, startIdx, endIdx) {
 
   // Remove any tryOn highlights
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
+    const prevRates = state[sku].fcPrevRates || [];
+    const orig = prevRates[i - startIdx] != null ? prevRates[i - startIdx] : 0;
+    state[sku].salesRates[i] = orig;
+    if (state[sku].salesRatesManual) state[sku].salesRatesManual[i] = orig > 0;
     const inp = document.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
     if (inp) {
       inp.classList.remove('fc-tryOn-cell','fc-applied-cell');
-      if (inp.dataset.origVal !== undefined) { inp.value = inp.dataset.origVal; delete inp.dataset.origVal; }
+      inp.value = orig > 0 ? orig.toLocaleString() : '0';
+      delete inp.dataset.origVal;
     }
   }
+  delete state[sku].fcPrevRates;
 
   if (!isNaN(manualVal) && manualVal >= 0) {
     // Manual flat override
@@ -8067,6 +8240,8 @@ function initForecastSelectors() {
 }
 
 function showPage(page) {
+  // Auto-save when switching pages
+  if (!isTestMode) saveState();
   document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const section = document.getElementById('page-' + page);
