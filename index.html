@@ -5618,8 +5618,9 @@ function saveState() {
     localStorage.setItem(STORE_KEY, JSON.stringify(snapshot));
     if (_syncChannel) _syncChannel.postMessage({ type: 'state_update' });
   } catch(e) { /* storage full or unavailable */ }
-  // Also persist reorder data to Supabase (fire-and-forget)
+  // Also persist reorder data and manual sales rates to Supabase (fire-and-forget)
   saveStateSupabase().catch(e => console.warn('Supabase saveState:', e));
+  saveVdRatesCache().catch(e => console.warn('Supabase saveVdRates:', e));
 }
 
 function loadState() {
