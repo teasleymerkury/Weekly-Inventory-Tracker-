@@ -7155,7 +7155,11 @@ function renderForecastPage() {
         + ` <button onclick="showAgentAccuracyDetail()" style="margin-left:10px;font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:var(--text-2);cursor:pointer;">Details</button>`;
       accBannerEl.style.display = '';
     } else if (r && r.weeksCompared === 0) {
-      accBannerEl.innerHTML = `<span style="color:var(--text-3);font-size:12px;">📊 No prior forecast available for accuracy comparison yet — check back after next Wednesday's run.</span>`;
+      const prevDate = r.prevForecastGeneratedAt ? new Date(r.prevForecastGeneratedAt).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : null;
+      const msg = prevDate
+        ? `📊 Previous forecast was generated ${prevDate} — no completed weeks since then yet. Check back next Wednesday for 1-week accuracy data.`
+        : `📊 No prior forecast available for accuracy comparison yet — check back after next Wednesday's run.`;
+      accBannerEl.innerHTML = `<span style="color:var(--text-3);font-size:12px;">${msg}</span>`;
       accBannerEl.style.display = '';
     } else {
       accBannerEl.style.display = 'none';
@@ -7950,6 +7954,10 @@ function closeTryOnPanel() {
     fcRevertTryOn(sku, range.startIdx, range.endIdx, true);
     return; // fcRevertTryOn will re-render and close
   }
+  const _ri = document.getElementById('tryOnRightInner');
+  if (_ri) _ri.innerHTML = '';
+  const _li = document.getElementById('tryOnLeftInner');
+  if (_li) _li.innerHTML = '';
   document.getElementById('tryOnOverlay').classList.remove('open');
   tryOnPanelSku = null;
   renderForecastPage();
@@ -7973,6 +7981,10 @@ function fcRevertTryOn(sku, startIdx, endIdx, fromClose) {
   }
   const p = products.find(x => x.sku === sku);
   if (p) updateCalcs(sku);
+  const _ri2 = document.getElementById('tryOnRightInner');
+  if (_ri2) _ri2.innerHTML = '';
+  const _li2 = document.getElementById('tryOnLeftInner');
+  if (_li2) _li2.innerHTML = '';
   document.getElementById('tryOnOverlay').classList.remove('open');
   tryOnPanelSku = null;
   renderForecastPage();
@@ -8240,6 +8252,9 @@ function initForecastSelectors() {
 }
 
 function showPage(page) {
+  // Close try-on overlay when navigating away
+  const _overlay = document.getElementById('tryOnOverlay');
+  if (_overlay && _overlay.classList.contains('open')) closeTryOnPanel();
   // Auto-save when switching pages
   if (!isTestMode) saveState();
   document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
