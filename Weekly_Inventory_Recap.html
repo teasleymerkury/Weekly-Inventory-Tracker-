@@ -122,14 +122,6 @@
     background: rgba(255,255,255,0.18); color: var(--text-1);
     border: 1px solid rgba(255,255,255,0.35); white-space: nowrap;
   }
-  .reset-btn {
-    font-size: 11px; cursor: pointer;
-    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.28);
-    border-radius: 8px; padding: 4px 10px;
-    color: var(--text-2); display: flex; align-items: center; gap: 4px;
-    transition: background 0.15s, color 0.15s;
-  }
-  .reset-btn:hover { background: rgba(255,255,255,0.22); color: var(--text-1); }
 
   /* ── KPI strip ── */
   .kpi-strip { display: flex; flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,0.16); }
@@ -287,6 +279,9 @@
   table.grid td.col-cur.editable input { background: rgba(251,191,36,0.08) !important; }
   table.grid td.col-cur.editable input:focus { background: rgba(255,255,255,0.18) !important; }
 
+  /* Sales rate input showing SUOF fallback value (not manually set) */
+  input.sr-suof-display { color: rgba(150,200,255,0.65) !important; font-style: italic; }
+
   .xls-badge {
     display: inline-block; font-size: 9px; font-weight: 700;
     background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.92);
@@ -417,7 +412,7 @@
   .period-custom select option { background:#3b4e78; color:#fff; }
   .period-custom span { font-size:11px; color:var(--text-2); }
 
-  .fc-card { background:var(--glass-bg); backdrop-filter:blur(28px) saturate(1.7); -webkit-backdrop-filter:blur(28px) saturate(1.7); border:1px solid var(--glass-border); box-shadow:var(--glass-shadow); border-radius:16px; margin-bottom:12px; overflow:hidden; position:relative; }
+  .fc-card { background:var(--glass-bg); backdrop-filter:blur(28px) saturate(1.7); -webkit-backdrop-filter:blur(28px) saturate(1.7); border:1px solid var(--glass-border); box-shadow:var(--glass-shadow); border-radius:16px; margin-bottom:12px; overflow:hidden; position:relative; padding-bottom:38px; }
   .fc-card::before { content:''; position:absolute; top:0; left:8%; width:84%; height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,.50) 25%,rgba(255,255,255,.82) 50%,rgba(255,255,255,.50) 75%,transparent); pointer-events:none; z-index:3; }
   .fc-card-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px 10px; gap:12px; flex-wrap:wrap; }
   .fc-sku-info { flex:1; min-width:0; }
@@ -498,13 +493,29 @@
     display:flex; flex:1; overflow:hidden; padding:16px 16px 0 16px; gap:14px;
   }
   #tryOnLeft {
-    flex:0 0 420px; display:flex; flex-direction:column; overflow-y:auto;
+    flex:1 1 0; min-width:0; display:flex; flex-direction:column; overflow-y:auto;
     padding-right:4px;
   }
   #tryOnLeft .fc-card { margin-bottom:0; }
   #tryOnLeft .fc-card:hover { transform:none; }
   #tryOnDivider {
-    width:1px; background:rgba(255,255,255,.12); flex-shrink:0; margin:8px 0 16px;
+    width:10px; flex-shrink:0; margin:8px 0 16px; cursor:col-resize;
+    display:flex; align-items:center; justify-content:center;
+    position:relative; user-select:none;
+  }
+  #tryOnDivider::before {
+    content:''; position:absolute; top:0; bottom:0; left:50%; transform:translateX(-50%);
+    width:2px; background:rgba(255,255,255,.15); border-radius:2px; transition:background .15s;
+  }
+  #tryOnDivider:hover::before, #tryOnDivider.dragging::before {
+    background:rgba(130,180,255,.55);
+  }
+  #tryOnDivider::after {
+    content:'⋮'; color:rgba(255,255,255,.25); font-size:14px; letter-spacing:1px;
+    pointer-events:none; position:relative; z-index:1;
+  }
+  #tryOnDivider:hover::after, #tryOnDivider.dragging::after {
+    color:rgba(130,180,255,.7);
   }
   #tryOnRight {
     flex:1; overflow:auto; padding:16px 16px 16px 16px;
@@ -523,10 +534,15 @@
 
   .fc-reorder-box { background:rgba(80,120,220,.15); border:1px solid rgba(80,120,220,.30); border-radius:10px; padding:12px 16px; margin:0 18px 14px; }
   .fc-reorder-box h4 { font-size:12px; font-weight:700; color:rgba(160,200,255,1); margin-bottom:8px; }
-  .fc-reorder-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:10px; }
+  .fc-reorder-row { display:flex; flex-direction:column; gap:8px; }
+  .fc-reorder-row-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .fc-reorder-grid { display:grid; grid-template-columns:1fr 1fr 1.6fr; gap:10px; }
   .fc-reorder-field { display:flex; flex-direction:column; gap:3px; }
   .fc-reorder-field label { font-size:10px; color:var(--text-3); font-weight:600; text-transform:uppercase; }
-  .fc-reorder-field input { background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.25); border-radius:7px; color:var(--text-1); font-size:13px; font-weight:600; padding:5px 9px; width:100%; }
+  .fc-reorder-field input[type=number] { background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.25); border-radius:7px; color:var(--text-1); font-size:13px; font-weight:600; padding:5px 9px; width:100%; -moz-appearance:textfield; }
+  .fc-reorder-field input[type=number]::-webkit-inner-spin-button,
+  .fc-reorder-field input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+  .fc-reorder-field select { background:rgba(30,40,70,1); border:1px solid rgba(255,255,255,.25); border-radius:7px; color:var(--text-1); font-size:12px; padding:5px 8px; width:100%; }
   .fc-reorder-field .ro-val { font-size:13px; font-weight:700; color:var(--text-1); padding:5px 0; }
 
   .fc-deny-box { background:rgba(255,80,80,.10); border:1px solid rgba(255,80,80,.25); border-radius:10px; padding:12px 16px; margin:0 18px 14px; }
@@ -564,7 +580,7 @@
   /* Agent suggestion */
   .fc-badge-agent { display:inline-block; padding:2px 8px; border-radius:6px; background:rgba(150,100,255,.25); border:1px solid rgba(150,100,255,.40); color:rgba(200,170,255,1); font-size:10px; font-weight:600; margin-left:8px; vertical-align:middle; }
   .fc-agent-box { margin:0 18px 14px; padding:12px 14px; background:rgba(120,80,255,.10); border:1px solid rgba(120,80,255,.25); border-radius:10px; }
-  .fc-history-btn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:6px; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.08); color:var(--text-3); cursor:pointer; transition:background .15s,color .15s; flex-shrink:0; }
+  .fc-history-btn { position:absolute; bottom:10px; left:14px; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:6px; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.08); color:var(--text-3); cursor:pointer; transition:background .15s,color .15s; flex-shrink:0; z-index:2; }
   .fc-history-btn:hover { background:rgba(255,255,255,.18); color:var(--text-1); }
   .fc-history-panel { overflow:hidden; max-height:0; transition:max-height .35s ease; }
   .fc-history-panel.open { max-height:600px; }
@@ -862,46 +878,6 @@
   .add-model-input:focus { border-color:rgba(255,255,255,0.5); }
   #addModelStatus { font-size:12px; min-height:18px; margin-top:6px; }
 
-  /* ── Case-pack colour pills ── */
-  .cp-pill {
-    cursor:pointer; user-select:none; transition:transform 0.15s, box-shadow 0.15s;
-    position:relative;
-  }
-  .cp-pill:hover { transform:scale(1.08); box-shadow:0 2px 8px rgba(0,0,0,0.35); }
-  .cp-pill[data-color] { color:#fff !important; }
-  /* colour-picker popover */
-  .cp-picker-pop {
-    position:fixed; z-index:9999;
-    background:rgba(18,18,36,0.97);
-    border:1px solid rgba(255,255,255,0.18);
-    border-radius:14px; padding:14px 14px 10px;
-    box-shadow:0 10px 40px rgba(0,0,0,0.55);
-    min-width:210px;
-  }
-  .cp-picker-pop .cp-pp-title {
-    font-size:10px; font-weight:600; letter-spacing:0.6px;
-    color:rgba(255,255,255,0.5); text-transform:uppercase;
-    margin-bottom:10px; text-align:center;
-  }
-  .cp-picker-pop .cp-swatches {
-    display:grid; grid-template-columns:repeat(6,1fr); gap:7px;
-    margin-bottom:10px;
-  }
-  .cp-swatch {
-    width:26px; height:26px; border-radius:7px; cursor:pointer;
-    border:2px solid transparent; transition:transform 0.1s, border-color 0.1s;
-  }
-  .cp-swatch:hover { transform:scale(1.18); }
-  .cp-swatch.active { border-color:#fff; }
-  .cp-picker-pop .cp-pp-btns {
-    display:flex; gap:6px; justify-content:center;
-  }
-  .cp-picker-pop .cp-pp-btns button {
-    font-size:10px; padding:4px 10px; border-radius:7px;
-    border:1px solid rgba(255,255,255,0.2);
-    background:rgba(255,255,255,0.08); color:#fff; cursor:pointer;
-  }
-  .cp-picker-pop .cp-pp-btns button:hover { background:rgba(255,255,255,0.18); }
   .rp-box .rp-sub { font-size:11px; color:var(--text-2); margin-bottom:16px; }
   .rp-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .rp-field label { display:block; font-size:11px; font-weight:600; color:var(--text-2); margin-bottom:4px; }
@@ -1505,6 +1481,9 @@
     </div>
   </div>
 
+  <!-- Agent accuracy banner — populated by renderForecastPage() when forecast_accuracy exists -->
+  <div id="agentAccuracyBanner" style="display:none;margin:0 0 14px;padding:10px 16px;background:rgba(120,80,255,.10);border:1px solid rgba(120,80,255,.25);border-radius:10px;font-size:12.5px;color:var(--text-2);line-height:1.6;"></div>
+
   <!-- SKU Cards rendered here -->
   <div id="forecastCards"></div>
 
@@ -1662,6 +1641,9 @@ let lastAgentRunTimestamp = localStorage.getItem('agent_last_run_ts') || null;
 // Agent forecast suggestions loaded from Supabase on login
 let agentSuggestions = null;
 let forecastPlaybook = '';
+let fcAccuracyLog = {};  // { sku: [{weekIdx, forecasted, actual, pctError, date}] }
+let fcSnapshot    = {};  // { skus: { sku: { weekIdx: rawRate } }, runDate: string }
+let agentAccuracyReport = null; // written by scheduled agent: { generatedAt, overallMAPE, weeksCompared, skus: { sku: { mape, bias, flag } } }
 
 const DEFAULT_PLAYBOOK = `FORECAST PLAYBOOK — Merkury Innovations Home Depot Lighting
 
@@ -1704,11 +1686,19 @@ You are a forecasting agent for Merkury Innovations. Every Monday you analyze ea
    - Recommend a purchase order when projected WOS is forecasted to drop below 8 weeks within the next 20 weeks.
    - PO quantity = (weeks of safety stock needed × forecasted weekly rate), rounded up to the nearest master case pack.
 
+6. FORECAST ACCURACY & BIAS CORRECTION
+   - The context includes a fc_accuracy_summary per SKU with: avgPctError (positive = over-forecasting, negative = under-forecasting), weeks of non-zero POS history, and current biasCorrectionFactor already applied to M3 rates.
+   - Always reference this in your reasoning when ≥4 weeks of history exist. Example: "M3 signals 635/week. This SKU's forecasts have run 18% above actual over the past 5 weeks (bias factor: 0.85x applied). Adjusted forecast: ~540/week."
+   - If avgPctError > 10%: flag systematic over-forecasting and lower confidence.
+   - If avgPctError < -10%: flag systematic under-forecasting and note inventory risk.
+   - If < 4 weeks of history: note that bias correction is not yet active and confidence is lower.
+   - The biasCorrectionFactor is capped at ±30% (0.70–1.30). If the raw error exceeds this cap, flag it explicitly — it likely signals a structural change needing manual review.
+
 OUTPUT FORMAT (per SKU):
 {
   "suggestedRate": <integer units/week>,
   "confidence": "high" | "medium" | "low",
-  "reasoning": "<2–4 sentence explanation of key factors driving this rate>",
+  "reasoning": "<2–4 sentence explanation of key factors driving this rate, always referencing bias correction if active>",
   "reorderUrgent": <true|false>,
   "reorderNote": "<brief note on reorder timing and quantity if urgent>"
 }`;
@@ -1911,6 +1901,7 @@ products.forEach(p => {
     skinnyQP: 0,
     salesRates: sr,
     salesRatesManual: new Array(weeks.length).fill(false),
+    biasCorrectionFactor: 1.0,
     posUnits:          new Array(weeks.length).fill(0),
     posStoreCount:     new Array(weeks.length).fill(0),
     posHistorical:     POS_HISTORY[p.sku] ? Object.assign({}, POS_HISTORY[p.sku]) : {},
@@ -1980,8 +1971,17 @@ function calcRows(p) {
   // Build live sales-rate array: always read from the DOM input if it exists.
   // For non-manual cells, fall back to SUOF value when available.
   const liveSR = weeks.map(function(_, i) {
-    var inp = document.querySelector('input[data-sku="' + p.sku + '"][data-row="salesRate"][data-idx="' + i + '"]');
-    if (inp && !inp.readOnly) {
+    // When the try-on right panel is open, duplicate inputs exist (main page + right panel).
+    // Prefer whichever one is focused, else the last non-readonly match (right panel wins
+    // since it appears later in DOM order) — avoids reading a stale main-page value.
+    var inp = null, focusedInp = null;
+    document.querySelectorAll('input[data-sku="' + p.sku + '"][data-row="salesRate"][data-idx="' + i + '"]').forEach(function(cand) {
+      if (cand.readOnly) return;
+      inp = cand; // last non-readonly match wins (right panel, if open, comes after main page)
+      if (document.activeElement === cand) focusedInp = cand;
+    });
+    inp = focusedInp || inp;
+    if (inp) {
       var v = parseFloat(inp.value.replace(/,/g, '')) || 0;
       if (s.salesRatesManual && s.salesRatesManual[i]) s.salesRates[i] = v; // only persist manual edits
       // If manual but value is 0, fall back to SUOF (treat 0 as "not set")
@@ -2107,7 +2107,6 @@ function buildProduct(p) {
         <span class="phc-sep">·</span>
         <span class="phc-pill">Inner: ${p.inner}</span>
         <span class="phc-pill">Master: ${p.master}</span>
-        <button class="reset-btn" onclick="resetProduct('${p.sku}')">&#8635; Reset</button>
       </div>
       <div class="product-header-btns">
         <button class="delete-btn" onclick="deleteProduct('${p.sku}')" title="Remove this item permanently">&#128465; Delete</button>
@@ -2255,6 +2254,13 @@ function buildProduct(p) {
         // Always attach listeners — guard in handleChange prevents past-week mutations
         inp.addEventListener('focus', function() {
           if (this.readOnly) return;
+          if (this.dataset.suofDisplay) {
+            // Clear SUOF fallback so user can type a fresh value
+            this.value = '';
+            delete this.dataset.suofDisplay;
+            this.classList.remove('sr-suof-display');
+            return;
+          }
           this.value = this.value.replace(/,/g, '');
           this.select();
         });
@@ -2364,6 +2370,38 @@ function handleMerkurySubField(input) {
   const val  = parseFloat(input.value.replace(/,/g, '')) || 0;
   state[sku][field] = val;
   saveState();
+  const col = field === 'openStock' ? 'open_stock' : 'skinny_qp';
+  debounceSync(`meta:${sku}:${col}`, () =>
+    sbClient.from('sku_meta').upsert({ sku, [col]: val }, { onConflict: 'sku' }));
+}
+
+// ── Debounced per-field Supabase sync ─────────────────────────────────────────
+// Each edited cell gets its own timer (keyed by sku+week+field), so rapid edits
+// to ONE cell coalesce into a single push, while edits to OTHER cells each save
+// independently on their own schedule — and since every push carries only the
+// field that changed, two people editing different cells on the same SKU can
+// never overwrite each other's row.
+const _syncTimers = {};
+const _syncPending = {};
+function debounceSync(key, fn, delay = 800) {
+  if (isTestMode || !sbClient) return;
+  clearTimeout(_syncTimers[key]);
+  _syncPending[key] = fn;
+  _syncTimers[key] = setTimeout(() => {
+    delete _syncPending[key];
+    fn().catch(e => console.warn('Sync failed:', key, e.message));
+  }, delay);
+}
+// Fire any pending debounced Supabase writes immediately — called when leaving the
+// page (switch page, logout, close tab) so an edit made just before navigating away
+// isn't silently dropped by the debounce timer getting killed mid-wait.
+function flushPendingSyncs() {
+  Object.keys(_syncPending).forEach(key => {
+    clearTimeout(_syncTimers[key]);
+    const fn = _syncPending[key];
+    delete _syncPending[key];
+    fn().catch(e => console.warn('Sync flush failed:', key, e.message));
+  });
 }
 
 function handleChange(input) {
@@ -2372,7 +2410,11 @@ function handleChange(input) {
   const idx = parseInt(input.dataset.idx);
   if (idx < getCurrentWeekIdx()) return;  // safety guard — never mutate past weeks
   const val = parseFloat(input.value.replace(/,/g, '')) || 0;
-  if (row === 'firmReceipt') state[sku].firmReceipts[idx] = val;
+  if (row === 'firmReceipt') {
+    state[sku].firmReceipts[idx] = val;
+    debounceSync(`fw:${sku}:${idx}:firm_receipt`, () =>
+      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, firm_receipt: val }, { onConflict: 'sku,week_idx' }));
+  }
   if (row === 'reorder') {
     state[sku].reorders[idx] = val;
     if (state[sku].reorderData && state[sku].reorderData[idx]) { state[sku].reorderData[idx].qty = val; }
@@ -2381,7 +2423,14 @@ function handleChange(input) {
   if (row === 'salesRate') {
     state[sku].salesRates[idx] = val;
     if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
-    state[sku].salesRatesManual[idx] = true;
+    if (val === 0) {
+      // Typing 0 clears the manual override — fall back to SUOF if available
+      state[sku].salesRatesManual[idx] = false;
+    } else {
+      delete input.dataset.suofDisplay;
+      input.classList.remove('sr-suof-display');
+      state[sku].salesRatesManual[idx] = true;
+    }
     // Direct immediate WOS update — reads endInv straight from the DOM cell,
     // guaranteed to be correct regardless of state/Supabase sync lag.
     var eiCell = document.getElementById('cell-' + sku + '-endInv-' + idx);
@@ -2392,26 +2441,62 @@ function handleChange(input) {
       woCell.textContent = fmtWos(wosVal);
       setWosStyle(woCell, wosVal);
     }
+    const manual = state[sku].salesRatesManual[idx];
+    debounceSync(`fw:${sku}:${idx}:sales_rate`, () =>
+      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, sales_rate: val, sales_rate_manual: manual }, { onConflict: 'sku,week_idx' }));
   }
-  if (row === 'posUnits') state[sku].posUnits[idx] = val;
+  if (row === 'posUnits') {
+    state[sku].posUnits[idx] = val;
+    debounceSync(`fw:${sku}:${idx}:pos_units`, () =>
+      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, pos_units: val }, { onConflict: 'sku,week_idx' }));
+  }
   updateCalcs(sku);
   saveState();
 }
 
 function updateCalcs(sku) {
-  // Sync all salesRate DOM inputs into state first — prevents display/state mismatch
+  // Sync main-page salesRate inputs into state. Right-panel inputs are skipped entirely —
+  // they're a preview display and handleChange already writes their edits to state.
+  // Additionally skip main-page inputs for any index where focus is in the right panel,
+  // so a stale main-page value doesn't overwrite a right-panel edit in progress.
+  const tryOnRightInner = document.getElementById('tryOnRightInner');
+  const ae = document.activeElement;
+  const focusedInRight = tryOnRightInner && tryOnRightInner.contains(ae);
+  const focusedRightIdx = focusedInRight && ae.dataset.row === 'salesRate' ? parseInt(ae.dataset.idx) : -1;
   document.querySelectorAll(`input[data-sku="${sku}"][data-row="salesRate"]`).forEach(function(inp) {
-    if (!inp.readOnly) {
-      var idx2 = parseInt(inp.dataset.idx);
+    if (tryOnRightInner && tryOnRightInner.contains(inp)) return; // skip right panel always
+    var idx2 = parseInt(inp.dataset.idx);
+    if (idx2 === focusedRightIdx) return; // skip main-page input when right panel has focus for same idx
+    if (!inp.readOnly && !inp.dataset.suofDisplay) {
       var v2 = parseFloat(inp.value.replace(/,/g, '')) || 0;
       if (!isNaN(idx2)) state[sku].salesRates[idx2] = v2;
     }
   });
   const p = products.find(x => x.sku === sku);
   const rows = calcRows(p);
+  const s = state[sku];
   weeks.forEach((w, i) => {
     const isPast = i < rows.curIdx;
     const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (i === rows.curIdx ? 'col-cur' : ''));
+    // Update sales rate input: show SUOF value when SR is 0 and not manually set
+    const srInp = document.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
+    if (srInp && !srInp.readOnly && document.activeElement !== srInp) {
+      const isManual = s.salesRatesManual && s.salesRatesManual[i];
+      const srVal = s.salesRates[i] || 0;
+      const suofVal = s.suofFromExcel && s.suofFromExcel[i];
+      if (!isManual && srVal === 0 && suofVal) {
+        srInp.value = fmtInput(suofVal);
+        srInp.dataset.suofDisplay = 'true';
+        srInp.classList.add('sr-suof-display');
+      } else {
+        delete srInp.dataset.suofDisplay;
+        srInp.classList.remove('sr-suof-display');
+        // Keep the displayed value in sync with state — without this, edits made in a
+        // duplicate input (e.g. the try-on right panel) never propagate to this one, and
+        // a later calcRows() call would read this stale value back and overwrite state.
+        srInp.value = fmtInput(srVal);
+      }
+    }
     const ei = document.getElementById(`cell-${sku}-endInv-${i}`);
     const su = document.getElementById(`cell-${sku}-suof-${i}`);
     const wo = document.getElementById(`cell-${sku}-wos-${i}`);
@@ -2436,7 +2521,11 @@ function updateCalcs(sku) {
       setWosStyle(wo, rows.wos[i]);
     }
   });
-  if (tryOnPanelSku === sku) refreshTryOnRight(sku);
+  // Refresh the live right panel if this SKU is open in the try-on overlay,
+  // but skip if the user is actively editing an input inside that panel (would destroy their input)
+  const rightInnerEl = document.getElementById('tryOnRightInner');
+  const activeInRightPanel = rightInnerEl && rightInnerEl.contains(document.activeElement);
+  if (tryOnPanelSku === sku && !activeInRightPanel) refreshTryOnRight(sku);
 
   const effectiveAvg = state[sku].avgWeeklySalesVD != null ? state[sku].avgWeeklySalesVD : p.avgWeeklySales;
   const wosEl = document.getElementById(`kpi-wos-${sku}`);
@@ -2448,30 +2537,6 @@ function updateCalcs(sku) {
   if (merkuryEl) merkuryEl.value = state[sku].onHandMerkury.toLocaleString();
   renderSummary();
 }
-
-function resetProduct(sku) {
-  const p = products.find(x => x.sku === sku);
-  state[sku].firmReceipts = [...p.firmReceipts];
-  state[sku].reorders     = new Array(weeks.length).fill(0);
-  state[sku].salesRates   = [...p.salesRates];
-  state[sku].posUnits     = new Array(weeks.length).fill(0);
-  state[sku].onHandMerkury = p.onHandMerkury;
-  state[sku].atsConnected       = false;
-  state[sku].avgWeeklySalesVD   = null;
-  state[sku].vdConnected        = false;
-  const block = document.getElementById(`block-${sku}`);
-  block.querySelectorAll('input[data-row]').forEach(inp => {
-    const row = inp.dataset.row;
-    const idx = parseInt(inp.dataset.idx);
-    if (row === 'firmReceipt') inp.value = fmtInput(p.firmReceipts[idx]);
-    else if (row === 'reorder') inp.value = fmtInput(0);
-    else if (row === 'posUnits') inp.value = fmtInput(0);
-    else if (row === 'salesRate') inp.value = fmtInput(p.salesRates[idx]);
-  });
-  updateFirmReceiptLabel(sku);
-  updateCalcs(sku);
-}
-
 
 // ── ATS sync ─────────────────────────────────────────────────────────────────
 
@@ -2511,18 +2576,19 @@ function findWeekIdx(date) {
 // Returns array of {weekIdx, qty}, merging quantities that land in the same week.
 function parseEtaField(etaStr) {
   if (!etaStr) return [];
-  const weekMap = {};
+  const entries = [];
   const parts = String(etaStr).split(/\s*&\s*/);
   for (const part of parts) {
     const m = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
     if (!m) continue;
+    const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
     const date = new Date(parseInt(m[3]), parseInt(m[1]) - 1, parseInt(m[2]));
     const qty  = parseInt(m[4]);
     const wIdx = findWeekIdx(date);
     if (wIdx < 0) continue;
-    weekMap[wIdx] = (weekMap[wIdx] || 0) + qty;
+    entries.push({ weekIdx: wIdx, qty, date: dateStr });
   }
-  return Object.entries(weekMap).map(([idx, qty]) => ({ weekIdx: parseInt(idx), qty }));
+  return entries;
 }
 
 let autoSyncAtsTimer = null;
@@ -2679,6 +2745,72 @@ function connectATS() {
   document.getElementById('inputAts').click();
 }
 
+// Builds lastInboundData rows from wb.
+// Prefers the actual "Inbound" tab (full detail); falls back to parsing the ETA column on the ATS tab.
+function buildInboundRows(wb, atsData) {
+  // Try actual Inbound tab first
+  const wsInbound = wb.Sheets['Inbound'] || wb.Sheets['inbound'] || wb.Sheets['INBOUND'];
+  if (wsInbound) {
+    const rows = XLSX.utils.sheet_to_json(wsInbound, { header: 1, defval: null, raw: true });
+    // Find the header row (first row with ≥3 non-blank cells)
+    let hdrIdx = 0;
+    for (let i = 0; i < Math.min(6, rows.length); i++) {
+      if (rows[i] && rows[i].filter(c => c != null && String(c).trim() !== '').length >= 3) { hdrIdx = i; break; }
+    }
+    // Filter to only rows whose model is known (on the Weekly Recap page)
+    const knownModels = new Set();
+    products.forEach(p => {
+      knownModels.add(p.model.toLowerCase().trim());
+      (state[p.sku].additionalModels || []).forEach(m => knownModels.add(m.toLowerCase().trim()));
+    });
+    const hdr = rows[hdrIdx] || [];
+    // Find model column index
+    const modelColIdx = hdr.findIndex(h => h && /material id$|product id$|model/i.test(String(h).trim()) && !/text/i.test(String(h).trim()));
+    const filtered = [rows[hdrIdx]];
+    for (let i = hdrIdx + 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
+      if (modelColIdx !== -1) {
+        const pid = String(row[modelColIdx] || '').trim().toLowerCase();
+        if (pid && !knownModels.has(pid)) continue;
+      }
+      filtered.push(row);
+    }
+    return filtered;
+  }
+
+  // Fallback: synthesize from ATS tab ETA column
+  const syntheticHeader = [
+    'Product ID', 'Product ID (Text)', 'Purchase Order ID',
+    'Planned Delivery Date', 'Delivery Notification Quantity'
+  ];
+  const syntheticRows = [syntheticHeader];
+  for (let ri = 2; ri < atsData.length; ri++) {
+    const row = atsData[ri];
+    if (!row || row[ATS_MODEL_COL] == null) continue;
+    const model = String(row[ATS_MODEL_COL]).trim();
+    let sku = modelToSku[model] || null;
+    if (!sku) {
+      for (const p of products) {
+        if ((state[p.sku].additionalModels || []).map(m => m.toUpperCase()).includes(model.toUpperCase())) { sku = p.sku; break; }
+      }
+    }
+    if (!sku) continue;
+    const p = products.find(x => x.sku === sku);
+    const productText = (p ? p.desc : '') || model;
+    const etaStr = row[ATS_ETA_COL];
+    if (!etaStr) continue;
+    for (const part of String(etaStr).split(/\s*&\s*/)) {
+      const m = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
+      if (!m) continue;
+      const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
+      const qty = parseInt(m[4]);
+      syntheticRows.push([model, productText, '', dateStr, qty]);
+    }
+  }
+  return syntheticRows;
+}
+
 async function syncFromATS(autoBuffer = null) {
   const isAutoLoad = !!autoBuffer;
   if (!atsFile && !isAutoLoad) return;
@@ -2708,60 +2840,12 @@ async function syncFromATS(autoBuffer = null) {
       buildThdSalesOrders();
     }
 
-    // Build Inbound Detail from ATS tab PO Detail ETA column
-    // Each ETA entry per SKU becomes one row (no Inbound tab needed)
+    // Build Inbound Detail — prefer actual Inbound tab, fall back to ETA column parsing
     {
-      const syntheticHeader = [
-        'Product ID', 'Product ID (Text)', 'Purchase Order ID',
-        'Planned Delivery Date', 'Delivery Notification Quantity'
-      ];
-      const syntheticRows = [syntheticHeader];
-      for (let ri = 2; ri < data.length; ri++) {
-        const row = data[ri];
-        if (!row || row[ATS_MODEL_COL] == null) continue;
-        const model = String(row[ATS_MODEL_COL]).trim();
-        if (!modelToSku[model]) continue;
-        const sku = modelToSku[model];
-        const p = products.find(x => x.sku === sku);
-        const productText = p ? p.desc : '';
-        const etaStr = row[ATS_ETA_COL];
-        if (!etaStr) continue;
-        const parts = String(etaStr).split(/\s*&\s*/);
-        for (const part of parts) {
-          const m = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
-          if (!m) continue;
-          const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
-          const qty = parseInt(m[4]);
-          const wi1 = findWeekIdx(new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2])));
-          syntheticRows.push([model, productText, '', dateStr, qty, wi1]);
-        }
-      }
-      for (let ri = 2; ri < data.length; ri++) {
-        const row = data[ri];
-        if (!row || row[ATS_MODEL_COL] == null) continue;
-        const addlModel = String(row[ATS_MODEL_COL]).trim();
-        if (modelToSku[addlModel]) continue;
-        let matchSku = null;
-        for (const p of products) {
-          if ((state[p.sku].additionalModels || []).map(m => m.toUpperCase()).includes(addlModel.toUpperCase())) {
-            matchSku = p.sku; break;
-          }
-        }
-        if (!matchSku) continue;
-        const etaStr2 = row[ATS_ETA_COL];
-        if (!etaStr2) continue;
-        for (const part of String(etaStr2).split(/\s*&\s*/)) {
-          const m2 = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
-          if (!m2) continue;
-          const dateStr2 = m2[1]+'/'+m2[2]+'/'+m2[3];
-          const wi2 = findWeekIdx(new Date(parseInt(m2[3]), parseInt(m2[1])-1, parseInt(m2[2])));
-          const addlDesc = (row[ATS_DESC_COL] != null ? String(row[ATS_DESC_COL]).trim() : '') || addlModel;
-          syntheticRows.push([addlModel, addlDesc, '', dateStr2, parseInt(m2[4]), wi2]);
-        }
-      }
-      lastInboundData = syntheticRows;
-      if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(syntheticRows)); } catch(e) {}
-      saveInboundCache(syntheticRows);
+      const inboundRows = buildInboundRows(wb, data);
+      lastInboundData = inboundRows;
+      if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(inboundRows)); } catch(e) {}
+      saveInboundCache(inboundRows);
       // Re-render inbound page if it's currently visible
       const inboundPage = document.getElementById('page-inbound');
       if (inboundPage && inboundPage.classList.contains('active')) renderInboundPage();
@@ -2793,7 +2877,7 @@ async function syncFromATS(autoBuffer = null) {
       const newFirmReceipts = new Array(weeks.length).fill(0);
       const etaEntries = parseEtaField(row[ATS_ETA_COL]);
       for (const { weekIdx, qty } of etaEntries) {
-        newFirmReceipts[weekIdx] = qty;
+        newFirmReceipts[weekIdx] = (newFirmReceipts[weekIdx] || 0) + qty;
       }
 
       if (!skusAddlModelsDone.has(sku)) {
@@ -2836,6 +2920,40 @@ async function syncFromATS(autoBuffer = null) {
     if (synced === 0) throw new Error('No matching model numbers found in ATS sheet.');
 
     renderSummary();
+    // Build firmReceiptEntries for each updated SKU (exact date + qty per entry)
+    skusUpdated.forEach(sku => {
+      const entries = [];
+      for (let ri = 2; ri < data.length; ri++) {
+        const row = data[ri];
+        if (!row || row[ATS_MODEL_COL] == null) continue;
+        const model = String(row[ATS_MODEL_COL]).trim();
+        if (modelToSku[model] !== sku) continue;
+        parseEtaField(row[ATS_ETA_COL]).forEach(e => entries.push({ model: model.toLowerCase(), date: e.date, qty: e.qty, weekIdx: e.weekIdx }));
+      }
+      (state[sku].additionalModels || []).forEach(addlModel => {
+        const addlUp = addlModel.toUpperCase();
+        for (let ri = 2; ri < data.length; ri++) {
+          const row = data[ri];
+          if (!row || row[ATS_MODEL_COL] == null) continue;
+          const model = String(row[ATS_MODEL_COL]).trim();
+          if (model.toUpperCase() !== addlUp) continue;
+          parseEtaField(row[ATS_ETA_COL]).forEach(e => entries.push({ model: model.toLowerCase(), date: e.date, qty: e.qty, weekIdx: e.weekIdx }));
+        }
+      });
+      state[sku].firmReceiptEntries = entries;
+      // Recompute firmReceipts from firmReceiptEntries — single source of truth
+      const newFR = new Array(weeks.length).fill(0);
+      entries.forEach(({ weekIdx, qty }) => { newFR[weekIdx] = (newFR[weekIdx] || 0) + qty; });
+      state[sku].firmReceipts = newFR;
+      // Refresh FR inputs in DOM
+      const blk = document.getElementById('block-' + sku);
+      if (blk) {
+        blk.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
+          inp.value = fmtInput(newFR[parseInt(inp.dataset.idx)] || 0);
+        });
+      }
+    });
+
     // Pre-compute and store case-pack breakdown so sub-rows survive logout/refresh
     products.forEach(p => {
       if (state[p.sku].atsConnected) {
@@ -2926,60 +3044,10 @@ async function refreshInboundPage() {
     const ws     = wb.Sheets['ATS'];
     if (!ws) throw new Error('"ATS" sheet not found.');
     const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
-
-    const syntheticHeader = [
-      'Product ID', 'Product ID (Text)', 'Purchase Order ID',
-      'Planned Delivery Date', 'Delivery Notification Quantity'
-    ];
-    const syntheticRows = [syntheticHeader];
-    for (let ri = 2; ri < data.length; ri++) {
-      const row = data[ri];
-      if (!row || row[ATS_MODEL_COL] == null) continue;
-      const model = String(row[ATS_MODEL_COL]).trim();
-      if (!modelToSku[model]) continue;
-      const sku = modelToSku[model];
-      const p = products.find(x => x.sku === sku);
-      const productText = p ? p.desc : '';
-      const etaStr = row[ATS_ETA_COL];
-      if (!etaStr) continue;
-      const parts = String(etaStr).split(/\s*&\s*/);
-      for (const part of parts) {
-        const m = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
-        if (!m) continue;
-        const dateStr = `${m[1]}/${m[2]}/${m[3]}`;
-        const qty = parseInt(m[4]);
-        const wi2 = findWeekIdx(new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2])));
-        syntheticRows.push([model, productText, '', dateStr, qty, wi2]);
-      }
-    }
-    // Also add rows for additional models (added via + button) from the ATS file
-    for (let ri = 2; ri < data.length; ri++) {
-      const row = data[ri];
-      if (!row || row[ATS_MODEL_COL] == null) continue;
-      const model = String(row[ATS_MODEL_COL]).trim();
-      if (modelToSku[model]) continue; // already handled above
-      // Check if this model is in any SKU's additionalModels
-      let matchSku = null;
-      for (const p of products) {
-        if ((state[p.sku].additionalModels || []).map(m => m.toUpperCase()).includes(model.toUpperCase())) {
-          matchSku = p.sku; break;
-        }
-      }
-      if (!matchSku) continue;
-      const etaStr = row[ATS_ETA_COL];
-      if (!etaStr) continue;
-      const parts2 = String(etaStr).split(/\s*&\s*/);
-      for (const part of parts2) {
-        const m2 = part.trim().match(/ETA\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\((\d+)\)/i);
-        if (!m2) continue;
-        const dateStr = `${m2[1]}/${m2[2]}/${m2[3]}`;
-        const qty = parseInt(m2[4]);
-        syntheticRows.push([model, model, '', dateStr, qty]);
-      }
-    }
-    lastInboundData = syntheticRows;
-    if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(syntheticRows)); } catch(e) {}
-    saveInboundCache(syntheticRows);
+    const inboundRows = buildInboundRows(wb, data);
+    lastInboundData = inboundRows;
+    if (!isTestMode) try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(inboundRows)); } catch(e) {}
+    saveInboundCache(inboundRows);
     renderInboundPage();
   } catch(e) {
     document.getElementById('inboundContent').innerHTML =
@@ -2994,20 +3062,27 @@ let sentReorders = {};
 try { sentReorders = JSON.parse(localStorage.getItem(SENT_REORDERS_KEY) || '{}'); } catch(e) {}
 let isTestMode = false;
 let deletedSkus = new Set();
-function saveSentReorders() { if (isTestMode) return; localStorage.setItem(SENT_REORDERS_KEY, JSON.stringify(sentReorders)); }
+function saveSentReorders() {
+  if (isTestMode) return;
+  localStorage.setItem(SENT_REORDERS_KEY, JSON.stringify(sentReorders));
+  if (sbClient) {
+    sbClient.from('app_cache').upsert({ key: 'sent_reorders', data: sentReorders }, { onConflict: 'key' })
+      .catch(e => console.warn('sentReorders sync failed:', e.message));
+  }
+}
 
 function _loadInboundEdits() {
   try {
     const raw = JSON.parse(localStorage.getItem(INBOUND_EDIT_KEY) || '{}');
-    // Migrate: drop old-format keys where the 3rd segment is a bare integer (position index).
-    // New format is "poId|pid|deliveryDateString" — date strings contain "/" so they are not pure integers.
+    // Migrate: keep only new-format keys — exactly 3 pipe-separated segments where
+    // segment[1] is a date (MM/DD/YYYY) and segment[2] is a pure integer qty.
     let dirty = false;
     for (const key of Object.keys(raw)) {
       const parts = key.split('|');
-      if (parts.length >= 3 && /^\d+$/.test(parts[2].trim())) {
-        delete raw[key];
-        dirty = true;
-      }
+      const validNew = parts.length === 3 &&
+        /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(parts[1].trim()) &&
+        /^\d+$/.test(parts[2].trim());
+      if (!validNew) { delete raw[key]; dirty = true; }
     }
     if (dirty) localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(raw));
     return raw;
@@ -3024,174 +3099,85 @@ function _saveInboundEdit(rowKey, field, value) {
     data[rowKey][field] = value;
   }
   if (!isTestMode) localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(data));
+  if (!isTestMode && sbClient) {
+    sbClient.from('app_cache').upsert({ key: 'inbound_edits', data }, { onConflict: 'key' })
+      .catch(e => console.warn('inboundEdits sync failed:', e.message));
+  }
 }
 
 function renderInboundPage() {
   const container = document.getElementById('inboundContent');
-  if (!lastInboundData || lastInboundData.length === 0) {
-    container.innerHTML = '<div class="inbound-empty">No data in Inbound tab.</div>';
+
+  // Collect all firm receipt entries across all products
+  const allEntries = [];
+  // Map: model.toLowerCase() → product description
+  const modelToDesc = {};
+  products.forEach(p => {
+    modelToDesc[p.model.toLowerCase().trim()] = p.desc || p.model;
+    (state[p.sku].additionalModels || []).forEach(m => {
+      modelToDesc[m.toLowerCase().trim()] = p.desc || p.model;
+    });
+    const entries = state[p.sku] && state[p.sku].firmReceiptEntries;
+    if (!entries || entries.length === 0) return;
+    entries.forEach(e => allEntries.push(e));
+  });
+
+  if (allEntries.length === 0) {
+    container.innerHTML = '<div class="inbound-empty">No firm receipt data loaded. Sync ATS to populate inbound entries.</div>';
     return;
   }
 
-  // ── Find header row (first row with ≥3 non-blank cells) ──────────────────────
-  let headerRowIdx = 0;
-  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
-    if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
-      headerRowIdx = i; break;
-    }
-  }
-  const headerRow = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
-
-  // ── Column finder ─────────────────────────────────────────────────────────────
-  function findCol(...terms) {
-    for (const term of terms) {
-      const idx = headerRow.findIndex(h => h.toLowerCase().includes(term.toLowerCase()));
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  }
-
-  const colProductId   = findCol('product id',   'productid',  'material id', 'model', 'item no', 'item number', 'item #');
-  const colProductText = findCol('material id (text)', 'product id (text)', 'product name', 'description', 'item desc', 'item description');
-  const colPoId        = findCol('purchase order id', 'po id', 'po number', 'order id', 'po#', 'po no');
-  const colDelivDate   = findCol('planned delivery date', 'delivery date', 'eta', 'arrival date', 'ship date');
-  const colQty         = findCol('delivery notification quantity', 'notification quantity', 'delivery qty', 'quantity', 'units', 'qty');
-
-  // Build the column definitions we actually want to show
-  const colDefs = [
-    { idx: colProductId,   label: 'Model Number',          cls: 'model-cell' },
-    { idx: colProductText, label: 'Product Description',   cls: 'desc-cell'  },
-    { idx: colPoId,        label: 'Purchase Order ID',     cls: ''           },
-    { idx: colDelivDate,   label: 'Planned Delivery Date', cls: 'date-cell'  },
-    { idx: colQty,         label: 'Delivery Notification Qty', cls: 'qty-cell' },
-  ].filter(c => c.idx !== -1);
-
-  // ── Build set of known model numbers from the main page ───────────────────────
-  // Drive from the live products array (base model + additionalModels) so that:
-  //   • User-added products appear immediately after being added
-  //   • Deleted products disappear immediately (they're removed from products[])
-  const knownModels = new Set();
-  // Map: additionalModel (lowercase) → parent product name, for desc-cell fallback
-  const addlModelToName = {};
-  products.forEach(p => {
-    knownModels.add(p.model.toLowerCase().trim());
-    (state[p.sku].additionalModels || []).forEach(m => {
-      const ml = m.toLowerCase().trim();
-      knownModels.add(ml);
-      addlModelToName[ml] = p.name || p.model;
-    });
+  // Sort by model then exact date
+  allEntries.sort((a, b) => {
+    if (a.model !== b.model) return a.model.localeCompare(b.model);
+    const [am, ad, ay] = a.date.split('/').map(Number);
+    const [bm, bd, by] = b.date.split('/').map(Number);
+    return new Date(ay, am-1, ad) - new Date(by, bm-1, bd);
   });
 
-  // ── Collect & filter data rows ────────────────────────────────────────────────
-  const dataRows = [];
-  for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
-    const row = lastInboundData[r];
-    if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
-
-    // Filter to only items that appear on the main Weekly Recap page
-    if (colProductId !== -1) {
-      const pid = String(row[colProductId] || '').trim().toLowerCase();
-      if (pid && !knownModels.has(pid)) continue;
-    }
-
-    dataRows.push(row);
-  }
-
-  // ── Merge duplicate rows (same Product ID + PO ID + Delivery Date) ──────────
-  const mergedMap = new Map();
-  for (const row of dataRows) {
-    const pid  = colProductId  !== -1 ? String(row[colProductId]  || '').trim() : '';
-    const poid = colPoId       !== -1 ? String(row[colPoId]       || '').trim() : '';
-    const ddt  = colDelivDate  !== -1 ? String(row[colDelivDate]  || '').trim() : '';
-    const key  = `${pid}||${poid}||${ddt}`;
-    if (!mergedMap.has(key)) {
-      mergedMap.set(key, row.slice()); // clone row
-    } else {
-      // Sum the Qty column
-      if (colQty !== -1) {
-        const parseQty = v => { const n = parseFloat(String(v || '').replace(/[^0-9.]/g, '')); return isNaN(n) ? 0 : n; };
-        const existQty = parseQty(mergedMap.get(key)[colQty]);
-        const addQty   = parseQty(row[colQty]);
-        mergedMap.get(key)[colQty] = existQty + addQty;
-      }
-    }
-  }
-  const mergedRows = [...mergedMap.values()];
-
-  // ── Load persisted editable values ────────────────────────────────────────────
+  // Orphan cleanup: remove editData keys for entries that no longer exist
+  const currentKeys = new Set(allEntries.map(e => `${e.model.toLowerCase()}|${e.date}|${e.qty}`));
   const editData = _loadInboundEdits();
-
-  // ── Summary ───────────────────────────────────────────────────────────────────
-  let totalQty = 0;
-  if (colQty !== -1) {
-    for (const row of mergedRows) {
-      const v = parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, ''));
-      if (!isNaN(v)) totalQty += v;
-    }
+  let editsChanged = false;
+  for (const key of Object.keys(editData)) {
+    if (!currentKeys.has(key)) { delete editData[key]; editsChanged = true; }
   }
+  if (editsChanged && !isTestMode) localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(editData));
 
-  let html = ``;
-
-  // ── Search bar ────────────────────────────────────────────────────────────────
-  html += `<div class="inbound-search-bar">
+  let html = `<div class="inbound-search-bar">
     <input class="inbound-search-input" id="inboundSearch" type="text" placeholder="Search inbound…" oninput="filterInboundTable(this.value)" />
-    <span class="inbound-row-count" id="inboundRowCount">${mergedRows.length} rows</span>
+    <span class="inbound-row-count" id="inboundRowCount">${allEntries.length} rows</span>
   </div>`;
 
-  // ── Table ─────────────────────────────────────────────────────────────────────
-  let sortCol = null, sortDir = 1;
-  const allEditableCols = ['Case Pack', 'Case Configuration', 'Project Description', 'Purchase Order ID'];
-  html += `<div class="inbound-tbl-inner"><table class="inbound-tbl" id="inboundTable"><thead><tr>`;
-  for (const col of colDefs) {
-    html += `<th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('${col.label}')">${col.label} <span style="opacity:0.5;font-size:10px;">⇅</span></th>`;
-  }
-  html += `<th>Case Pack</th><th>Case Configuration</th><th>Project Description</th></tr></thead><tbody id="inboundTbody">`;
+  html += `<div class="inbound-tbl-inner"><table class="inbound-tbl" id="inboundTable"><thead><tr>
+    <th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('Model Number')">Model Number <span style="opacity:0.5;font-size:10px;">⇅</span></th>
+    <th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('Product Description')">Product Description <span style="opacity:0.5;font-size:10px;">⇅</span></th>
+    <th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('Purchase Order ID')">Purchase Order ID <span style="opacity:0.5;font-size:10px;">⇅</span></th>
+    <th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('Planned Delivery Date')">Planned Delivery Date <span style="opacity:0.5;font-size:10px;">⇅</span></th>
+    <th style="cursor:pointer;user-select:none;" onclick="sortInboundTable('Delivery Notification Qty')">Delivery Notification Qty <span style="opacity:0.5;font-size:10px;">⇅</span></th>
+    <th>Case Pack</th>
+    <th>Case Configuration</th>
+    <th>Project Description</th>
+  </tr></thead><tbody id="inboundTbody">`;
 
-  for (let ri = 0; ri < mergedRows.length; ri++) {
-    const row = mergedRows[ri];
-    // Build a stable row key from PO ID + Product ID
-    const pid  = (colProductId !== -1 ? String(row[colProductId] || '').trim() : '').toLowerCase();
-    const poid = colPoId      !== -1 ? String(row[colPoId]      || '').trim() : '';
-    const ddt  = colDelivDate !== -1 ? String(row[colDelivDate] || '').trim() : '';
-    const rowKey = `${poid}|${pid}|${ddt}`;
-
-    const saved = editData[rowKey] || {};
-
-    html += `<tr data-rowkey="${rowKey}">`;
-    for (const col of colDefs) {
-      const raw = row[col.idx];
-      const val = raw != null ? String(raw).trim() : '';
-      // Purchase Order ID — editable (saved value takes precedence over raw)
-      if (col.label === 'Purchase Order ID') {
-        const poSaved = saved.poId || val;
-        html += `<td class="editable-inbound"><input type="text" value="${poSaved.replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="poId" onchange="saveInboundEdit(this)" /></td>`;
-        continue;
-      }
-      let display = val;
-      // For Product ID (Text): if blank, substitute parent product name from addlModelToName
-      if (col.cls === 'desc-cell' && !display && addlModelToName[pid]) {
-        display = addlModelToName[pid];
-      }
-      // Format quantity numbers with commas
-      if (col.cls === 'qty-cell') {
-        const qn = parseFloat(val.replace(/[^0-9.]/g,''));
-        if (!isNaN(qn)) { display = qn.toLocaleString(); }
-      }
-      html += `<td class="${col.cls}">${display}</td>`;
-    }
-
-    // Editable: Case Pack
-    const cpVal   = saved.casePack   || '';
-    const cfgVal  = saved.caseConfig || '';
-    const pdVal   = saved.projDesc  || '';
-    html += `<td class="editable-inbound"><input type="text" value="${cpVal.replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="casePack" onchange="saveInboundEdit(this)" /></td>`;
-    html += `<td class="editable-inbound"><input type="text" value="${cfgVal.replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="caseConfig" onchange="saveInboundEdit(this)" /></td>`;
-    html += `<td class="editable-inbound"><input type="text" value="${pdVal.replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="projDesc" onchange="saveInboundEdit(this)" /></td>`;
-    html += `</tr>`;
+  for (const entry of allEntries) {
+    const rowKey = `${entry.model.toLowerCase()}|${entry.date}|${entry.qty}`;
+    const saved  = editData[rowKey] || {};
+    const desc   = modelToDesc[entry.model.toLowerCase()] || entry.model.toUpperCase();
+    html += `<tr data-rowkey="${rowKey}">
+      <td class="model-cell">${entry.model.toUpperCase()}</td>
+      <td class="desc-cell">${desc}</td>
+      <td class="editable-inbound"><input type="text" value="${(saved.poId || '').replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="poId" onchange="saveInboundEdit(this)" /></td>
+      <td class="date-cell">${entry.date}</td>
+      <td class="qty-cell">${entry.qty.toLocaleString()}</td>
+      <td class="editable-inbound"><input type="text" value="${(saved.casePack || '').replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="casePack" onchange="saveInboundEdit(this)" /></td>
+      <td class="editable-inbound"><input type="text" value="${(saved.caseConfig || '').replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="caseConfig" onchange="saveInboundEdit(this)" /></td>
+      <td class="editable-inbound"><input type="text" value="${(saved.projDesc || '').replace(/"/g,'&quot;')}" placeholder="" data-rowkey="${rowKey}" data-field="projDesc" onchange="saveInboundEdit(this)" /></td>
+    </tr>`;
   }
 
-  if (mergedRows.length === 0) {
-    html += `<tr><td colspan="${colDefs.length + 3}" style="text-align:center;padding:40px 20px;color:var(--text-3);font-size:13px;">No inbound rows matched the products on the Weekly Recap page.</td></tr>`;
+  if (allEntries.length === 0) {
+    html += `<tr><td colspan="8" style="text-align:center;padding:40px 20px;color:var(--text-3);font-size:13px;">No inbound rows found.</td></tr>`;
   }
 
   html += `</tbody></table></div>`;
@@ -3398,6 +3384,10 @@ function deleteProduct(sku) {
   if (!confirm('Delete "' + name + '"?\nThis will permanently remove the item and all its data.')) return;
   // Track deletion so it survives page reload
   deletedSkus.add(sku);
+  if (!isTestMode && sbClient) {
+    sbClient.from('sku_meta').upsert({ sku, deleted: true }, { onConflict: 'sku' })
+      .catch(e => console.warn('delete sync failed:', e.message));
+  }
   // Remove from products array
   const idx = products.findIndex(x => x.sku === sku);
   if (idx >= 0) products.splice(idx, 1);
@@ -3467,6 +3457,8 @@ function toggleProductVisibility(sku) {
   [...visible, ...hidden].forEach(b => container.appendChild(b));
   renderSummary();
   saveState();
+  debounceSync(`meta:${sku}:hidden`, () =>
+    sbClient.from('sku_meta').upsert({ sku, hidden: isCollapsed }, { onConflict: 'sku' }));
 }
 
 
@@ -3709,8 +3701,11 @@ async function syncFromVD(autoBuffer = null) {
       } catch(sbErr) { console.warn('Supabase VD upsert failed:', sbErr.message); }
     }
 
+    saveState();
+    saveVdRatesCache();
     savePosHistory();
     updatePosHistoryStatus();
+    compareSnapshotWithPOS();
 
     const ts = new Date().toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit', second:'2-digit' });
     if (!isAutoLoad) {
@@ -4166,6 +4161,10 @@ function submitAddItem() {
   // If this SKU/model was previously deleted, un-delete it so it survives reload
   deletedSkus.delete(sku);
   deletedSkus.delete(model);
+  if (!isTestMode && sbClient) {
+    sbClient.from('sku_meta').upsert({ sku, deleted: false }, { onConflict: 'sku' })
+      .catch(e => console.warn('undelete sync failed:', e.message));
+  }
 
   // Register model→SKU mapping for future ATS syncs
   modelToSku[model] = sku;
@@ -4274,23 +4273,22 @@ function submitAddItem() {
 // ── Firm Receipt Expand / Shrink / Add Model ─────────────────────────────────
 
 // Compute per-case-pack weekly quantities for a SKU.
-// Returns { casePack: Float32Array(weeks.length) }
+// Returns { groupKey: { qtys, cp, caseConf, model, projDesc } }
 function computeCpWeeklyQtys(sku) {
-  // If no ATS data, use saved cpData snapshot (from last ATS sync) if available
-  if (!lastInboundData || lastInboundData.length < 2) {
+  const firmEntries = state[sku] && state[sku].firmReceiptEntries;
+  const p0 = products.find(x => x.sku === sku);
+  const baseUp = p0 ? p0.model.toUpperCase().trim() : '';
+
+  if (!firmEntries || firmEntries.length === 0) {
+    // Fall back to savedCpData snapshot (from last ATS sync) if available
     const saved = state[sku] && state[sku].savedCpData;
     if (saved && Object.keys(saved).length > 0) {
-      // Return saved breakdown; ensure any new additionalModels not yet in saved are included
       const result = {};
       Object.entries(saved).forEach(([k, v]) => {
-        // Pad/truncate qtys to current weeks length
         const qtys = new Array(weeks.length).fill(0);
         (v.qtys || []).forEach((q, i) => { if (i < qtys.length) qtys[i] = q; });
         result[k] = { qtys, cp: v.cp, caseConf: v.caseConf, model: v.model, projDesc: v.projDesc || '' };
       });
-      // Also add any additionalModels not already covered
-      const p0 = products.find(x => x.sku === sku);
-      const baseUp = p0 ? p0.model.toUpperCase().trim() : '';
       (state[sku].additionalModels || []).forEach(am => {
         const amLower = am.toLowerCase().trim();
         const key = '__no_cp__||' + amLower;
@@ -4300,10 +4298,8 @@ function computeCpWeeklyQtys(sku) {
       });
       return result;
     }
-    // No saved data — return placeholders for additionalModels only
+    // No data — placeholders for additionalModels only
     const result = {};
-    const p0 = products.find(x => x.sku === sku);
-    const baseUp = p0 ? p0.model.toUpperCase().trim() : '';
     (state[sku].additionalModels || []).forEach(am => {
       if (am.toUpperCase().trim() !== baseUp) {
         result['__no_cp__||' + am.toLowerCase().trim()] = {
@@ -4319,76 +4315,28 @@ function computeCpWeeklyQtys(sku) {
   if (p) allModels.add(p.model.toLowerCase().trim());
   (state[sku].additionalModels || []).forEach(m => allModels.add(m.toLowerCase().trim()));
 
-  // Locate header
-  let hdrIdx = 0;
-  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
-    if ((lastInboundData[i] || []).filter(c => c != null && String(c).trim()).length >= 3) { hdrIdx = i; break; }
-  }
-  const hdr = (lastInboundData[hdrIdx] || []).map(c => String(c || '').trim());
-  const fC = (...terms) => { for (const t of terms) { const i = hdr.findIndex(h => h.toLowerCase().includes(t.toLowerCase())); if (i !== -1) return i; } return -1; };
-  const colPid  = fC('product id','productid','model','item no','item #');
-  const colPo   = fC('purchase order id','po id','po number','order id','po#','po no');
-  const colQty  = fC('delivery notification quantity','notification quantity','delivery qty','quantity','units','qty');
-  const colDate = fC('planned delivery date','delivery date','eta','arrival date','ship date');
-
-  const edits   = _loadInboundEdits();
-  const parseDt = s => { const pp = s.split('/'); return new Date(+pp[2], +pp[0]-1, +pp[1]); };
-  const result  = {};
-
-  // Also track additional models (no case pack yet) so they show as rows
-  const p2 = products.find(x => x.sku === sku);
-  const baseModel = p2 ? p2.model.toLowerCase().trim() : '';
+  const edits = _loadInboundEdits();
+  const result = {};
+  const baseModel = p ? p.model.toLowerCase().trim() : '';
   const addlModels = (state[sku].additionalModels || []).map(m => m.toLowerCase());
 
-  for (let r = hdrIdx + 1; r < lastInboundData.length; r++) {
-    const row = lastInboundData[r];
-    if (!row) continue;
-    const pid = String(row[colPid] || '').trim().toLowerCase();
-    if (!allModels.has(pid)) continue;
-
-    const rawD = colDate !== -1 ? String(row[colDate] || '').trim() : '';
-    if (!rawD) continue;
-    // Use parseDt for consistent local-time parsing (avoids UTC timezone offset)
-    let d;
-    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawD)) {
-      d = parseDt(rawD);
-    } else {
-      d = new Date(rawD);
-      if (!isNaN(d)) d.setHours(0,0,0,0);
-    }
-    if (!d || isNaN(d)) continue;
-
-    // Use pre-computed weekIdx from col 5 if available (ensures consistency with syncFromATS)
-    let weekIdx = (row.length > 5 && row[5] != null && row[5] !== '') ? parseInt(row[5]) : -1;
-    if (weekIdx === -1) {
-      // Fall back to date-based derivation
-      for (let wi = 0; wi < weeks.length; wi++) {
-        const fwS = parseDt(weeks[wi].dt);
-        const fwE = wi + 1 < weeks.length ? parseDt(weeks[wi + 1].dt) : null;
-        if (d >= fwS && (!fwE || d < fwE)) { weekIdx = wi; break; }
-      }
-    }
-    if (weekIdx === -1 || weekIdx >= weeks.length) continue;
-
-    const poId      = colPo !== -1 ? String(row[colPo] || '').trim() : '';
-    const rowKey    = `${poId}|${pid}|${rawD}`;
-    const edit      = edits[rowKey] || {};
-    const cp        = edit.casePack   || '';
-    const caseConf  = edit.caseConfig || '';
-    // For additional models show even without a case pack; use model as fallback key
-    const isAddl    = addlModels.includes(pid);
+  for (const entry of firmEntries) {
+    const { model, date, qty, weekIdx } = entry;
+    if (!allModels.has(model.toLowerCase())) continue;
+    if (weekIdx < 0 || weekIdx >= weeks.length) continue;
+    const rowKey   = `${model.toLowerCase()}|${date}|${qty}`;
+    const edit     = edits[rowKey] || {};
+    const cp       = edit.casePack  || '';
+    const caseConf = edit.caseConfig || '';
+    const isAddl   = addlModels.includes(model.toLowerCase()) && model.toLowerCase() !== baseModel;
     const projDescKey = edit.projDesc || '';
-    const groupKey  = cp ? `${cp}||${caseConf}||${pid}||${projDescKey}` : (isAddl ? `__no_cp__||${pid}` : '');
-    if (!groupKey) continue;
-
-    const rawQty = colQty !== -1 ? String(row[colQty] || '') : '';
-    const qty    = parseFloat(rawQty.replace(/[^0-9.]/g, '')) || 0;
-    if (!result[groupKey]) result[groupKey] = { qtys: new Array(weeks.length).fill(0), cp, caseConf, model: pid, projDesc: edit.projDesc || '' };
+    const groupKey = cp ? `${cp}||${caseConf}||${model.toLowerCase()}||${projDescKey}` : `__no_cp__||${model.toLowerCase()}`;
+    if (!result[groupKey]) result[groupKey] = { qtys: new Array(weeks.length).fill(0), cp, caseConf, model: model.toLowerCase(), projDesc: edit.projDesc || '' };
     else if (!result[groupKey].projDesc && edit.projDesc) result[groupKey].projDesc = edit.projDesc;
     result[groupKey].qtys[weekIdx] += qty;
   }
-  const p3 = products.find(x => x.sku === sku);
-  const baseModelUp2 = p3 ? p3.model.toUpperCase().trim() : '';
+
+  const baseModelUp2 = p ? p.model.toUpperCase().trim() : '';
   (state[sku].additionalModels || []).forEach(am => {
     const amLower = am.toLowerCase().trim();
     const hasEntry = Object.values(result).some(v => v.model && v.model.toLowerCase() === amLower);
@@ -4410,7 +4358,6 @@ function buildFrSubRows(sku) {
   tbody.querySelectorAll('tr.fr-sub-row').forEach(r => r.remove());
 
   const cpData   = computeCpWeeklyQtys(sku);
-  const cpColors = (loadCpColors()[sku] || {});
   const mainRow  = document.getElementById('fr-row-' + sku);
   if (!mainRow) return;
 
@@ -4422,7 +4369,6 @@ function buildFrSubRows(sku) {
 
   entries.forEach(([groupKey, info]) => {
     const { qtys, cp, caseConf, model, projDesc } = info;
-    const col = cp ? cpColors[cp] : null;
 
     // Build label: "Case pack of {cp} + {caseConf}" or just "Case pack of {cp}"
     // For additional models append " ({MODEL})"
@@ -4493,15 +4439,14 @@ function removeAdditionalModel(sku, model) {
     });
     saveInboundCache(lastInboundData);
   }
-  // Rebuild firmReceipts from scratch: base model + all remaining additionalModels
+  // Remove deleted model's entries from firmReceiptEntries, then recompute firmReceipts
   const p = products.find(x => x.sku === sku);
   if (p) {
-    const allModels = [p.model.toLowerCase(), ...(state[sku].additionalModels || []).map(m => m.toLowerCase())];
+    state[sku].firmReceiptEntries = (state[sku].firmReceiptEntries || [])
+      .filter(e => e.model.toLowerCase() !== modelLower);
     const newFR = new Array(weeks.length).fill(0);
-    allModels.forEach(m => {
-      getEtaEntriesForModel(m).forEach(({ weekIdx, qty }) => {
-        newFR[weekIdx] = (newFR[weekIdx] || 0) + qty;
-      });
+    (state[sku].firmReceiptEntries || []).forEach(({ weekIdx, qty }) => {
+      newFR[weekIdx] = (newFR[weekIdx] || 0) + qty;
     });
     state[sku].firmReceipts = newFR;
     // Update firm receipt input cells in the DOM
@@ -4650,14 +4595,29 @@ function saveAddModel() {
   // Register the additional model
   if (!state[sku].additionalModels) state[sku].additionalModels = [];
   state[sku].additionalModels.push(model.toLowerCase());
+
+  // Add entries to firmReceiptEntries for this SKU
+  if (!state[sku].firmReceiptEntries) state[sku].firmReceiptEntries = [];
+  if (lastAtsData) {
+    for (let r = 0; r < lastAtsData.length; r++) {
+      const row = lastAtsData[r];
+      if (!row) continue;
+      if (String(row[ATS_MODEL_COL] || '').trim().toUpperCase() !== model) continue;
+      parseEtaField(String(row[ATS_ETA_COL] || '')).forEach(e => {
+        state[sku].firmReceiptEntries.push({ model: model.toLowerCase(), date: e.date, qty: e.qty, weekIdx: e.weekIdx });
+      });
+    }
+  }
+
   saveState();
   saveAdditionalModelsCache();
 
-  // Refresh firm receipts for this SKU by re-aggregating from lastInboundData
-  const etaEntries = getEtaEntriesForModel(model.toLowerCase());
-  etaEntries.forEach(({ weekIdx, qty }) => {
-    state[sku].firmReceipts[weekIdx] = (state[sku].firmReceipts[weekIdx] || 0) + qty;
+  // Rebuild firmReceipts from all firmReceiptEntries — avoids double-counting on re-add
+  const newFRAdd = new Array(weeks.length).fill(0);
+  (state[sku].firmReceiptEntries || []).forEach(({ weekIdx, qty }) => {
+    newFRAdd[weekIdx] = (newFRAdd[weekIdx] || 0) + qty;
   });
+  state[sku].firmReceipts = newFRAdd;
 
   // Update FR inputs in the DOM
   const block = document.getElementById('block-' + sku);
@@ -4724,201 +4684,27 @@ function getEtaEntriesForModel(modelLower) {
 }
 
 // ── Case-Pack Color System ───────────────────────────────────────────────────
-const CP_COLORS_KEY = 'merkury_cp_colors_v1';
-
-const CP_PALETTE = [
-  '#ef4444','#f97316','#eab308','#22c55e','#14b8a6',
-  '#3b82f6','#8b5cf6','#ec4899','#06b6d4','#84cc16',
-  '#f43f5e','#a855f7'
-];
-
-function loadCpColors() {
-  try { return JSON.parse(localStorage.getItem(CP_COLORS_KEY) || '{}'); } catch(e) { return {}; }
-}
-function saveCpColors(d) { if (isTestMode) return; localStorage.setItem(CP_COLORS_KEY, JSON.stringify(d)); }
-
-// All unique non-empty case packs saved for a given SKU across ALL inbound edits
-function getSkuCasePacks(sku) {
-  const edits = _loadInboundEdits();
-  const p = products.find(x => x.sku === sku);
-  const model = p ? p.model.toLowerCase().trim() : '';
-  const seen = new Set();
-  for (const [key, val] of Object.entries(edits)) {
-    const parts = key.split('|');
-    if (parts.length >= 2 && parts[1].toLowerCase().trim() === model && val.casePack && val.casePack.trim()) {
-      seen.add(val.casePack.trim());
-    }
-  }
-  return [...seen];
-}
-
-// Re-render the cp-pills span in the product header for a given SKU
-function refreshCpPills(sku) {
-  const container = document.getElementById('cp-pills-' + sku);
-  if (!container) return;
-  const packs  = getSkuCasePacks(sku);
-  const colors = loadCpColors();
-  container.innerHTML = packs.map(cp => {
-    const col = (colors[sku] || {})[cp] || null;
-    const safecp = cp.replace(/'/g, "\\'");
-    return `<span class="phc-pill cp-pill"
-      ${col ? `style="background:${col};color:#fff;border-color:${col};" data-color="${col}"` : ''}
-      title="Double-click to set highlight color"
-      ondblclick="openCpColorPicker('${sku}','${safecp}',this)">${cp}</span>`;
-  }).join('');
-}
-
-// Refresh pills for ALL products (called after bulk sync)
-function refreshAllCpPills() {
-  products.forEach(p => { refreshCpPills(p.sku); applyFrCpColors(p.sku); });
-
-}
-
-// Open colour-picker popover near the clicked pill
-function openCpColorPicker(sku, casePack, pillEl) {
-  document.querySelectorAll('.cp-picker-pop').forEach(el => el.remove());
-  const colors = loadCpColors();
-  const current = (colors[sku] || {})[casePack] || null;
-  const safesku = sku.replace(/'/g,"\\'");
-  const safecp  = casePack.replace(/'/g,"\\'");
-
-  const pop = document.createElement('div');
-  pop.className = 'cp-picker-pop';
-  pop.innerHTML = `
-    <div class="cp-pp-title">Highlight color &mdash; ${casePack}</div>
-    <div class="cp-swatches">
-      ${CP_PALETTE.map(c => `
-        <div class="cp-swatch${c === current ? ' active' : ''}"
-          style="background:${c};"
-          onclick="setCpColor('${safesku}','${safecp}','${c}',this.closest('.cp-picker-pop'))"></div>
-      `).join('')}
-    </div>
-    <div class="cp-pp-btns">
-      <button onclick="setCpColor('${safesku}','${safecp}','',this.closest('.cp-picker-pop'))">&#10005; Clear</button>
-      <button onclick="this.closest('.cp-picker-pop').remove()">Close</button>
-    </div>`;
-  document.body.appendChild(pop);
-
-  // Position below the pill
-  const r = pillEl.getBoundingClientRect();
-  let left = r.left, top = r.bottom + 6;
-  const pw = pop.offsetWidth || 214;
-  if (left + pw > window.innerWidth - 12) left = window.innerWidth - pw - 12;
-  if (top + 160 > window.innerHeight - 12) top = r.top - 164;
-  pop.style.left = left + 'px';
-  pop.style.top  = top + 'px';
-
-  setTimeout(() => {
-    const close = e => { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('mousedown', close); } };
-    document.addEventListener('mousedown', close);
-  }, 120);
-}
-
-// Save a color choice and refresh UI
-function setCpColor(sku, casePack, color, popEl) {
-  const colors = loadCpColors();
-  if (!colors[sku]) colors[sku] = {};
-  if (color) colors[sku][casePack] = color;
-  else       delete colors[sku][casePack];
-  if (!Object.keys(colors[sku]).length) delete colors[sku];
-  saveCpColors(colors);
-  refreshCpPills(sku);
-  applyFrCpColors(sku);
-  if (popEl) popEl.remove();
-}
-
-// Apply (or clear) case-pack highlight colors on Firm Receipt row cells
-function applyFrCpColors(sku) {
-  const block = document.getElementById('block-' + sku);
-  if (!block) return;
-
-  const colors   = loadCpColors();
-  const skuColors = colors[sku] || {};
-  if (!Object.keys(skuColors).length) {
-    // Nothing to color — reset any previously applied fr cp colors
-    block.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
-      const td = inp.closest('td');
-      if (td && td.dataset.cpColored) { td.style.background = ''; td.style.color = ''; delete td.dataset.cpColored; }
-    });
-    return;
-  }
-
-  const edits = _loadInboundEdits();
-  const p     = products.find(x => x.sku === sku);
-  const model = p ? p.model.toLowerCase().trim() : '';
-
-  // Build weekIdx → best casePack map from inbound data
-  const weekCpMap = {};
-
-  if (lastInboundData && lastInboundData.length > 0) {
-    let headerRowIdx = 0;
-    for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
-      if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
-        headerRowIdx = i; break;
-      }
-    }
-    const hdr = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
-    const fCol = (...terms) => { for (const t of terms) { const i = hdr.findIndex(h => h.toLowerCase().includes(t.toLowerCase())); if (i !== -1) return i; } return -1; };
-    const colPid   = fCol('product id','productid','model','item no','item #');
-    const colPo    = fCol('purchase order id','po id','po number','order id','po#','po no');
-    const colDate  = fCol('planned delivery date','delivery date','eta','arrival date','ship date');
-    const parseDt  = s => { const pp = s.split('/'); return new Date(+pp[2], +pp[0]-1, +pp[1]); };
-
-    for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
-      const row = lastInboundData[r];
-      if (!row || colPid === -1) continue;
-      if (String(row[colPid] || '').trim().toLowerCase() !== model) continue;
-      if (colDate === -1) continue;
-      const rawD = String(row[colDate] || '').trim();
-      if (!rawD) continue;
-      const d = new Date(rawD);
-      if (isNaN(d)) continue;
-      d.setHours(0,0,0,0);
-
-      for (let wi = 0; wi < weeks.length; wi++) {
-        const fwStart = parseDt(weeks[wi].dt);
-        const fwEnd   = wi + 1 < weeks.length ? parseDt(weeks[wi + 1].dt) : null;
-        if (d >= fwStart && (!fwEnd || d < fwEnd)) {
-          const poId    = colPo   !== -1 ? String(row[colPo]   || '').trim() : '';
-          const rawDStr = colDate !== -1 ? String(row[colDate] || '').trim() : '';
-          const rowKey  = `${poId}|${model}|${rawDStr}`;  // stable key
-          let cp = (edits[rowKey] || {}).casePack || '';
-          if (cp && skuColors[cp]) weekCpMap[wi] = cp;
-          break;
-        }
-      }
-    }
-  }
-
-  // Paint / clear firm-receipt cells
-  block.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
-    const wi = parseInt(inp.dataset.idx);
-    const td = inp.closest('td');
-    if (!td) return;
-    const cp = weekCpMap[wi];
-    if (cp && skuColors[cp]) {
-      td.style.background = skuColors[cp] + '55';
-      td.style.color = '#fff';
-      td.dataset.cpColored = '1';
-    } else if (td.dataset.cpColored) {
-      td.style.background = '';
-      td.style.color = '';
-      delete td.dataset.cpColored;
-    }
-  });
-}
-
 // ── Reorder popup ─────────────────────────────────────────────────────────────
 let rpCurrentSku = null, rpCurrentIdx = null;
 
 function openRpPopup(sku, idx) {
   rpCurrentSku = sku; rpCurrentIdx = idx;
   const p = products.find(x => x.sku === sku);
-  const d = state[sku].reorderData[idx];
+  const s = state[sku];
+  let d = s.reorderData[idx];
+  // If an active-but-unapproved AI reorder suggestion owns this week, always use its
+  // data — the cell shows the suggestion qty (injected transiently for preview, never
+  // persisted to reorderData), so reorderData may be stale or from a prior manual entry.
+  if (s.fcReorderRows) {
+    const activeRow = s.fcReorderRows.find(row => row.tryOnActive && !row.approved && row.arrivalWeekIdx === idx);
+    if (activeRow) {
+      d = { qty: activeRow.qty, casePack: (p && p.inner ? p.inner + '/' : '') + String(p ? p.master : ''), config: 'Forecast auto-generated (not yet approved)' };
+    }
+  }
   document.getElementById('rpSub').textContent = weeks[idx].fw + ' — ' + (p ? p.desc : sku);
-  document.getElementById('rpQty').value      = '';
-  document.getElementById('rpCasePack').value = '';
-  document.getElementById('rpConfig').value   = '';
+  document.getElementById('rpQty').value      = d && d.qty      ? d.qty      : '';
+  document.getElementById('rpCasePack').value = d && d.casePack ? d.casePack : '';
+  document.getElementById('rpConfig').value   = d && d.config   ? d.config   : '';
   document.getElementById('rpOverlay').classList.add('open');
   setTimeout(() => document.getElementById('rpQty').focus(), 50);
 }
@@ -4935,6 +4721,17 @@ function saveRpPopup() {
   const config   = document.getElementById('rpConfig').value.trim();
   state[rpCurrentSku].reorderData[rpCurrentIdx] = { qty, casePack, config };
   state[rpCurrentSku].reorders[rpCurrentIdx] = qty;
+  // If an active suggestion owns this week, update its qty too — otherwise the
+  // try-on preview re-injects the old suggestion qty and the edit appears lost.
+  const fcRows = state[rpCurrentSku].fcReorderRows;
+  if (fcRows) {
+    const activeRow = fcRows.find(r => r.tryOnActive && !r.approved && r.arrivalWeekIdx === rpCurrentIdx);
+    if (activeRow) {
+      const p = products.find(x => x.sku === rpCurrentSku);
+      activeRow.qty = qty;
+      activeRow.masterCases = p && p.master > 0 ? Math.ceil(qty / p.master) : qty;
+    }
+  }
   // Update the cell input display
   const block = document.getElementById('block-' + rpCurrentSku);
   if (block) {
@@ -4965,126 +4762,47 @@ document.getElementById('rpOverlay').addEventListener('click', function(e) {
 // ── Firm Receipt Detail Popup ─────────────────────────────────────────────────
 function openFrDetailPopup(sku, weekIdx) {
   const p = products.find(x => x.sku === sku);
-  const allModels = new Set([
-    p ? p.model.toLowerCase().trim() : '',
-    ...(state[sku].additionalModels || []).map(m => m.toLowerCase().trim())
-  ].filter(Boolean));
   document.getElementById('frDetailTitle').textContent = 'Firm Receipt Details';
   document.getElementById('frDetailSub').textContent =
     `${weeks[weekIdx].fw} (${weeks[weekIdx].dt}) — ${p ? p.model : sku}`;
 
-  let content = '';
-
-  if (!lastInboundData || lastInboundData.length === 0) {
-    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">
+  const firmEntries = state[sku] && state[sku].firmReceiptEntries;
+  if (!firmEntries || firmEntries.length === 0) {
+    document.getElementById('frDetailContent').innerHTML = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">
       No inbound data loaded.<br>
       <span style="font-size:11px;opacity:0.7;">Sync ATS to load Inbound Detail data.</span>
     </p>`;
-    document.getElementById('frDetailContent').innerHTML = content;
     document.getElementById('frDetailOverlay').classList.add('open');
     return;
   }
 
-  // ── Locate header row and column indices ─────────────────────────────────
-  let headerRowIdx = 0;
-  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
-    if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
-      headerRowIdx = i; break;
-    }
-  }
-  const headerRow = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
-
-  function findCol(...terms) {
-    for (const term of terms) {
-      const idx = headerRow.findIndex(h => h.toLowerCase().includes(term.toLowerCase()));
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  }
-
-  const colProductId = findCol('product id', 'productid', 'model', 'item no', 'item number', 'item #');
-  const colPoId      = findCol('purchase order id', 'po id', 'po number', 'order id', 'po#', 'po no');
-  const colQty       = findCol('delivery notification quantity', 'notification quantity', 'delivery qty', 'quantity', 'units', 'qty');
-  const colDelivDate = findCol('planned delivery date', 'delivery date', 'eta', 'arrival date', 'ship date');
-
-  // Determine the date range for this fiscal week
-  const fwStartStr = weeks[weekIdx].dt;  // e.g. "6/1/2026"
-  const fwEndStr   = weekIdx + 1 < weeks.length ? weeks[weekIdx + 1].dt : null;
-  const parseDate  = s => { const p = s.split('/'); return new Date(+p[2], +p[0]-1, +p[1]); };
-  const fwStart    = parseDate(fwStartStr);
-  const fwEnd      = fwEndStr ? parseDate(fwEndStr) : null;
-
-  // ── Find inbound rows matching this model AND delivery date in this FW ────
   const editData = _loadInboundEdits();
-  const matches  = [];
+  const matches = firmEntries
+    .filter(e => e.weekIdx === weekIdx)
+    .map(e => {
+      const rowKey = `${e.model.toLowerCase()}|${e.date}|${e.qty}`;
+      return { model: e.model, date: e.date, qty: e.qty, saved: editData[rowKey] || {} };
+    });
 
-  for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
-    const row = lastInboundData[r];
-    if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
-    if (colProductId === -1) continue;
-    const pid = String(row[colProductId] || '').trim().toLowerCase();
-    if (!allModels.has(pid)) continue;
+  const displayRow = (m, idx) => `
+    ${matches.length > 1 ? `<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">${m.model.toUpperCase()} — Entry ${idx + 1}</div>` : ''}
+    <div class="rp-field"><label>Planned Delivery Date</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.date || '—'}</div></div>
+    <div class="rp-field"><label>Delivery Notification Qty</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.qty.toLocaleString('en-US')}</div></div>
+    <div class="rp-field"><label>Purchase Order ID</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.poId || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Case Pack</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.casePack || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Case Configuration</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.caseConfig || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Project Description</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.projDesc || '<span style="opacity:0.4">—</span>'}</div></div>
+    ${idx < matches.length - 1 ? '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.14);margin:12px 0;">' : ''}`;
 
-    // Filter by delivery date falling within this fiscal week
-    if (colDelivDate !== -1) {
-      const rawDate = String(row[colDelivDate] || '').trim();
-      if (rawDate) {
-        const d = new Date(rawDate);
-        if (!isNaN(d)) {
-          d.setHours(0,0,0,0);
-          if (d < fwStart) continue;
-          if (fwEnd && d >= fwEnd) continue;
-        }
-      }
-    }
-
-    const rawPoId = colPoId     !== -1 ? String(row[colPoId]     || '').trim() : '';
-    const rawDate = colDelivDate !== -1 ? String(row[colDelivDate] || '').trim() : '';
-    const qty     = colQty      !== -1 ? Math.round(parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, ''))) : null;
-    const rowKey  = `${rawPoId}|${pid}|${rawDate}`;   // stable: matches inbound table key
-    const saved   = editData[rowKey] || {};
-    // Use the user-edited PO ID if available, otherwise fall back to raw value
-    const poId    = saved.poId || rawPoId;
-
-    matches.push({ poId, rawDate, qty, saved });
-  }
-
-  if (matches.length === 0) {
-    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">
-      No inbound rows found for this product.<br>
-      <span style="font-size:11px;opacity:0.7;">Enter data in the Inbound Detail tab first.</span>
-    </p>`;
-  } else {
-    const displayRow = (m, idx) => {
-      const qtyDisplay = (m.qty != null && !isNaN(m.qty)) ? m.qty.toLocaleString('en-US') : '—';
-      return `
-        ${matches.length > 1 ? `<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Entry ${idx + 1}</div>` : ''}
-        <div class="rp-field">
-          <label>Purchase Order ID</label>
-          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.poId || '<span style="opacity:0.4">—</span>'}</div>
-        </div>
-        <div class="rp-field">
-          <label>Delivery Notification Qty</label>
-          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${qtyDisplay}</div>
-        </div>
-        <div class="rp-field">
-          <label>Case Pack</label>
-          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.casePack || '<span style="opacity:0.4">—</span>'}</div>
-        </div>
-        <div class="rp-field">
-          <label>Case Configuration</label>
-          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.caseConfig || '<span style="opacity:0.4">—</span>'}</div>
-        </div>
-        <div class="rp-field">
-          <label>Project Description</label>
-          <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.projDesc || '<span style="opacity:0.4">—</span>'}</div>
-        </div>
-        ${idx < matches.length - 1 ? '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.14);margin:12px 0;">' : ''}`;
-    };
-    content = matches.map((m, i) => displayRow(m, i)).join('');
-  }
-
-  document.getElementById('frDetailContent').innerHTML = content;
+  document.getElementById('frDetailContent').innerHTML = matches.length === 0
+    ? `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No inbound rows found for this week.<br><span style="font-size:11px;opacity:0.7;">Sync ATS to load firm receipt data.</span></p>`
+    : matches.map((m, i) => displayRow(m, i)).join('');
   document.getElementById('frDetailOverlay').classList.add('open');
 }
 
@@ -5100,94 +4818,46 @@ function openFrSubDetailPopup(sku, weekIdx, subModel, cp, caseConf, projDesc) {
   document.getElementById('frDetailSub').textContent =
     `${weeks[weekIdx].fw} (${weeks[weekIdx].dt}) — ${subModel ? subModel.toUpperCase() : (p ? p.model : sku)}`;
 
-  let content = '';
-  if (!lastInboundData || lastInboundData.length === 0) {
-    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No inbound data loaded.</p>`;
-    document.getElementById('frDetailContent').innerHTML = content;
+  const firmEntries = state[sku] && state[sku].firmReceiptEntries;
+  if (!firmEntries || firmEntries.length === 0) {
+    document.getElementById('frDetailContent').innerHTML = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No inbound data loaded.</p>`;
     document.getElementById('frDetailOverlay').classList.add('open');
     return;
   }
 
-  let headerRowIdx = 0;
-  for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
-    if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
-      headerRowIdx = i; break;
-    }
-  }
-  const headerRow = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
-  function findCol(...terms) {
-    for (const term of terms) {
-      const idx = headerRow.findIndex(h => h.toLowerCase().includes(term.toLowerCase()));
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  }
-  const colProductId = findCol('product id','productid','model','item no','item number','item #');
-  const colPoId      = findCol('purchase order id','po id','po number','order id','po#','po no');
-  const colQty       = findCol('delivery notification quantity','notification quantity','delivery qty','quantity','units','qty');
-  const colDelivDate = findCol('planned delivery date','delivery date','eta','arrival date','ship date');
-
-  const fwStartStr = weeks[weekIdx].dt;
-  const fwEndStr   = weekIdx + 1 < weeks.length ? weeks[weekIdx + 1].dt : null;
-  const parseDate  = s => { const pts = s.split('/'); return new Date(+pts[2], +pts[0]-1, +pts[1]); };
-  const fwStart    = parseDate(fwStartStr);
-  const fwEnd      = fwEndStr ? parseDate(fwEndStr) : null;
-
   const editData = _loadInboundEdits();
-  const matches  = [];
-  for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
-    const row = lastInboundData[r];
-    if (!row || !row.some(c => c != null && String(c).trim() !== '')) continue;
-    if (colProductId === -1) continue;
-    const pid = String(row[colProductId] || '').trim().toLowerCase();
-    if (pid !== subModelLower) continue;
+  const matches = firmEntries
+    .filter(e => e.weekIdx === weekIdx && e.model.toLowerCase() === subModelLower)
+    .map(e => {
+      const rowKey = `${e.model.toLowerCase()}|${e.date}|${e.qty}`;
+      return { model: e.model, date: e.date, qty: e.qty, saved: editData[rowKey] || {} };
+    })
+    .filter(m => {
+      if (cp       && (m.saved.casePack  || '') !== cp)       return false;
+      if (caseConf && (m.saved.caseConfig || '') !== caseConf) return false;
+      if (projDesc && (m.saved.projDesc   || '') !== projDesc) return false;
+      return true;
+    });
 
-    if (colDelivDate !== -1) {
-      const rawDate = String(row[colDelivDate] || '').trim();
-      if (rawDate) {
-        const d = new Date(rawDate);
-        if (!isNaN(d)) {
-          d.setHours(0,0,0,0);
-          if (d < fwStart) continue;
-          if (fwEnd && d >= fwEnd) continue;
-        }
-      }
-    }
+  const displayRow = (m, idx) => `
+    ${matches.length > 1 ? `<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Entry ${idx + 1}</div>` : ''}
+    <div class="rp-field"><label>Planned Delivery Date</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.date || '—'}</div></div>
+    <div class="rp-field"><label>Delivery Notification Qty</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.qty.toLocaleString('en-US')}</div></div>
+    <div class="rp-field"><label>Purchase Order ID</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.poId || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Case Pack</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.casePack || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Case Configuration</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.caseConfig || '<span style="opacity:0.4">—</span>'}</div></div>
+    <div class="rp-field"><label>Project Description</label>
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.projDesc || '<span style="opacity:0.4">—</span>'}</div></div>
+    ${idx < matches.length - 1 ? '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.14);margin:12px 0;">' : ''}`;
 
-    const rawPoId = colPoId      !== -1 ? String(row[colPoId]      || '').trim() : '';
-    const rawDate = colDelivDate !== -1 ? String(row[colDelivDate] || '').trim() : '';
-    const qty     = colQty       !== -1 ? Math.round(parseFloat(String(row[colQty] || '').replace(/[^0-9.]/g, ''))) : null;
-    const rowKey  = `${rawPoId}|${pid}|${rawDate}`;
-    const saved   = editData[rowKey] || {};
-
-    // Filter to just this sub-row's case pack / config / projDesc
-    if (cp       && (saved.casePack  || '') !== cp)       continue;
-    if (caseConf && (saved.caseConfig || '') !== caseConf) continue;
-    if (projDesc && (saved.projDesc   || '') !== projDesc) continue;
-
-    const poId = saved.poId || rawPoId;
-    matches.push({ poId, rawDate, qty, saved });
-  }
-
-  if (matches.length === 0) {
-    content = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No matching inbound rows found for this sub-row.</p>`;
-  } else {
-    content = matches.map((m, idx) => `
-      ${matches.length > 1 ? `<div style="font-size:10px;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Entry ${idx + 1}</div>` : ''}
-      <div class="rp-field"><label>Purchase Order ID</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.poId || '<span style="opacity:0.4">—</span>'}</div></div>
-      <div class="rp-field"><label>Delivery Notification Qty</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${(m.qty != null && !isNaN(m.qty)) ? m.qty.toLocaleString() : '—'}</div></div>
-      <div class="rp-field"><label>Case Pack</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.casePack || '<span style="opacity:0.4">—</span>'}</div></div>
-      <div class="rp-field"><label>Case Configuration</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.caseConfig || '<span style="opacity:0.4">—</span>'}</div></div>
-      <div class="rp-field"><label>Project Description</label>
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.08);border-radius:8px;font-size:14px;color:var(--text-1);min-height:32px;">${m.saved.projDesc || '<span style="opacity:0.4">—</span>'}</div></div>
-      ${idx < matches.length - 1 ? '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.14);margin:12px 0;">' : ''}
-    `).join('');
-  }
-  document.getElementById('frDetailContent').innerHTML = content;
+  document.getElementById('frDetailContent').innerHTML = matches.length === 0
+    ? `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:12px 0;">No matching inbound rows found for this sub-row.</p>`
+    : matches.map((m, i) => displayRow(m, i)).join('');
   document.getElementById('frDetailOverlay').classList.add('open');
 }
 
@@ -5199,6 +4869,26 @@ document.getElementById('frDetailOverlay').addEventListener('click', function(e)
 
 // ── localStorage persistence ─────────────────────────────────────────────────
 const STORE_KEY = 'merkury_inv_v3';
+
+// ── Cross-tab live sync via BroadcastChannel ──────────────────────────────────
+const _syncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('merkury_inv_sync') : null;
+if (_syncChannel) {
+  _syncChannel.onmessage = function(ev) {
+    if (!ev.data || ev.data.type !== 'state_update') return;
+    // Another tab saved — reload from localStorage and re-render all SKUs
+    try {
+      const snap = JSON.parse(localStorage.getItem(STORE_KEY));
+      if (!snap || !snap.state) return;
+      products.forEach(p => {
+        const s = snap.state[p.sku];
+        if (!s) return;
+        Object.assign(state[p.sku], s);
+      });
+      products.forEach(p => updateCalcs(p.sku));
+      renderSummary();
+    } catch(e) { console.warn('sync receive error', e); }
+  };
+}
 
 // ── Supabase persistence helpers ──────────────────────────────────────────────
 
@@ -5309,6 +4999,26 @@ async function saveThdSalesOrdersCache() {
   } catch(e) { console.warn('Supabase thdSalesOrders cache save failed:', e.message); }
 }
 
+async function saveVdRatesCache() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const map = {};
+    products.forEach(p => {
+      const s = state[p.sku];
+      if (!s || !s.vdConnected) return;
+      map[p.sku] = {
+        salesRates:      s.salesRates      || [],
+        posStoreCount:   s.posStoreCount   || [],
+        salesRatesManual: s.salesRatesManual || []
+      };
+    });
+    await sbClient.from('app_cache').upsert(
+      { key: 'sku_vd_rates', data: map, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+  } catch(e) { console.warn('Supabase VD rates cache save failed:', e.message); }
+}
+
 // Save ATS inbound rows to Supabase app_cache so they persist across browser clears / devices
 async function saveInboundCache(rows) {
   if (isTestMode || !sbClient) return;
@@ -5319,6 +5029,84 @@ async function saveInboundCache(rows) {
     );
   } catch(e) { console.warn('Supabase inbound cache save failed:', e.message); }
 }
+
+// ── Forecast Accuracy & Bias Correction ──────────────────────────────────────
+
+function computeBiasCorrection(sku) {
+  const log = (fcAccuracyLog[sku] || []).filter(e => e.actual > 0);
+  const recent = log.slice(-6);
+  if (recent.length < 4) return 1.0;
+  const avgPctError = recent.reduce((s, e) => s + e.pctError, 0) / recent.length;
+  let factor = 1.0 / (1.0 + avgPctError / 100);
+  return Math.max(0.70, Math.min(1.30, Math.round(factor * 1000) / 1000));
+}
+
+function applyAllBiasCorrections() {
+  products.forEach(p => {
+    if (state[p.sku]) state[p.sku].biasCorrectionFactor = computeBiasCorrection(p.sku);
+  });
+}
+
+function getFcAccuracySummary(sku) {
+  const log = (fcAccuracyLog[sku] || []).filter(e => e.actual > 0);
+  const recent = log.slice(-6);
+  if (recent.length < 1) return null;
+  const avgPctError = Math.round((recent.reduce((s, e) => s + e.pctError, 0) / recent.length) * 10) / 10;
+  const factor = (state[sku] && state[sku].biasCorrectionFactor) || 1.0;
+  return { weeks: recent.length, avgPctError, factor, entries: recent };
+}
+
+async function compareSnapshotWithPOS() {
+  if (!fcSnapshot || !fcSnapshot.skus) return;
+  let updated = false;
+  products.forEach(p => {
+    const sku = p.sku;
+    const s = state[sku];
+    const skuSnap = fcSnapshot.skus[sku];
+    if (!skuSnap || !s) return;
+    if (!fcAccuracyLog[sku]) fcAccuracyLog[sku] = [];
+    Object.entries(skuSnap).forEach(([wiStr, forecasted]) => {
+      const wi = parseInt(wiStr);
+      const actual = s.posUnits[wi] || 0;
+      if (actual === 0) return;
+      if (fcAccuracyLog[sku].some(e => e.weekIdx === wi)) return;
+      const pctError = forecasted > 0 ? Math.round(((forecasted - actual) / actual) * 1000) / 10 : null;
+      if (pctError === null) return;
+      fcAccuracyLog[sku].push({ weekIdx: wi, forecasted, actual, pctError, date: fcSnapshot.runDate || '' });
+      updated = true;
+    });
+    if (updated) state[sku].biasCorrectionFactor = computeBiasCorrection(sku);
+  });
+  if (updated && !isTestMode && sbClient) {
+    try {
+      await sbClient.from('app_cache').upsert({ key: 'fc_accuracy_log', data: fcAccuracyLog }, { onConflict: 'key' });
+    } catch(e) { console.warn('fc_accuracy_log save failed:', e.message); }
+  }
+}
+
+async function logFcSnapshot() {
+  if (isTestMode || !sbClient) return;
+  const curIdx = getCurrentWeekIdx();
+  const startIdx = curIdx;
+  const endIdx = Math.min(curIdx + 12, weeks.length - 1);
+  const skus = {};
+  products.forEach(p => {
+    const sku = p.sku;
+    const savedFactor = state[sku] ? state[sku].biasCorrectionFactor : 1.0;
+    if (state[sku]) state[sku].biasCorrectionFactor = 1.0;
+    const fc = computeFcRates(sku, startIdx, endIdx);
+    if (state[sku]) state[sku].biasCorrectionFactor = savedFactor;
+    const weekRates = {};
+    fc.rawRates.forEach((r, i) => { weekRates[startIdx + i] = r; });
+    skus[sku] = weekRates;
+  });
+  fcSnapshot = { skus, runDate: new Date().toISOString().split('T')[0] };
+  try {
+    await sbClient.from('app_cache').upsert({ key: 'fc_snapshot', data: fcSnapshot }, { onConflict: 'key' });
+  } catch(e) { console.warn('fc_snapshot save failed:', e.message); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Explicitly zero a single reorder row in Supabase (called when row is deleted or PO placed)
 async function upsertZeroReorder(sku, week_idx) {
@@ -5335,7 +5123,7 @@ async function upsertZeroReorder(sku, week_idx) {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         sbClient.from('sku_weekly').select('*'),
@@ -5344,7 +5132,13 @@ async function loadFromSupabase() {
         sbClient.from('app_cache').select('*').eq('key', 'thd_sales_orders'),
         sbClient.from('app_cache').select('*').eq('key', 'thd_sales_order_details'),
         sbClient.from('app_cache').select('*').eq('key', 'forecast_suggestions'),
-        sbClient.from('app_cache').select('*').eq('key', 'forecast_playbook')
+        sbClient.from('app_cache').select('*').eq('key', 'forecast_playbook'),
+        sbClient.from('app_cache').select('*').eq('key', 'sku_vd_rates'),
+        sbClient.from('app_cache').select('*').eq('key', 'fc_accuracy_log'),
+        sbClient.from('app_cache').select('*').eq('key', 'fc_snapshot'),
+        sbClient.from('app_cache').select('*').eq('key', 'forecast_accuracy'),
+        sbClient.from('app_cache').select('*').eq('key', 'sent_reorders'),
+        sbClient.from('app_cache').select('*').eq('key', 'inbound_edits')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -5356,6 +5150,25 @@ async function loadFromSupabase() {
       if (rows && rows.length > 0) {
         lastInboundData = rows;
         try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(rows)); } catch(e) {}
+      }
+    }
+
+    // Restore sent-reorder status from Supabase (so "sent" flags are visible to everyone)
+    if (sentReordersRows && sentReordersRows.length > 0) {
+      const sentData = sentReordersRows[0].data;
+      if (sentData && typeof sentData === 'object') {
+        sentReorders = sentData;
+        try { localStorage.setItem(SENT_REORDERS_KEY, JSON.stringify(sentReorders)); } catch(e) {}
+      }
+    }
+
+    // Restore Inbound Detail manual edits from Supabase
+    if (inboundEditsRows && inboundEditsRows.length > 0) {
+      const editsData = inboundEditsRows[0].data;
+      if (editsData && typeof editsData === 'object') {
+        try { localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(editsData)); } catch(e) {}
+        const inboundPageEl = document.getElementById('page-inbound');
+        if (inboundPageEl && inboundPageEl.classList.contains('active')) renderInboundPage();
       }
     }
 
@@ -5395,11 +5208,40 @@ async function loadFromSupabase() {
       }
     }
 
+    // Restore VD sales rates and store counts from Supabase cache
+    if (vdRatesRows && vdRatesRows.length > 0) {
+      const map = vdRatesRows[0].data;
+      if (map && typeof map === 'object') {
+        Object.keys(map).forEach(sku => {
+          if (!state[sku]) return;
+          const d = map[sku];
+          if (d.salesRates) state[sku].salesRates = d.salesRates.concat(new Array(Math.max(0, weeks.length - d.salesRates.length)).fill(0));
+          if (d.posStoreCount) state[sku].posStoreCount = d.posStoreCount.concat(new Array(Math.max(0, weeks.length - d.posStoreCount.length)).fill(0));
+          if (d.salesRatesManual) state[sku].salesRatesManual = d.salesRatesManual.concat(new Array(Math.max(0, weeks.length - d.salesRatesManual.length)).fill(false));
+        });
+      }
+    }
+
     // Apply sku_meta
+    const _hiddenFromSupabase = {};
     if (metaRows) {
       metaRows.forEach(row => {
         const sku = row.sku;
+        if (row.deleted === true && !deletedSkus.has(sku)) {
+          // Deleted on another device — remove it here too
+          deletedSkus.add(sku);
+          const idx = products.findIndex(x => x.sku === sku);
+          if (idx >= 0) products.splice(idx, 1);
+          delete state[sku];
+          const block = document.getElementById('block-' + sku);
+          if (block) block.remove();
+          for (const m of Object.keys(modelToSku)) {
+            if (modelToSku[m] === sku) delete modelToSku[m];
+          }
+          return;
+        }
         if (!state[sku]) return;
+        if (row.hidden != null) _hiddenFromSupabase[sku] = row.hidden;
         if (row.on_hand_merkury != null) {
           state[sku].onHandMerkury = row.on_hand_merkury;
           const p = products.find(x => x.sku === sku);
@@ -5413,7 +5255,11 @@ async function loadFromSupabase() {
           state[sku].onHandTHD = row.on_hand_thd;
           const prod = products.find(x => x.sku === sku);
           if (prod) prod.onHandTHD = row.on_hand_thd;
+          const thdEl = document.getElementById('kpi-thd-' + sku);
+          if (thdEl) thdEl.textContent = row.on_hand_thd.toLocaleString();
         }
+        if (row.open_stock != null) state[sku].openStock = row.open_stock;
+        if (row.skinny_qp  != null) state[sku].skinnyQP  = row.skinny_qp;
       });
     }
 
@@ -5437,6 +5283,11 @@ async function loadFromSupabase() {
         if (row.suof_forecast != null && state[sku].suofFromExcel)
           state[sku].suofFromExcel[week_idx] = row.suof_forecast;
         if (row.pos_units  != null) state[sku].posUnits[week_idx]  = row.pos_units;
+        if (row.sales_rate != null) {
+          state[sku].salesRates[week_idx] = row.sales_rate;
+          if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
+          state[sku].salesRatesManual[week_idx] = !!row.sales_rate_manual;
+        }
         if (row.reorder_qty != null) {
           state[sku].reorders[week_idx] = row.reorder_qty;
           if (row.reorder_qty > 0 || row.reorder_case_pack || row.reorder_config) {
@@ -5461,13 +5312,30 @@ async function loadFromSupabase() {
         block.querySelectorAll('input[data-row="posUnits"]').forEach(inp => {
           inp.value = fmtInput(s.posUnits[parseInt(inp.dataset.idx)] || 0);
         });
+        block.querySelectorAll('input[data-row="salesRate"]').forEach(inp => {
+          if (!inp.readOnly) inp.value = fmtInput(s.salesRates[parseInt(inp.dataset.idx)] || 0);
+        });
         block.querySelectorAll('input[data-row="reorder"]').forEach(inp => {
           const idx = parseInt(inp.dataset.idx);
           inp.value = fmtInput(s.reorders[idx] || 0);
           const d = s.reorderData[idx];
           if (d && d.casePack) applyReorderColor(inp.closest('td'), d.casePack);
         });
+        if (_hiddenFromSupabase[p.sku] != null) {
+          const toggleBtn = document.getElementById('toggle-btn-' + p.sku);
+          if (_hiddenFromSupabase[p.sku]) {
+            block.classList.add('collapsed');
+            if (toggleBtn) toggleBtn.innerHTML = '&#9654; Show';
+          } else {
+            block.classList.remove('collapsed');
+            if (toggleBtn) toggleBtn.innerHTML = '&#9660; Hide';
+          }
+        }
       }
+      const openEl = document.getElementById('kpi-openstock-' + p.sku);
+      if (openEl) openEl.value = (s.openStock || 0).toLocaleString();
+      const qpEl = document.getElementById('kpi-skinnyqp-' + p.sku);
+      if (qpEl) qpEl.value = (s.skinnyQP || 0).toLocaleString();
       updateCalcs(p.sku);
       updateFirmReceiptLabel(p.sku);
       updateSuofLabel(p.sku);
@@ -5524,6 +5392,23 @@ async function loadFromSupabase() {
       }
     }
 
+    // Load forecast accuracy log + snapshot, apply bias corrections
+    if (fcAccuracyRows && fcAccuracyRows.length > 0 && fcAccuracyRows[0].data) {
+      fcAccuracyLog = fcAccuracyRows[0].data;
+    }
+    if (fcSnapshotRows && fcSnapshotRows.length > 0 && fcSnapshotRows[0].data) {
+      fcSnapshot = fcSnapshotRows[0].data;
+    }
+    applyAllBiasCorrections();
+
+    // If agent suggestions are newer than last snapshot, take a fresh snapshot
+    if (agentSuggestions && agentSuggestions.generatedAt) {
+      const agentDate = agentSuggestions.generatedAt.split('T')[0];
+      if (!fcSnapshot.runDate || fcSnapshot.runDate < agentDate) {
+        logFcSnapshot();
+      }
+    }
+
     // Load forecast playbook
     if (fcPlaybookRows && fcPlaybookRows.length > 0 && fcPlaybookRows[0].data && fcPlaybookRows[0].data.text) {
       forecastPlaybook = fcPlaybookRows[0].data.text;
@@ -5531,13 +5416,15 @@ async function loadFromSupabase() {
       forecastPlaybook = DEFAULT_PLAYBOOK;
     }
 
+    // Load agent accuracy report (written by scheduled task after each run)
+    if (agentAccuracyRows && agentAccuracyRows.length > 0 && agentAccuracyRows[0].data) {
+      agentAccuracyReport = agentAccuracyRows[0].data;
+    }
+
     // One-time: push embedded POS_HISTORY to Supabase so the weekly agent can access it
     if (!localStorage.getItem('merkury_pos_history_synced')) {
       savePosHistoryToSupabase();
     }
-
-    // Auto-load raw sync files from Storage so new items always auto-populate
-    autoLoadSyncFiles();
 
   } catch(e) {
     console.warn('Supabase loadFromSupabase failed:', e.message);
@@ -5574,8 +5461,10 @@ function saveState() {
         posUnits:          s.posUnits,
         avgWeeklySalesVD:  s.avgWeeklySalesVD,
         vdConnected:       s.vdConnected,
+        posStoreCount:     s.posStoreCount || null,
         suofFromExcel:     s.suofFromExcel,
         atsConnected:      s.atsConnected,
+        firmReceiptEntries: s.firmReceiptEntries || null,
         onHandMerkury:     s.onHandMerkury,
         additionalModels:  s.additionalModels || [],
         openStock:         s.openStock  || 0,
@@ -5587,9 +5476,11 @@ function saveState() {
       snapshot.collapsed[p.sku] = b ? b.classList.contains('collapsed') : false;
     });
     localStorage.setItem(STORE_KEY, JSON.stringify(snapshot));
+    if (_syncChannel) _syncChannel.postMessage({ type: 'state_update' });
   } catch(e) { /* storage full or unavailable */ }
-  // Also persist reorder data to Supabase (fire-and-forget)
+  // Also persist reorder data and manual sales rates to Supabase (fire-and-forget)
   saveStateSupabase().catch(e => console.warn('Supabase saveState:', e));
+  saveVdRatesCache().catch(e => console.warn('Supabase saveVdRates:', e));
 }
 
 function loadState() {
@@ -5659,8 +5550,10 @@ function loadState() {
       s.posUnits         = pad(saved.posUnits, weeks.length);
       s.avgWeeklySalesVD = saved.avgWeeklySalesVD != null ? saved.avgWeeklySalesVD : null;
       s.vdConnected      = !!saved.vdConnected;
+      if (saved.posStoreCount) s.posStoreCount = pad(saved.posStoreCount, weeks.length);
       s.suofFromExcel    = saved.suofFromExcel ? padNull(saved.suofFromExcel, weeks.length) : null;
       s.atsConnected       = !!saved.atsConnected;
+      if (saved.firmReceiptEntries) s.firmReceiptEntries = saved.firmReceiptEntries;
       s.openStock          = saved.openStock || 0;
       s.skinnyQP           = saved.skinnyQP  || 0;
       s.additionalModels   = saved.additionalModels || [];
@@ -6023,6 +5916,7 @@ function resetInactivityTimer() {
 }
 
 function autoLogout() {
+  if (!isTestMode) { saveState(); flushPendingSyncs(); }
   isTestMode = false;
   const box = document.getElementById('loginBox');
   box.classList.remove('expanding');
@@ -6047,6 +5941,11 @@ function startInactivityWatch() {
   });
   resetInactivityTimer();
 }
+
+// Auto-save on browser close or page refresh
+window.addEventListener('beforeunload', function() {
+  if (!isTestMode) { saveState(); flushPendingSyncs(); }
+});
 
 // ── Login modal ───────────────────────────────────────────────────────────────
 
@@ -6798,8 +6697,13 @@ function computeFcRates(sku, startIdx, endIdx) {
     rateDetails.push(detail);
   }
 
+  // Apply bias correction (raw rates stored separately for snapshot logging)
+  const rawRates = [...rates];
+  const biasFactor = (state[sku] && state[sku].biasCorrectionFactor) || 1.0;
+  const biasedRates = biasFactor !== 1.0 ? rates.map(r => Math.max(0, Math.round(r * biasFactor))) : rates;
+
   return {
-    rates, rateDetails,
+    rates: biasedRates, rawRates, rateDetails,
     baseRate:        Math.round(baseRate),
     yoyRatio,
     hasRealData,
@@ -6843,6 +6747,13 @@ function computeReorderSuggestion(sku, startIdx, endIdx, forecastRates) {
   const arrivalDate = new Date();
   arrivalDate.setDate(arrivalDate.getDate() + LEAD_DAYS);
 
+  // Map arrival date to the nearest future week index
+  const arrMs = arrivalDate.getTime();
+  let arrivalWeekIdx = weeks.length - 1;
+  for (let i = 0; i < weeks.length; i++) {
+    if (new Date(weeks[i].dt).getTime() >= arrMs) { arrivalWeekIdx = i; break; }
+  }
+
   // PO deadline = arrival date - LEAD_DAYS (i.e., today — but show it explicitly)
   const poDate = new Date();
 
@@ -6852,6 +6763,7 @@ function computeReorderSuggestion(sku, startIdx, endIdx, forecastRates) {
     qty: roundedQty,
     masterCases,
     arrivalDate: arrivalDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
+    arrivalWeekIdx,
     placePOBy:   poDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
     riskFlag,
     stockoutWeek: stockoutIdx !== -1 ? weeks[stockoutIdx]?.fw : null,
@@ -7017,7 +6929,8 @@ function selectForecastQuarterRange(qStart, yearStart, qEnd, yearEnd) {
   document.getElementById('fcQtrYearStart').value = String(yearStart);
   document.getElementById('fcQtrQEnd').value      = qEnd;
   document.getElementById('fcQtrYearEnd').value   = String(yearEnd);
-  document.getElementById('fcWkStart').value = startIdx;
+  const nextWeekIdx = Math.min(getCurrentWeekIdx() + 1, weeks.length - 1);
+  document.getElementById('fcWkStart').value = nextWeekIdx;
   document.getElementById('fcWkEnd').value   = endIdx;
   renderForecastPage();
 }
@@ -7080,6 +6993,39 @@ function renderForecastPage() {
   const { startIdx, endIdx } = fcPeriod;
   const curIdx = getCurrentWeekIdx();
 
+  // Agent accuracy banner — shown when a report exists with real comparison data
+  const accBannerEl = document.getElementById('agentAccuracyBanner');
+  if (accBannerEl) {
+    const r = agentAccuracyReport;
+    if (r && r.weeksCompared > 0) {
+      const mape = r.overallMAPE != null ? r.overallMAPE.toFixed(1) : '—';
+      const skuCount = Object.keys(r.skus || {}).length;
+      const overCount  = Object.values(r.skus || {}).filter(x => x.flag === 'over').length;
+      const underCount = Object.values(r.skus || {}).filter(x => x.flag === 'under').length;
+      const dateStr = r.prevForecastGeneratedAt
+        ? new Date(r.prevForecastGeneratedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})
+        : '';
+      let flagText = '';
+      if (overCount)  flagText += ` · <span style="color:rgba(255,180,80,1)">⬆ ${overCount} over-forecast</span>`;
+      if (underCount) flagText += ` · <span style="color:rgba(130,200,255,1)">⬇ ${underCount} under-forecast</span>`;
+      accBannerEl.innerHTML = `<span style="font-weight:600;color:var(--text-1);">📊 Last forecast accuracy</span>`
+        + (dateStr ? ` <span style="color:var(--text-3);font-size:11px;">(${dateStr} forecast vs actuals)</span>` : '')
+        + ` · Overall MAPE <strong>${mape}%</strong> across ${r.weeksCompared} week${r.weeksCompared !== 1 ? 's' : ''} · ${skuCount} SKUs`
+        + flagText
+        + ` <button onclick="showAgentAccuracyDetail()" style="margin-left:10px;font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:var(--text-2);cursor:pointer;">Details</button>`;
+      accBannerEl.style.display = '';
+    } else if (r && r.weeksCompared === 0) {
+      const prevDate = r.prevForecastGeneratedAt ? new Date(r.prevForecastGeneratedAt).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : null;
+      const msg = prevDate
+        ? `📊 Previous forecast was generated ${prevDate} — no completed weeks since then yet. Check back next Wednesday for 1-week accuracy data.`
+        : `📊 No prior forecast available for accuracy comparison yet — check back after next Wednesday's run.`;
+      accBannerEl.innerHTML = `<span style="color:var(--text-3);font-size:12px;">${msg}</span>`;
+      accBannerEl.style.display = '';
+    } else {
+      accBannerEl.style.display = 'none';
+    }
+  }
+
   container.innerHTML = '';
   const skusToShow = Object.keys(state).filter(sku => products.find(p => p.sku === sku));
 
@@ -7104,6 +7050,11 @@ function renderForecastPage() {
     const riskBadge  = (reorder && reorder.riskFlag) ? '<span class="fc-badge-risk">⚠ Stock Risk</span>' : '';
     const newBadge   = isNew ? '<span class="fc-badge-new">New Launch</span>' : '';
     const agentBadge = agentSug ? '<span class="fc-badge-agent">🤖 AI Suggestion</span>' : '';
+    const accSum = getFcAccuracySummary(sku);
+    const biasColor = accSum && accSum.factor < 1.0 ? 'rgba(255,180,80,1)' : 'rgba(120,200,255,1)';
+    const biasBadge = accSum && accSum.weeks >= 4
+      ? `<span class="fc-badge-bias" title="Avg forecast error: ${accSum.avgPctError > 0 ? '+' : ''}${accSum.avgPctError}% over ${accSum.weeks}wk — bias factor ${accSum.factor}x applied" style="padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;background:rgba(0,0,0,.25);color:${biasColor};cursor:default;">📊 ${accSum.factor}x bias</span>`
+      : '';
     let statusBadge = '';
     if      (fcState === 'tryOn')   statusBadge = '<span class="fc-status-badge fc-status-tryOn">● Previewing</span>';
     else if (fcState === 'applied') statusBadge = '<span class="fc-status-badge fc-status-applied">✓ Applied</span>';
@@ -7139,11 +7090,17 @@ function renderForecastPage() {
         ? new Date(agentSuggestions.generatedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
         : '';
       const confBadge = agentSug.confidence === 'high' ? 'rgba(100,220,130,1)' : agentSug.confidence === 'low' ? 'rgba(255,150,100,1)' : 'rgba(180,150,255,1)';
+      const biasLine = accSum && accSum.weeks >= 4
+        ? `<div style="margin-bottom:6px;padding:4px 8px;background:rgba(0,0,0,.2);border-radius:6px;font-size:11px;color:${biasColor};">📊 Bias correction active — avg ${accSum.avgPctError > 0 ? '+' : ''}${accSum.avgPctError}% error over ${accSum.weeks} weeks · factor ${accSum.factor}x applied to M3 rates</div>`
+        : accSum && accSum.weeks > 0
+          ? `<div style="margin-bottom:6px;font-size:11px;color:var(--text-3);">📊 ${accSum.weeks}/4 weeks of accuracy data — bias correction not yet active</div>`
+          : '';
       explanation = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">`
         + `<span style="font-size:11px;font-weight:700;color:rgba(180,150,255,1);">🤖 AI Forecast Analysis</span>`
         + (agentSug.confidence ? `<span style="font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(0,0,0,.2);color:${confBadge};font-weight:600;text-transform:capitalize;">${agentSug.confidence} confidence</span>` : '')
         + (genDate ? `<span style="font-size:10px;color:var(--text-3);">Updated ${genDate}</span>` : '')
         + `</div>`
+        + biasLine
         + `<div style="font-size:12.5px;color:var(--text-1);line-height:1.7;">${agentSug.reasoning}</div>`
         + (agentSug.reorderUrgent && agentSug.reorderNote
             ? `<div style="margin-top:8px;padding:6px 10px;background:rgba(255,100,100,.12);border-left:3px solid rgba(255,120,120,.7);border-radius:4px;color:rgba(255,160,160,1);font-size:12px;">⚠ ${agentSug.reorderNote}</div>`
@@ -7247,7 +7204,7 @@ function renderForecastPage() {
         <div class="fc-history-inner" id="fc-hist-inner-${sku}">${histTableHTML}</div>
       </div>`;
     const expandSvg = `<svg width="11" height="11" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" fill="none" style="pointer-events:none;display:block"><line x1="1" y1="9" x2="9" y2="1"/><polyline points="5,1 9,1 9,5"/><line x1="1" y1="9" x2="5" y2="9"/><polyline points="1,5 1,9 5,9"/></svg>`;
-    const histBtn = `<button class="fc-history-btn" id="fc-hist-btn-${sku}" onclick="toggleFcHistory('${sku}')">${expandSvg}</button>`;
+    const histBtn = `<button class="fc-history-btn" id="fc-hist-btn-${sku}" onclick="toggleFcHistory('${sku}',this)">${expandSvg}</button>`;
 
     // Projected store count UI
     const projSCState = s.projStoreCount || {};
@@ -7289,32 +7246,47 @@ function renderForecastPage() {
     // Reorder section (shown after Apply)
     let reorderHTML = '';
     if (fcState === 'applied' && reorder) {
-      const savedRO = s.fcReorder || {};
-      const qty       = savedRO.qty       || reorder.qty;
-      const cases     = savedRO.masterCases|| reorder.masterCases;
-      const arrival   = savedRO.arrivalDate|| reorder.arrivalDate;
+      fcEnsureReorderRows(sku, reorder);
+      const rowsHTML = s.fcReorderRows.map((row, ri) => {
+        const weekOpts = buildArrivalWeekOptions(row.arrivalWeekIdx);
+        const approvedStyle = row.approved ? 'opacity:0.55;pointer-events:none;' : '';
+        const approveLabel  = row.approved ? '✓ Approved' : '✓ Approve';
+        const tryOnActive   = row.tryOnActive || false;
+        const tryOnLabel    = tryOnActive ? '◼ Active' : '▶ Try it on';
+        const tryOnStyle    = tryOnActive
+          ? 'padding:4px 10px;font-size:12px;background:rgba(255,165,0,.55);border-color:rgba(255,165,0,.9);'
+          : 'padding:4px 10px;font-size:12px;';
+        return `
+        <div class="fc-reorder-row" data-row-idx="${ri}" style="${approvedStyle}">
+          <div class="fc-reorder-grid">
+            <div class="fc-reorder-field">
+              <label>Qty</label>
+              <input type="number" value="${row.qty}" min="0" step="${p.master||1}"
+                onchange="fcReorderRowQtyChanged('${sku}',${ri},this.value)"/>
+            </div>
+            <div class="fc-reorder-field">
+              <label>Master Cases</label>
+              <span class="ro-val" id="fcRoRowCases-${sku}-${ri}">${row.masterCases}</span>
+            </div>
+            <div class="fc-reorder-field" style="min-width:160px;">
+              <label>Warehouse Arrival</label>
+              <select onchange="fcReorderRowWeekChanged('${sku}',${ri},this.value)">${weekOpts}</select>
+            </div>
+          </div>
+          <div class="fc-reorder-row-actions">
+            <button class="fc-btn fc-btn-tryon" style="${tryOnStyle}" onclick="fcReorderTryOn('${sku}',${ri})">${tryOnLabel}</button>
+            <button class="fc-btn fc-btn-approve" style="padding:4px 10px;font-size:12px;" onclick="fcApproveReorderRow('${sku}',${ri})">${approveLabel}</button>
+            <button class="fc-btn" style="padding:4px 8px;font-size:12px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff8080;" onclick="fcRemoveReorderRow('${sku}',${ri})">✕</button>
+          </div>
+        </div>`;
+      }).join('<div style="height:6px;border-top:1px solid rgba(255,255,255,.07);margin:4px 0;"></div>');
       reorderHTML = `
       <div class="fc-reorder-box" id="fc-reorder-${sku}">
-        <h4>📦 Reorder Suggestion</h4>
-        <div class="fc-reorder-grid">
-          <div class="fc-reorder-field">
-            <label>Suggested Qty</label>
-            <input type="number" id="fcRoQty-${sku}" value="${qty}" min="0" step="${p.master||1}"
-              onchange="fcReorderQtyChanged('${sku}',this.value,${p.master||1})"/>
-          </div>
-          <div class="fc-reorder-field">
-            <label>Master Cases</label>
-            <div class="ro-val" id="fcRoCases-${sku}">${cases}</div>
-          </div>
-          <div class="fc-reorder-field">
-            <label>Warehouse Arrival</label>
-            <div class="ro-val">${arrival}</div>
-          </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <h4 style="margin:0;">📦 Reorder Suggestion</h4>
+          <button class="fc-btn" style="padding:3px 10px;font-size:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:var(--text-2);" onclick="fcAddReorderRow('${sku}')">+ Add order</button>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="fc-btn fc-btn-approve" onclick="fcApproveReorder('${sku}',${startIdx})">✓ Approve &amp; Send to Recap</button>
-          <span style="font-size:11px;color:var(--text-3);align-self:center;">or adjust quantity above first</span>
-        </div>
+        <div id="fc-reorder-rows-${sku}">${rowsHTML}</div>
       </div>`;
     }
 
@@ -7363,7 +7335,7 @@ function renderForecastPage() {
       <div class="fc-card-head">
         <div class="fc-sku-info">
           <div class="fc-sku-model">${p.model} &nbsp;·&nbsp; ${sku}</div>
-          <div class="fc-sku-desc">${p.desc}${newBadge}${riskBadge}${agentBadge}</div>
+          <div class="fc-sku-desc">${p.desc}${newBadge}${riskBadge}${agentBadge}${biasBadge}</div>
           <div class="fc-sku-sub">Period: ${fcPeriod.label} &nbsp;·&nbsp; ${displayRates.length} weeks &nbsp;·&nbsp; Avg forecast: ${displayRates.length ? Math.round(displayRates.reduce((a,b)=>a+b,0)/displayRates.length).toLocaleString() : 0} units/wk${usingAgentRates ? ' &nbsp;·&nbsp; <span style="color:#a78bfa;font-size:10px;">🤖 AI</span>' : ''}</div>
         </div>
         ${statusBadge}
@@ -7372,7 +7344,7 @@ function renderForecastPage() {
       <div class="fc-explanation">${explanation}</div>
       ${projSCHTML}
       <div class="fc-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${actionBtns}</div>
-      <div style="padding:4px 18px 10px;">${histBtn}</div>
+      ${histBtn}
       ${histHTML}
       ${reorderHTML}
       ${denyHTML}
@@ -7416,6 +7388,112 @@ async function triggerAgentRun() {
 }
 
 
+function showAgentAccuracyDetail() {
+  const r = agentAccuracyReport;
+  if (!r) return;
+  const dateStr = r.prevForecastGeneratedAt
+    ? new Date(r.prevForecastGeneratedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    : 'unknown date';
+
+  // Helper: map week index → fiscal week label using the weeks[] array
+  function fwLabel(wi) {
+    if (wi == null || !weeks[wi]) return 'wk ' + wi;
+    return weeks[wi].fw || ('wk ' + wi);
+  }
+
+  let rows = '';
+  Object.entries(r.skus || {}).sort((a, b) => (b[1].mape || 0) - (a[1].mape || 0)).forEach(([sku, d]) => {
+    const p = products.find(x => x.sku === sku);
+    const model = p ? p.model : sku;
+    const desc  = p ? p.desc  : '';
+    const flagIcon = d.flag === 'over' ? '⬆' : d.flag === 'under' ? '⬇' : '✓';
+    const flagColor = d.flag === 'over' ? 'rgba(255,180,80,1)' : d.flag === 'under' ? 'rgba(130,200,255,1)' : 'rgba(100,220,130,1)';
+    const biasSign = d.bias > 0 ? '+' : '';
+    const n = d.weeksCompared || 1;
+
+    // MAPE calculation shown: avg of |fc−actual|/actual × 100 across n weeks
+    const mapeCalc = d.mape != null
+      ? `avg(|forecast − actual| ÷ actual × 100) over ${n} week${n !== 1 ? 's' : ''} = <strong>${d.mape.toFixed(1)}%</strong>`
+      : '—';
+
+    // Bias calculation shown: avg of (fc−actual)/actual × 100 across n weeks
+    const biasCalc = d.bias != null
+      ? `avg((forecast − actual) ÷ actual × 100) over ${n} week${n !== 1 ? 's' : ''} = <strong>${biasSign}${d.bias.toFixed(1)}%</strong>`
+      : '—';
+
+    // Worst week example
+    let worstHtml = '';
+    if (d.worstWeek && d.worstWeek.actual != null && d.worstWeek.forecast != null) {
+      const ww = d.worstWeek;
+      const fw = fwLabel(ww.weekIdx);
+      const absErr = Math.abs(ww.forecast - ww.actual);
+      const errPct = ww.actual > 0 ? (absErr / ww.actual * 100).toFixed(1) : '—';
+      worstHtml = `<div style="margin-top:5px;padding:5px 8px;background:rgba(255,255,255,.04);border-radius:6px;font-size:10.5px;color:rgba(255,255,255,.45);">
+        Worst week (${fw}): forecast <span style="color:rgba(255,255,255,.7);">${ww.forecast.toLocaleString()}</span>
+        vs actual <span style="color:rgba(255,255,255,.7);">${ww.actual.toLocaleString()}</span>
+        → |${ww.forecast.toLocaleString()} − ${ww.actual.toLocaleString()}| ÷ ${ww.actual.toLocaleString()} × 100 = <span style="color:rgba(255,200,100,.9);">${errPct}%</span>
+      </div>`;
+    }
+
+    rows += `<tr style="border-bottom:1px solid rgba(255,255,255,.06);">
+      <td style="padding:10px 10px 8px;" colspan="4">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+          <div style="min-width:0;flex:1;">
+            <div style="font-size:12.5px;font-weight:600;color:#f0f0f8;">${model}</div>
+            ${desc ? `<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:1px;">${desc}</div>` : ''}
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <span style="font-size:13px;font-weight:700;color:#f0f0f8;">${d.mape != null ? d.mape.toFixed(1) + '%' : '—'}</span>
+            <span style="font-size:11px;color:rgba(255,255,255,.4);margin-left:4px;">MAPE</span>
+            <span style="font-size:12px;color:rgba(255,255,255,.5);margin:0 6px;">·</span>
+            <span style="font-size:13px;font-weight:700;color:#f0f0f8;">${d.bias != null ? biasSign + d.bias.toFixed(1) + '%' : '—'}</span>
+            <span style="font-size:11px;color:rgba(255,255,255,.4);margin-left:4px;">Bias</span>
+            <span style="font-size:15px;color:${flagColor};margin-left:8px;">${flagIcon}</span>
+          </div>
+        </div>
+        <div style="margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.04);border-left:2px solid rgba(120,80,255,.5);border-radius:0 6px 6px 0;font-size:11px;color:rgba(255,255,255,.5);line-height:1.8;">
+          <div>MAPE = ${mapeCalc}</div>
+          <div>Bias = ${biasCalc}</div>
+        </div>
+        ${worstHtml}
+      </td>
+    </tr>`;
+  });
+
+  const html = `<div style="position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+    <div style="background:#1e1e2e;border:1px solid rgba(255,255,255,.18);border-radius:18px;padding:28px 30px;width:min(640px,95vw);max-height:88vh;overflow:auto;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:#f0f0f8;">📊 Forecast Accuracy Report</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:2px;">${dateStr} forecast vs actuals · ${r.weeksCompared} week${r.weeksCompared !== 1 ? 's' : ''} compared</div>
+        </div>
+        <button onclick="this.closest('[style*=fixed]').remove()" style="background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.20);border-radius:8px;padding:4px 12px;color:rgba(255,255,255,.7);cursor:pointer;font-size:13px;">✕</button>
+      </div>
+
+      <!-- Definitions -->
+      <div style="margin-bottom:14px;padding:12px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);border-radius:10px;font-size:12px;color:rgba(255,255,255,.6);line-height:1.8;">
+        <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Definitions</div>
+        <div><span style="color:#f0f0f8;font-weight:600;">MAPE</span> (Mean Absolute Percentage Error) — how far off the forecast was on average, regardless of direction. Formula: <span style="font-family:monospace;font-size:11px;color:rgba(200,180,255,.8);">avg( |forecast − actual| ÷ actual × 100 )</span>. Target: &lt;20%.</div>
+        <div style="margin-top:4px;"><span style="color:#f0f0f8;font-weight:600;">Bias</span> — whether the forecast consistently runs high or low. Formula: <span style="font-family:monospace;font-size:11px;color:rgba(200,180,255,.8);">avg( (forecast − actual) ÷ actual × 100 )</span>. Positive (+) = over-forecast. Negative (−) = under-forecast.</div>
+        <div style="margin-top:4px;"><span style="color:rgba(255,180,80,1);">⬆ over-forecast</span> = bias &gt; +20% &nbsp;·&nbsp; <span style="color:rgba(130,200,255,1);">⬇ under-forecast</span> = bias &lt; −20% &nbsp;·&nbsp; <span style="color:rgba(100,220,130,1);">✓ on target</span> = within ±20%</div>
+      </div>
+
+      <!-- Overall MAPE -->
+      <div style="margin-bottom:14px;padding:10px 14px;background:rgba(120,80,255,.20);border:1px solid rgba(120,80,255,.35);border-radius:8px;font-size:13px;color:#f0f0f8;">
+        Overall MAPE: <strong>${r.overallMAPE != null ? r.overallMAPE.toFixed(1) + '%' : '—'}</strong>
+        <span style="color:rgba(255,255,255,.45);font-size:11px;margin-left:8px;">(weighted average across all SKUs)</span>
+      </div>
+
+      <!-- Per-SKU rows -->
+      <table style="width:100%;border-collapse:collapse;">
+        <tbody>${rows || '<tr><td style="padding:16px;text-align:center;color:rgba(255,255,255,.4);">No per-SKU data available.</td></tr>'}</tbody>
+      </table>
+      ${r.note ? `<div style="margin-top:12px;font-size:11px;color:rgba(255,255,255,.35);">${r.note}</div>` : ''}
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
 function openPlaybookModal() {
   const ta = document.getElementById('playbookText');
   ta.value = forecastPlaybook || DEFAULT_PLAYBOOK;
@@ -7453,14 +7531,21 @@ async function savePlaybook() {
 
 // ── Agent suggestion handler ──────────────────────────────────────────────────
 
-function toggleFcHistory(sku) {
-  const panel = document.getElementById('fc-hist-' + sku);
+function toggleFcHistory(sku, btn) {
+  // Walk up from the button to find the panel within the same card —
+  // handles cloned cards in the try-on panel which share the same element IDs.
+  let panel;
+  if (btn) {
+    const card = btn.closest('.fc-card');
+    panel = card && card.querySelector('.fc-history-panel');
+  }
+  if (!panel) panel = document.getElementById('fc-hist-' + sku);
   if (!panel) return;
   const isOpening = !panel.classList.contains('open');
   panel.classList.toggle('open');
   if (isOpening) {
     requestAnimationFrame(() => {
-      const inner = document.getElementById('fc-hist-inner-' + sku);
+      const inner = panel.querySelector('.fc-history-inner');
       const target = inner && inner.querySelector('[data-hist-scroll-target="1"]');
       if (inner && target) {
         const stickyCol = inner.querySelector('.hist-row-lbl');
@@ -7521,76 +7606,99 @@ function fcTryOn(sku, startIdx, endIdx) {
   state[sku].fcDenyOpen = false;
 
   if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
-  const prevRates = displayRates.map((_, i) => state[sku].salesRates[startIdx + i]);
-  state[sku].fcPrevRates = prevRates;
 
-  // Write forecast rates AND update DOM inputs before updateCalcs reads them back
+  // Save original rates before any overwrite — needed to restore on deny/close
+  state[sku].fcPrevRates = displayRates.map((_, i) => state[sku].salesRates[startIdx + i]);
+
+  // Write AI rates for non-manual weeks; keep user values (like 666) for manual weeks
   state[sku].fcWrittenIdx = new Set();
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
     const hasSuof = state[sku].suofFromExcel && state[sku].suofFromExcel[i] != null && state[sku].suofFromExcel[i] > 0;
-    const isManualNonZero = (state[sku].salesRatesManual && state[sku].salesRatesManual[i]) && state[sku].salesRates[i] > 0;
-    if (hasSuof || isManualNonZero) continue; // don't overwrite SUOF weeks or user-typed non-zero weeks
+    const isManual = state[sku].salesRatesManual[i] && state[sku].salesRates[i] > 0;
+    if (hasSuof || isManual) continue;
     const newRate = displayRates[i - startIdx] || 0;
     state[sku].salesRates[i] = newRate;
-    state[sku].fcWrittenIdx.add(i); // track which weeks we actually wrote
+    state[sku].fcWrittenIdx.add(i);
     const inp = document.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
     if (inp && !inp.readOnly) inp.value = newRate.toLocaleString();
   }
+
   const p = products.find(x => x.sku === sku);
   if (p) updateCalcs(sku);
-
   renderForecastPage();
   openTryOnPanel(sku, startIdx, endIdx);
 }
 
 function fcApply(sku, startIdx, endIdx) {
-  const fc = computeFcRates(sku, startIdx, endIdx);
-  const displayRates = getDisplayRates(sku, startIdx, fc.rates);
-  state[sku].fcRates  = displayRates;
-  state[sku].fcStatus = 'applied';
-  state[sku].fcRange  = { startIdx, endIdx };
-  state[sku].fcDenyOpen = false;
+  const s = state[sku];
+  // State already has correct values from fcTryOn:
+  //   - AI rates for non-manual weeks (written by fcTryOn)
+  //   - User values for manual weeks (kept as-is)
+  //   - Any right-panel edits the user made during try-on
+  // Just commit: mark all fcWrittenIdx weeks as manual and update status.
+  s.fcStatus = 'applied';
+  s.fcRange  = { startIdx, endIdx };
+  s.fcDenyOpen = false;
+  // fcPrevRates already saved by fcTryOn — kept here for Undo Apply
 
-  if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
-
+  if (!s.salesRatesManual) s.salesRatesManual = new Array(weeks.length).fill(false);
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
-    const rate = displayRates[i - startIdx] || 0;
-    state[sku].salesRates[i] = rate;
-    state[sku].salesRatesManual[i] = true;
-
+    const hasSuof = s.suofFromExcel && s.suofFromExcel[i] != null && s.suofFromExcel[i] > 0;
+    if (hasSuof) continue;
+    s.salesRatesManual[i] = true;
     const inp = document.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
     if (inp) {
       inp.classList.remove('fc-tryOn-cell');
       inp.classList.add('fc-applied-cell');
-      inp.value = rate.toLocaleString();
+      inp.value = (s.salesRates[i] || 0).toLocaleString();
       delete inp.dataset.origVal;
     }
   }
   const p = products.find(x => x.sku === sku);
   if (p) updateCalcs(sku);
   if (!isTestMode) saveState();
-  closeTryOnPanel();
   renderForecastPage();
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    const card = document.getElementById('fc-card-' + sku);
+    const leftInner = document.getElementById('tryOnLeftInner');
+    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    refreshTryOnRight(sku, startIdx, endIdx);
+  }
 }
 
 function fcUnapply(sku, startIdx, endIdx) {
+  const prevRates = state[sku].fcPrevRates || [];
   state[sku].fcStatus = 'none';
   state[sku].fcDenyOpen = false;
+  delete state[sku].fcPrevRates;
   if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
 
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
-    state[sku].salesRates[i] = 0;
-    state[sku].salesRatesManual[i] = false;
-    const inp = document.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
-    if (inp) {
+    const orig = prevRates[i - startIdx] != null ? prevRates[i - startIdx] : 0;
+    state[sku].salesRates[i] = orig;
+    state[sku].salesRatesManual[i] = orig > 0;
+    // Only update the main-page input (not duplicates in the right panel)
+    const allInps = document.querySelectorAll(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
+    allInps.forEach(inp => {
       inp.classList.remove('fc-tryOn-cell','fc-applied-cell');
-      inp.value = '0';
-    }
+      inp.value = orig > 0 ? orig.toLocaleString() : '0';
+    });
   }
+  // Clear only the inner content (not the scroll container) so stale inputs don't corrupt state
+  const tryOnRightInner = document.getElementById('tryOnRightInner');
+  if (tryOnRightInner) tryOnRightInner.innerHTML = '';
   const p = products.find(x => x.sku === sku);
   if (p) updateCalcs(sku);
   if (!isTestMode) saveState();
   renderForecastPage();
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    const card = document.getElementById('fc-card-' + sku);
+    const leftInner = document.getElementById('tryOnLeftInner');
+    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    refreshTryOnRight(sku, startIdx, endIdx);
+  }
 }
 
 function fcRevertTryOn(sku, startIdx, endIdx, fromClose) {
@@ -7598,18 +7706,23 @@ function fcRevertTryOn(sku, startIdx, endIdx, fromClose) {
   state[sku].fcStatus = fromClose ? 'none' : 'denied';
   state[sku].fcDenyOpen = false;
   delete state[sku].fcPrevRates;
+  // Restore original rates — fcTryOn only wrote to non-manual weeks, so this safely undoes that
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
     const orig = prevRates[i - startIdx] != null ? prevRates[i - startIdx] : 0;
     state[sku].salesRates[i] = orig;
-    if (state[sku].salesRatesManual) state[sku].salesRatesManual[i] = false;
+    if (state[sku].salesRatesManual) state[sku].salesRatesManual[i] = orig > 0;
     document.querySelectorAll(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`).forEach(inp => {
       inp.classList.remove('fc-tryOn-cell','fc-applied-cell');
-      inp.value = orig.toLocaleString();
+      inp.value = orig > 0 ? orig.toLocaleString() : '0';
       delete inp.dataset.origVal;
     });
   }
   const p = products.find(x => x.sku === sku);
   if (p) updateCalcs(sku);
+  const _ri2 = document.getElementById('tryOnRightInner');
+  if (_ri2) _ri2.innerHTML = '';
+  const _li2 = document.getElementById('tryOnLeftInner');
+  if (_li2) _li2.innerHTML = '';
   document.getElementById('tryOnOverlay').classList.remove('open');
   tryOnPanelSku = null;
   renderForecastPage();
@@ -7634,12 +7747,34 @@ let tryOnPanelSku = null, tryOnPanelStart = null, tryOnPanelEnd = null;
 
 function openTryOnPanel(sku, startIdx, endIdx) {
   tryOnPanelSku = sku; tryOnPanelStart = startIdx; tryOnPanelEnd = endIdx;
+  // Left: clone the already-rendered forecast card
   const card = document.getElementById('fc-card-' + sku);
   const leftInner = document.getElementById('tryOnLeftInner');
   leftInner.innerHTML = '';
   if (card) leftInner.appendChild(card.cloneNode(true));
+  // Right: render the live product block and highlight forecast cells
   refreshTryOnRight(sku, startIdx, endIdx);
   document.getElementById('tryOnOverlay').classList.add('open');
+  // Scroll after the overlay is painted — 50ms ensures display:flex layout is fully committed
+  const s = state[sku];
+  const si = startIdx != null ? startIdx : (s && s.fcRange && s.fcRange.startIdx);
+  if (si != null) {
+    setTimeout(() => {
+      const rightPanel = document.getElementById('tryOnRight');
+      const rightInner = document.getElementById('tryOnRightInner');
+      if (!rightPanel || !rightInner) return;
+      const targetInp = rightInner.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${si}"]`);
+      if (!targetInp) return;
+      // Walk offsetLeft up through the DOM to get true layout distance from rightPanel
+      let offset = 0;
+      let el = targetInp.closest('td') || targetInp;
+      while (el && el !== rightPanel) {
+        offset += el.offsetLeft;
+        el = el.offsetParent;
+      }
+      rightPanel.scrollLeft = Math.max(0, offset - 160);
+    }, 50);
+  }
 }
 
 function refreshTryOnRight(sku, startIdx, endIdx) {
@@ -7648,44 +7783,70 @@ function refreshTryOnRight(sku, startIdx, endIdx) {
   const s = state[sku];
   const rightInner = document.getElementById('tryOnRightInner');
   if (!rightInner) return;
-  rightInner.innerHTML = '';
-  rightInner.appendChild(buildProduct(p));
 
-  const si = startIdx != null ? startIdx : (s.fcRange && s.fcRange.startIdx);
-  const ei = endIdx   != null ? endIdx   : (s.fcRange && s.fcRange.endIdx);
-  const prevRates = s.fcPrevRates || [];
-  if (si != null && ei != null && s.fcStatus === 'tryOn') {
-    for (let i = si; i <= Math.min(ei, weeks.length - 1); i++) {
-      const prev = prevRates[i - si] || 0;
-      const current = s.salesRates[i] || 0;
-      if (!s.fcWrittenIdx || !s.fcWrittenIdx.has(i)) continue; // only highlight weeks fcTryOn actually wrote
-      const inp = rightInner.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
-      if (inp) {
-        inp.classList.add('fc-tryOn-cell');
-        inp.dataset.origVal = '0';
-      }
-    }
-    requestAnimationFrame(() => {
-      const rightPanel = document.getElementById('tryOnRight');
-      const targetInp  = rightInner.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${si}"]`);
-      if (rightPanel && targetInp) {
-        const panelRect = rightPanel.getBoundingClientRect();
-        const cellRect  = targetInp.getBoundingClientRect();
-        rightPanel.scrollLeft = Math.max(0, rightPanel.scrollLeft + cellRect.left - panelRect.left - 160);
+  // Preserve scroll position across the rebuild.
+  // The horizontal scrollbar under the grid belongs to the .scroll-wrap div created
+  // fresh inside buildProduct() — not #tryOnRight itself — so it must be saved/restored
+  // separately, or every rebuild snaps the table back to scrollLeft 0.
+  const rightPanel = document.getElementById('tryOnRight');
+  const savedScroll = rightPanel ? rightPanel.scrollLeft : 0;
+  const oldScrollWrap = rightInner.querySelector('.scroll-wrap');
+  const savedGridScroll = oldScrollWrap ? oldScrollWrap.scrollLeft : 0;
+
+  // Temporarily inject all active try-on reorders so the right panel reflects them
+  const origReorders = {};
+  if (s.fcReorderRows) {
+    s.fcReorderRows.forEach(row => {
+      if (row.tryOnActive && !row.approved) {
+        const wi = row.arrivalWeekIdx;
+        origReorders[wi] = s.reorders[wi];
+        s.reorders[wi] = row.qty;
       }
     });
+  }
+
+  rightInner.innerHTML = '';
+  rightInner.appendChild(buildProduct(p));
+  if (rightPanel && savedScroll > 0) rightPanel.scrollLeft = savedScroll;
+  if (savedGridScroll > 0) {
+    const newScrollWrap = rightInner.querySelector('.scroll-wrap');
+    if (newScrollWrap) newScrollWrap.scrollLeft = savedGridScroll;
+  }
+
+  // Restore reorder state
+  Object.keys(origReorders).forEach(wi => { s.reorders[+wi] = origReorders[+wi]; });
+
+  // Highlight weeks where AI rates were written (non-manual weeks in the forecast period)
+  const si = startIdx != null ? startIdx : (s.fcRange && s.fcRange.startIdx);
+  const ei = endIdx   != null ? endIdx   : (s.fcRange && s.fcRange.endIdx);
+  if (si != null && ei != null && s.fcStatus === 'tryOn') {
+    for (let i = si; i <= Math.min(ei, weeks.length - 1); i++) {
+      if (!s.fcWrittenIdx || !s.fcWrittenIdx.has(i)) continue;
+      const inp = rightInner.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
+      if (inp) inp.classList.add('fc-tryOn-cell');
+    }
   }
 }
 
 function closeTryOnPanel() {
+  // Clear all reorder try-on active states
+  products.forEach(p => {
+    const s = state[p.sku];
+    if (s && s.fcReorderRows) s.fcReorderRows.forEach(r => { r.tryOnActive = false; });
+  });
   const sku = tryOnPanelSku;
   if (sku && state[sku] && state[sku].fcStatus === 'tryOn') {
     const range = state[sku].fcRange || {};
     fcRevertTryOn(sku, range.startIdx, range.endIdx, true);
     return;
   }
+  const _ri = document.getElementById('tryOnRightInner');
+  if (_ri) _ri.innerHTML = '';
+  const _li = document.getElementById('tryOnLeftInner');
+  if (_li) _li.innerHTML = '';
   document.getElementById('tryOnOverlay').classList.remove('open');
   tryOnPanelSku = null;
+  renderForecastPage();
 }
 
 function fcToggleDeny(sku) {
@@ -7708,14 +7869,20 @@ function fcSubmitDeny(sku, startIdx, endIdx) {
   state[sku].fcStatus     = 'denied';
   state[sku].fcDenyOpen   = false;
 
-  // Remove any tryOn highlights
+  // Restore original rates and clear highlights
   for (let i = startIdx; i <= Math.min(endIdx, weeks.length - 1); i++) {
+    const prevRates = state[sku].fcPrevRates || [];
+    const orig = prevRates[i - startIdx] != null ? prevRates[i - startIdx] : 0;
+    state[sku].salesRates[i] = orig;
+    if (state[sku].salesRatesManual) state[sku].salesRatesManual[i] = orig > 0;
     const inp = document.querySelector(`input[data-sku="${sku}"][data-row="salesRate"][data-idx="${i}"]`);
     if (inp) {
       inp.classList.remove('fc-tryOn-cell','fc-applied-cell');
-      if (inp.dataset.origVal !== undefined) { inp.value = inp.dataset.origVal; delete inp.dataset.origVal; }
+      inp.value = orig > 0 ? orig.toLocaleString() : '0';
+      delete inp.dataset.origVal;
     }
   }
+  delete state[sku].fcPrevRates;
 
   if (!isNaN(manualVal) && manualVal >= 0) {
     // Manual flat override
@@ -7744,6 +7911,138 @@ function fcReorderQtyChanged(sku, val, masterPack) {
   if (!state[sku].fcReorder) state[sku].fcReorder = {};
   state[sku].fcReorder.qty = qty;
   state[sku].fcReorder.masterCases = cases;
+}
+
+function buildArrivalWeekOptions(selectedIdx) {
+  const curIdx = getCurrentWeekIdx();
+  return weeks.map((w, i) => {
+    if (i < curIdx) return '';
+    return `<option value="${i}"${i === selectedIdx ? ' selected' : ''}>${w.fw} (${w.dt})</option>`;
+  }).join('');
+}
+
+function fcEnsureReorderRows(sku, reorder) {
+  const s = state[sku];
+  if (s.fcReorderRows && s.fcReorderRows.length > 0) return;
+  s.fcReorderRows = [{
+    qty:            reorder.qty,
+    masterCases:    reorder.masterCases,
+    arrivalWeekIdx: reorder.arrivalWeekIdx,
+    approved:       false
+  }];
+}
+
+function fcReorderRowQtyChanged(sku, rowIdx, val) {
+  const p = products.find(x => x.sku === sku);
+  const master = p ? (p.master || 1) : 1;
+  const qty    = Math.ceil(parseFloat(val) / master) * master || 0;
+  const cases  = p && p.master > 0 ? Math.ceil(qty / p.master) : 0;
+  const s = state[sku];
+  if (!s.fcReorderRows || !s.fcReorderRows[rowIdx]) return;
+  s.fcReorderRows[rowIdx].qty = qty;
+  s.fcReorderRows[rowIdx].masterCases = cases;
+  const el = document.getElementById(`fcRoRowCases-${sku}-${rowIdx}`);
+  if (el) el.textContent = cases;
+  // If this row is active in the try-on panel, refresh the right panel immediately
+  const row = s.fcReorderRows[rowIdx];
+  if (row.tryOnActive) {
+    const overlay = document.getElementById('tryOnOverlay');
+    if (overlay && overlay.classList.contains('open')) {
+      const fc = s.fcRange || {};
+      refreshTryOnRight(sku, fc.startIdx, fc.endIdx);
+    }
+  }
+}
+
+function fcReorderRowWeekChanged(sku, rowIdx, weekIdx) {
+  const s = state[sku];
+  if (!s.fcReorderRows || !s.fcReorderRows[rowIdx]) return;
+  s.fcReorderRows[rowIdx].arrivalWeekIdx = parseInt(weekIdx);
+}
+
+function fcAddReorderRow(sku) {
+  const s = state[sku];
+  const curIdx = getCurrentWeekIdx();
+  const used = new Set((s.fcReorderRows || []).map(r => r.arrivalWeekIdx));
+  let defaultIdx = curIdx + 1;
+  while (used.has(defaultIdx) && defaultIdx < weeks.length - 1) defaultIdx++;
+  if (!s.fcReorderRows) s.fcReorderRows = [];
+  s.fcReorderRows.push({ qty: 0, masterCases: 0, arrivalWeekIdx: defaultIdx, approved: false });
+  renderForecastPage();
+  // Re-clone left panel if side-by-side is open
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    const card = document.getElementById('fc-card-' + sku);
+    const leftInner = document.getElementById('tryOnLeftInner');
+    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+  }
+}
+
+function fcRemoveReorderRow(sku, rowIdx) {
+  const s = state[sku];
+  if (!s.fcReorderRows) return;
+  s.fcReorderRows.splice(rowIdx, 1);
+  renderForecastPage();
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    const card = document.getElementById('fc-card-' + sku);
+    const leftInner = document.getElementById('tryOnLeftInner');
+    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    // Refresh right panel so deleted active rows no longer appear
+    const fc = s.fcRange || {};
+    refreshTryOnRight(sku, fc.startIdx, fc.endIdx);
+  }
+}
+
+function fcReorderTryOn(sku, rowIdx) {
+  const s = state[sku];
+  const row = s.fcReorderRows && s.fcReorderRows[rowIdx];
+  if (!row) return;
+  row.tryOnActive = !row.tryOnActive; // toggle
+  const fc = s.fcRange || {};
+  const startIdx = fc.startIdx != null ? fc.startIdx : getCurrentWeekIdx();
+  const endIdx   = fc.endIdx   != null ? fc.endIdx   : startIdx + 12;
+  renderForecastPage();
+  // Re-clone left panel to reflect updated button state
+  const card = document.getElementById('fc-card-' + sku);
+  const leftInner = document.getElementById('tryOnLeftInner');
+  if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    refreshTryOnRight(sku, startIdx, endIdx);
+  } else {
+    openTryOnPanel(sku, startIdx, endIdx);
+  }
+}
+
+function fcApproveReorderRow(sku, rowIdx) {
+  const s = state[sku];
+  const p = products.find(x => x.sku === sku);
+  const row = s.fcReorderRows && s.fcReorderRows[rowIdx];
+  if (!row || !p) return;
+  const weekIdx = row.arrivalWeekIdx;
+  const qty     = row.qty;
+  s.reorders[weekIdx]    = qty;
+  s.reorderData[weekIdx] = { qty, casePack: (p.inner ? p.inner + '/' : '') + String(p.master), config: 'Forecast auto-generated' };
+  // Update Weekly Recap grid DOM immediately
+  const inp = document.querySelector(`input[data-sku="${sku}"][data-row="reorder"][data-idx="${weekIdx}"]`);
+  if (inp) {
+    inp.value = fmtInput(qty);
+    applyReorderColor(inp.closest('td'), String(p.master));
+  }
+  updateCalcs(sku);
+  if (!isTestMode) { saveState(); saveStateSupabase(); }
+  row.approved = true;
+  renderReorderTab();
+  renderForecastPage();
+  // Re-clone left panel if open
+  const overlay = document.getElementById('tryOnOverlay');
+  if (overlay && overlay.classList.contains('open')) {
+    const card = document.getElementById('fc-card-' + sku);
+    const leftInner = document.getElementById('tryOnLeftInner');
+    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    refreshTryOnRight(sku, (s.fcRange||{}).startIdx, (s.fcRange||{}).endIdx);
+  }
 }
 
 function fcApproveReorder(sku, startIdx) {
@@ -7798,16 +8097,23 @@ function initForecastSelectors() {
     endSel.innerHTML   += `<option value="${i}">${w.fw}</option>`;
   });
 
-  // Sync custom selects to current period if already set, otherwise default to full range
+  // Sync custom selects to current period if already set, otherwise default to next week → end
   if (fcPeriod.startIdx >= 0) {
     startSel.value = fcPeriod.startIdx;
     endSel.value   = fcPeriod.endIdx;
   } else {
-    endSel.value = weeks.length - 1;
+    const nextWeek = Math.min(getCurrentWeekIdx() + 1, weeks.length - 1);
+    startSel.value = nextWeek;
+    endSel.value   = weeks.length - 1;
   }
 }
 
 function showPage(page) {
+  // Close try-on overlay when navigating away
+  const _overlay = document.getElementById('tryOnOverlay');
+  if (_overlay && _overlay.classList.contains('open')) closeTryOnPanel();
+  // Auto-save when switching pages
+  if (!isTestMode) { saveState(); flushPendingSyncs(); }
   document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const section = document.getElementById('page-' + page);
@@ -7913,6 +8219,43 @@ products.forEach(p => {
 
 initFilterBar();
 initDragDrop();
+
+// ── Try-on panel divider drag-to-resize ──────────────────────────────────────
+(function() {
+  const divider = document.getElementById('tryOnDivider');
+  const leftPanel = document.getElementById('tryOnLeft');
+  const panel = document.getElementById('tryOnPanel');
+  if (!divider || !leftPanel || !panel) return;
+
+  let dragging = false, startX = 0, startWidth = 0;
+
+  divider.addEventListener('pointerdown', function(e) {
+    e.preventDefault();
+    dragging = true;
+    startX = e.clientX;
+    startWidth = leftPanel.getBoundingClientRect().width;
+    divider.classList.add('dragging');
+    divider.setPointerCapture(e.pointerId);
+  });
+
+  divider.addEventListener('pointermove', function(e) {
+    if (!dragging) return;
+    const panelWidth = panel.getBoundingClientRect().width;
+    const delta = e.clientX - startX;
+    const newWidth = Math.max(280, Math.min(panelWidth - 280, startWidth + delta));
+    leftPanel.style.flex = '0 0 ' + newWidth + 'px';
+  });
+
+  divider.addEventListener('pointerup', function(e) {
+    dragging = false;
+    divider.classList.remove('dragging');
+  });
+
+  divider.addEventListener('pointercancel', function() {
+    dragging = false;
+    divider.classList.remove('dragging');
+  });
+})();
 
 // File input change listeners
 document.getElementById('inputSuof').addEventListener('change', function(e) {
