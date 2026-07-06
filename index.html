@@ -122,14 +122,6 @@
     background: rgba(255,255,255,0.18); color: var(--text-1);
     border: 1px solid rgba(255,255,255,0.35); white-space: nowrap;
   }
-  .reset-btn {
-    font-size: 11px; cursor: pointer;
-    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.28);
-    border-radius: 8px; padding: 4px 10px;
-    color: var(--text-2); display: flex; align-items: center; gap: 4px;
-    transition: background 0.15s, color 0.15s;
-  }
-  .reset-btn:hover { background: rgba(255,255,255,0.22); color: var(--text-1); }
 
   /* ── KPI strip ── */
   .kpi-strip { display: flex; flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,0.16); }
@@ -886,46 +878,6 @@
   .add-model-input:focus { border-color:rgba(255,255,255,0.5); }
   #addModelStatus { font-size:12px; min-height:18px; margin-top:6px; }
 
-  /* ── Case-pack colour pills ── */
-  .cp-pill {
-    cursor:pointer; user-select:none; transition:transform 0.15s, box-shadow 0.15s;
-    position:relative;
-  }
-  .cp-pill:hover { transform:scale(1.08); box-shadow:0 2px 8px rgba(0,0,0,0.35); }
-  .cp-pill[data-color] { color:#fff !important; }
-  /* colour-picker popover */
-  .cp-picker-pop {
-    position:fixed; z-index:9999;
-    background:rgba(18,18,36,0.97);
-    border:1px solid rgba(255,255,255,0.18);
-    border-radius:14px; padding:14px 14px 10px;
-    box-shadow:0 10px 40px rgba(0,0,0,0.55);
-    min-width:210px;
-  }
-  .cp-picker-pop .cp-pp-title {
-    font-size:10px; font-weight:600; letter-spacing:0.6px;
-    color:rgba(255,255,255,0.5); text-transform:uppercase;
-    margin-bottom:10px; text-align:center;
-  }
-  .cp-picker-pop .cp-swatches {
-    display:grid; grid-template-columns:repeat(6,1fr); gap:7px;
-    margin-bottom:10px;
-  }
-  .cp-swatch {
-    width:26px; height:26px; border-radius:7px; cursor:pointer;
-    border:2px solid transparent; transition:transform 0.1s, border-color 0.1s;
-  }
-  .cp-swatch:hover { transform:scale(1.18); }
-  .cp-swatch.active { border-color:#fff; }
-  .cp-picker-pop .cp-pp-btns {
-    display:flex; gap:6px; justify-content:center;
-  }
-  .cp-picker-pop .cp-pp-btns button {
-    font-size:10px; padding:4px 10px; border-radius:7px;
-    border:1px solid rgba(255,255,255,0.2);
-    background:rgba(255,255,255,0.08); color:#fff; cursor:pointer;
-  }
-  .cp-picker-pop .cp-pp-btns button:hover { background:rgba(255,255,255,0.18); }
   .rp-box .rp-sub { font-size:11px; color:var(--text-2); margin-bottom:16px; }
   .rp-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .rp-field label { display:block; font-size:11px; font-weight:600; color:var(--text-2); margin-bottom:4px; }
@@ -2155,7 +2107,6 @@ function buildProduct(p) {
         <span class="phc-sep">·</span>
         <span class="phc-pill">Inner: ${p.inner}</span>
         <span class="phc-pill">Master: ${p.master}</span>
-        <button class="reset-btn" onclick="resetProduct('${p.sku}')">&#8635; Reset</button>
       </div>
       <div class="product-header-btns">
         <button class="delete-btn" onclick="deleteProduct('${p.sku}')" title="Remove this item permanently">&#128465; Delete</button>
@@ -2419,6 +2370,22 @@ function handleMerkurySubField(input) {
   const val  = parseFloat(input.value.replace(/,/g, '')) || 0;
   state[sku][field] = val;
   saveState();
+  const col = field === 'openStock' ? 'open_stock' : 'skinny_qp';
+  debounceSync(`meta:${sku}:${col}`, () =>
+    sbClient.from('sku_meta').upsert({ sku, [col]: val }, { onConflict: 'sku' }));
+}
+
+// ── Debounced per-field Supabase sync ─────────────────────────────────────────
+// Each edited cell gets its own timer (keyed by sku+week+field), so rapid edits
+// to ONE cell coalesce into a single push, while edits to OTHER cells each save
+// independently on their own schedule — and since every push carries only the
+// field that changed, two people editing different cells on the same SKU can
+// never overwrite each other's row.
+const _syncTimers = {};
+function debounceSync(key, fn, delay = 800) {
+  if (isTestMode || !sbClient) return;
+  clearTimeout(_syncTimers[key]);
+  _syncTimers[key] = setTimeout(() => { fn().catch(e => console.warn('Sync failed:', key, e.message)); }, delay);
 }
 
 function handleChange(input) {
@@ -2427,7 +2394,11 @@ function handleChange(input) {
   const idx = parseInt(input.dataset.idx);
   if (idx < getCurrentWeekIdx()) return;  // safety guard — never mutate past weeks
   const val = parseFloat(input.value.replace(/,/g, '')) || 0;
-  if (row === 'firmReceipt') state[sku].firmReceipts[idx] = val;
+  if (row === 'firmReceipt') {
+    state[sku].firmReceipts[idx] = val;
+    debounceSync(`fw:${sku}:${idx}:firm_receipt`, () =>
+      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, firm_receipt: val }, { onConflict: 'sku,week_idx' }));
+  }
   if (row === 'reorder') {
     state[sku].reorders[idx] = val;
     if (state[sku].reorderData && state[sku].reorderData[idx]) { state[sku].reorderData[idx].qty = val; }
@@ -2454,8 +2425,15 @@ function handleChange(input) {
       woCell.textContent = fmtWos(wosVal);
       setWosStyle(woCell, wosVal);
     }
+    const manual = state[sku].salesRatesManual[idx];
+    debounceSync(`fw:${sku}:${idx}:sales_rate`, () =>
+      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, sales_rate: val, sales_rate_manual: manual }, { onConflict: 'sku,week_idx' }));
   }
-  if (row === 'posUnits') state[sku].posUnits[idx] = val;
+  if (row === 'posUnits') {
+    state[sku].posUnits[idx] = val;
+    debounceSync(`fw:${sku}:${idx}:pos_units`, () =>
+      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, pos_units: val }, { onConflict: 'sku,week_idx' }));
+  }
   updateCalcs(sku);
   saveState();
 }
@@ -2543,30 +2521,6 @@ function updateCalcs(sku) {
   if (merkuryEl) merkuryEl.value = state[sku].onHandMerkury.toLocaleString();
   renderSummary();
 }
-
-function resetProduct(sku) {
-  const p = products.find(x => x.sku === sku);
-  state[sku].firmReceipts = [...p.firmReceipts];
-  state[sku].reorders     = new Array(weeks.length).fill(0);
-  state[sku].salesRates   = [...p.salesRates];
-  state[sku].posUnits     = new Array(weeks.length).fill(0);
-  state[sku].onHandMerkury = p.onHandMerkury;
-  state[sku].atsConnected       = false;
-  state[sku].avgWeeklySalesVD   = null;
-  state[sku].vdConnected        = false;
-  const block = document.getElementById(`block-${sku}`);
-  block.querySelectorAll('input[data-row]').forEach(inp => {
-    const row = inp.dataset.row;
-    const idx = parseInt(inp.dataset.idx);
-    if (row === 'firmReceipt') inp.value = fmtInput(p.firmReceipts[idx]);
-    else if (row === 'reorder') inp.value = fmtInput(0);
-    else if (row === 'posUnits') inp.value = fmtInput(0);
-    else if (row === 'salesRate') inp.value = fmtInput(p.salesRates[idx]);
-  });
-  updateFirmReceiptLabel(sku);
-  updateCalcs(sku);
-}
-
 
 // ── ATS sync ─────────────────────────────────────────────────────────────────
 
@@ -3093,7 +3047,14 @@ let sentReorders = {};
 try { sentReorders = JSON.parse(localStorage.getItem(SENT_REORDERS_KEY) || '{}'); } catch(e) {}
 let isTestMode = false;
 let deletedSkus = new Set();
-function saveSentReorders() { if (isTestMode) return; localStorage.setItem(SENT_REORDERS_KEY, JSON.stringify(sentReorders)); }
+function saveSentReorders() {
+  if (isTestMode) return;
+  localStorage.setItem(SENT_REORDERS_KEY, JSON.stringify(sentReorders));
+  if (sbClient) {
+    sbClient.from('app_cache').upsert({ key: 'sent_reorders', data: sentReorders }, { onConflict: 'key' })
+      .catch(e => console.warn('sentReorders sync failed:', e.message));
+  }
+}
 
 function _loadInboundEdits() {
   try {
@@ -3123,6 +3084,10 @@ function _saveInboundEdit(rowKey, field, value) {
     data[rowKey][field] = value;
   }
   if (!isTestMode) localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(data));
+  if (!isTestMode && sbClient) {
+    sbClient.from('app_cache').upsert({ key: 'inbound_edits', data }, { onConflict: 'key' })
+      .catch(e => console.warn('inboundEdits sync failed:', e.message));
+  }
 }
 
 function renderInboundPage() {
@@ -3404,6 +3369,10 @@ function deleteProduct(sku) {
   if (!confirm('Delete "' + name + '"?\nThis will permanently remove the item and all its data.')) return;
   // Track deletion so it survives page reload
   deletedSkus.add(sku);
+  if (!isTestMode && sbClient) {
+    sbClient.from('sku_meta').upsert({ sku, deleted: true }, { onConflict: 'sku' })
+      .catch(e => console.warn('delete sync failed:', e.message));
+  }
   // Remove from products array
   const idx = products.findIndex(x => x.sku === sku);
   if (idx >= 0) products.splice(idx, 1);
@@ -3473,6 +3442,8 @@ function toggleProductVisibility(sku) {
   [...visible, ...hidden].forEach(b => container.appendChild(b));
   renderSummary();
   saveState();
+  debounceSync(`meta:${sku}:hidden`, () =>
+    sbClient.from('sku_meta').upsert({ sku, hidden: isCollapsed }, { onConflict: 'sku' }));
 }
 
 
@@ -4175,6 +4146,10 @@ function submitAddItem() {
   // If this SKU/model was previously deleted, un-delete it so it survives reload
   deletedSkus.delete(sku);
   deletedSkus.delete(model);
+  if (!isTestMode && sbClient) {
+    sbClient.from('sku_meta').upsert({ sku, deleted: false }, { onConflict: 'sku' })
+      .catch(e => console.warn('undelete sync failed:', e.message));
+  }
 
   // Register model→SKU mapping for future ATS syncs
   modelToSku[model] = sku;
@@ -4696,190 +4671,6 @@ function getEtaEntriesForModel(modelLower) {
 }
 
 // ── Case-Pack Color System ───────────────────────────────────────────────────
-const CP_COLORS_KEY = 'merkury_cp_colors_v1';
-
-const CP_PALETTE = [
-  '#ef4444','#f97316','#eab308','#22c55e','#14b8a6',
-  '#3b82f6','#8b5cf6','#ec4899','#06b6d4','#84cc16',
-  '#f43f5e','#a855f7'
-];
-
-function loadCpColors() {
-  try { return JSON.parse(localStorage.getItem(CP_COLORS_KEY) || '{}'); } catch(e) { return {}; }
-}
-function saveCpColors(d) { if (isTestMode) return; localStorage.setItem(CP_COLORS_KEY, JSON.stringify(d)); }
-
-// All unique non-empty case packs saved for a given SKU across ALL inbound edits
-function getSkuCasePacks(sku) {
-  const edits = _loadInboundEdits();
-  const p = products.find(x => x.sku === sku);
-  const model = p ? p.model.toLowerCase().trim() : '';
-  const seen = new Set();
-  for (const [key, val] of Object.entries(edits)) {
-    const parts = key.split('|');
-    if (parts.length >= 2 && parts[1].toLowerCase().trim() === model && val.casePack && val.casePack.trim()) {
-      seen.add(val.casePack.trim());
-    }
-  }
-  return [...seen];
-}
-
-// Re-render the cp-pills span in the product header for a given SKU
-function refreshCpPills(sku) {
-  const container = document.getElementById('cp-pills-' + sku);
-  if (!container) return;
-  const packs  = getSkuCasePacks(sku);
-  const colors = loadCpColors();
-  container.innerHTML = packs.map(cp => {
-    const col = (colors[sku] || {})[cp] || null;
-    const safecp = cp.replace(/'/g, "\\'");
-    return `<span class="phc-pill cp-pill"
-      ${col ? `style="background:${col};color:#fff;border-color:${col};" data-color="${col}"` : ''}
-      title="Double-click to set highlight color"
-      ondblclick="openCpColorPicker('${sku}','${safecp}',this)">${cp}</span>`;
-  }).join('');
-}
-
-// Refresh pills for ALL products (called after bulk sync)
-function refreshAllCpPills() {
-  products.forEach(p => { refreshCpPills(p.sku); applyFrCpColors(p.sku); });
-
-}
-
-// Open colour-picker popover near the clicked pill
-function openCpColorPicker(sku, casePack, pillEl) {
-  document.querySelectorAll('.cp-picker-pop').forEach(el => el.remove());
-  const colors = loadCpColors();
-  const current = (colors[sku] || {})[casePack] || null;
-  const safesku = sku.replace(/'/g,"\\'");
-  const safecp  = casePack.replace(/'/g,"\\'");
-
-  const pop = document.createElement('div');
-  pop.className = 'cp-picker-pop';
-  pop.innerHTML = `
-    <div class="cp-pp-title">Highlight color &mdash; ${casePack}</div>
-    <div class="cp-swatches">
-      ${CP_PALETTE.map(c => `
-        <div class="cp-swatch${c === current ? ' active' : ''}"
-          style="background:${c};"
-          onclick="setCpColor('${safesku}','${safecp}','${c}',this.closest('.cp-picker-pop'))"></div>
-      `).join('')}
-    </div>
-    <div class="cp-pp-btns">
-      <button onclick="setCpColor('${safesku}','${safecp}','',this.closest('.cp-picker-pop'))">&#10005; Clear</button>
-      <button onclick="this.closest('.cp-picker-pop').remove()">Close</button>
-    </div>`;
-  document.body.appendChild(pop);
-
-  // Position below the pill
-  const r = pillEl.getBoundingClientRect();
-  let left = r.left, top = r.bottom + 6;
-  const pw = pop.offsetWidth || 214;
-  if (left + pw > window.innerWidth - 12) left = window.innerWidth - pw - 12;
-  if (top + 160 > window.innerHeight - 12) top = r.top - 164;
-  pop.style.left = left + 'px';
-  pop.style.top  = top + 'px';
-
-  setTimeout(() => {
-    const close = e => { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('mousedown', close); } };
-    document.addEventListener('mousedown', close);
-  }, 120);
-}
-
-// Save a color choice and refresh UI
-function setCpColor(sku, casePack, color, popEl) {
-  const colors = loadCpColors();
-  if (!colors[sku]) colors[sku] = {};
-  if (color) colors[sku][casePack] = color;
-  else       delete colors[sku][casePack];
-  if (!Object.keys(colors[sku]).length) delete colors[sku];
-  saveCpColors(colors);
-  refreshCpPills(sku);
-  applyFrCpColors(sku);
-  if (popEl) popEl.remove();
-}
-
-// Apply (or clear) case-pack highlight colors on Firm Receipt row cells
-function applyFrCpColors(sku) {
-  const block = document.getElementById('block-' + sku);
-  if (!block) return;
-
-  const colors   = loadCpColors();
-  const skuColors = colors[sku] || {};
-  if (!Object.keys(skuColors).length) {
-    // Nothing to color — reset any previously applied fr cp colors
-    block.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
-      const td = inp.closest('td');
-      if (td && td.dataset.cpColored) { td.style.background = ''; td.style.color = ''; delete td.dataset.cpColored; }
-    });
-    return;
-  }
-
-  const edits = _loadInboundEdits();
-  const p     = products.find(x => x.sku === sku);
-  const model = p ? p.model.toLowerCase().trim() : '';
-
-  // Build weekIdx → best casePack map from inbound data
-  const weekCpMap = {};
-
-  if (lastInboundData && lastInboundData.length > 0) {
-    let headerRowIdx = 0;
-    for (let i = 0; i < Math.min(6, lastInboundData.length); i++) {
-      if (lastInboundData[i] && lastInboundData[i].filter(c => c != null && String(c).trim() !== '').length >= 3) {
-        headerRowIdx = i; break;
-      }
-    }
-    const hdr = (lastInboundData[headerRowIdx] || []).map(c => c != null ? String(c).trim() : '');
-    const fCol = (...terms) => { for (const t of terms) { const i = hdr.findIndex(h => h.toLowerCase().includes(t.toLowerCase())); if (i !== -1) return i; } return -1; };
-    const colPid   = fCol('product id','productid','model','item no','item #');
-    const colPo    = fCol('purchase order id','po id','po number','order id','po#','po no');
-    const colDate  = fCol('planned delivery date','delivery date','eta','arrival date','ship date');
-    const parseDt  = s => { const pp = s.split('/'); return new Date(+pp[2], +pp[0]-1, +pp[1]); };
-
-    for (let r = headerRowIdx + 1; r < lastInboundData.length; r++) {
-      const row = lastInboundData[r];
-      if (!row || colPid === -1) continue;
-      if (String(row[colPid] || '').trim().toLowerCase() !== model) continue;
-      if (colDate === -1) continue;
-      const rawD = String(row[colDate] || '').trim();
-      if (!rawD) continue;
-      const d = new Date(rawD);
-      if (isNaN(d)) continue;
-      d.setHours(0,0,0,0);
-
-      for (let wi = 0; wi < weeks.length; wi++) {
-        const fwStart = parseDt(weeks[wi].dt);
-        const fwEnd   = wi + 1 < weeks.length ? parseDt(weeks[wi + 1].dt) : null;
-        if (d >= fwStart && (!fwEnd || d < fwEnd)) {
-          const poId    = colPo   !== -1 ? String(row[colPo]   || '').trim() : '';
-          const rawDStr = colDate !== -1 ? String(row[colDate] || '').trim() : '';
-          const rowKey  = `${poId}|${model}|${rawDStr}`;  // stable key
-          let cp = (edits[rowKey] || {}).casePack || '';
-          if (cp && skuColors[cp]) weekCpMap[wi] = cp;
-          break;
-        }
-      }
-    }
-  }
-
-  // Paint / clear firm-receipt cells
-  block.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
-    const wi = parseInt(inp.dataset.idx);
-    const td = inp.closest('td');
-    if (!td) return;
-    const cp = weekCpMap[wi];
-    if (cp && skuColors[cp]) {
-      td.style.background = skuColors[cp] + '55';
-      td.style.color = '#fff';
-      td.dataset.cpColored = '1';
-    } else if (td.dataset.cpColored) {
-      td.style.background = '';
-      td.style.color = '';
-      delete td.dataset.cpColored;
-    }
-  });
-}
-
 // ── Reorder popup ─────────────────────────────────────────────────────────────
 let rpCurrentSku = null, rpCurrentIdx = null;
 
@@ -5323,7 +5114,7 @@ async function upsertZeroReorder(sku, week_idx) {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         sbClient.from('sku_weekly').select('*'),
@@ -5336,7 +5127,9 @@ async function loadFromSupabase() {
         sbClient.from('app_cache').select('*').eq('key', 'sku_vd_rates'),
         sbClient.from('app_cache').select('*').eq('key', 'fc_accuracy_log'),
         sbClient.from('app_cache').select('*').eq('key', 'fc_snapshot'),
-        sbClient.from('app_cache').select('*').eq('key', 'forecast_accuracy')
+        sbClient.from('app_cache').select('*').eq('key', 'forecast_accuracy'),
+        sbClient.from('app_cache').select('*').eq('key', 'sent_reorders'),
+        sbClient.from('app_cache').select('*').eq('key', 'inbound_edits')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -5348,6 +5141,25 @@ async function loadFromSupabase() {
       if (rows && rows.length > 0) {
         lastInboundData = rows;
         try { localStorage.setItem(INBOUND_DATA_KEY, JSON.stringify(rows)); } catch(e) {}
+      }
+    }
+
+    // Restore sent-reorder status from Supabase (so "sent" flags are visible to everyone)
+    if (sentReordersRows && sentReordersRows.length > 0) {
+      const sentData = sentReordersRows[0].data;
+      if (sentData && typeof sentData === 'object') {
+        sentReorders = sentData;
+        try { localStorage.setItem(SENT_REORDERS_KEY, JSON.stringify(sentReorders)); } catch(e) {}
+      }
+    }
+
+    // Restore Inbound Detail manual edits from Supabase
+    if (inboundEditsRows && inboundEditsRows.length > 0) {
+      const editsData = inboundEditsRows[0].data;
+      if (editsData && typeof editsData === 'object') {
+        try { localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(editsData)); } catch(e) {}
+        const inboundPageEl = document.getElementById('page-inbound');
+        if (inboundPageEl && inboundPageEl.classList.contains('active')) renderInboundPage();
       }
     }
 
@@ -5402,10 +5214,25 @@ async function loadFromSupabase() {
     }
 
     // Apply sku_meta
+    const _hiddenFromSupabase = {};
     if (metaRows) {
       metaRows.forEach(row => {
         const sku = row.sku;
+        if (row.deleted === true && !deletedSkus.has(sku)) {
+          // Deleted on another device — remove it here too
+          deletedSkus.add(sku);
+          const idx = products.findIndex(x => x.sku === sku);
+          if (idx >= 0) products.splice(idx, 1);
+          delete state[sku];
+          const block = document.getElementById('block-' + sku);
+          if (block) block.remove();
+          for (const m of Object.keys(modelToSku)) {
+            if (modelToSku[m] === sku) delete modelToSku[m];
+          }
+          return;
+        }
         if (!state[sku]) return;
+        if (row.hidden != null) _hiddenFromSupabase[sku] = row.hidden;
         if (row.on_hand_merkury != null) {
           state[sku].onHandMerkury = row.on_hand_merkury;
           const p = products.find(x => x.sku === sku);
@@ -5422,6 +5249,8 @@ async function loadFromSupabase() {
           const thdEl = document.getElementById('kpi-thd-' + sku);
           if (thdEl) thdEl.textContent = row.on_hand_thd.toLocaleString();
         }
+        if (row.open_stock != null) state[sku].openStock = row.open_stock;
+        if (row.skinny_qp  != null) state[sku].skinnyQP  = row.skinny_qp;
       });
     }
 
@@ -5445,6 +5274,11 @@ async function loadFromSupabase() {
         if (row.suof_forecast != null && state[sku].suofFromExcel)
           state[sku].suofFromExcel[week_idx] = row.suof_forecast;
         if (row.pos_units  != null) state[sku].posUnits[week_idx]  = row.pos_units;
+        if (row.sales_rate != null) {
+          state[sku].salesRates[week_idx] = row.sales_rate;
+          if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
+          state[sku].salesRatesManual[week_idx] = !!row.sales_rate_manual;
+        }
         if (row.reorder_qty != null) {
           state[sku].reorders[week_idx] = row.reorder_qty;
           if (row.reorder_qty > 0 || row.reorder_case_pack || row.reorder_config) {
@@ -5469,13 +5303,30 @@ async function loadFromSupabase() {
         block.querySelectorAll('input[data-row="posUnits"]').forEach(inp => {
           inp.value = fmtInput(s.posUnits[parseInt(inp.dataset.idx)] || 0);
         });
+        block.querySelectorAll('input[data-row="salesRate"]').forEach(inp => {
+          if (!inp.readOnly) inp.value = fmtInput(s.salesRates[parseInt(inp.dataset.idx)] || 0);
+        });
         block.querySelectorAll('input[data-row="reorder"]').forEach(inp => {
           const idx = parseInt(inp.dataset.idx);
           inp.value = fmtInput(s.reorders[idx] || 0);
           const d = s.reorderData[idx];
           if (d && d.casePack) applyReorderColor(inp.closest('td'), d.casePack);
         });
+        if (_hiddenFromSupabase[p.sku] != null) {
+          const toggleBtn = document.getElementById('toggle-btn-' + p.sku);
+          if (_hiddenFromSupabase[p.sku]) {
+            block.classList.add('collapsed');
+            if (toggleBtn) toggleBtn.innerHTML = '&#9654; Show';
+          } else {
+            block.classList.remove('collapsed');
+            if (toggleBtn) toggleBtn.innerHTML = '&#9660; Hide';
+          }
+        }
       }
+      const openEl = document.getElementById('kpi-openstock-' + p.sku);
+      if (openEl) openEl.value = (s.openStock || 0).toLocaleString();
+      const qpEl = document.getElementById('kpi-skinnyqp-' + p.sku);
+      if (qpEl) qpEl.value = (s.skinnyQP || 0).toLocaleString();
       updateCalcs(p.sku);
       updateFirmReceiptLabel(p.sku);
       updateSuofLabel(p.sku);
