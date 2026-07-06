@@ -4343,7 +4343,6 @@ function buildFrSubRows(sku) {
   tbody.querySelectorAll('tr.fr-sub-row').forEach(r => r.remove());
 
   const cpData   = computeCpWeeklyQtys(sku);
-  const cpColors = (loadCpColors()[sku] || {});
   const mainRow  = document.getElementById('fr-row-' + sku);
   if (!mainRow) return;
 
@@ -4355,7 +4354,6 @@ function buildFrSubRows(sku) {
 
   entries.forEach(([groupKey, info]) => {
     const { qtys, cp, caseConf, model, projDesc } = info;
-    const col = cp ? cpColors[cp] : null;
 
     // Build label: "Case pack of {cp} + {caseConf}" or just "Case pack of {cp}"
     // For additional models append " ({MODEL})"
