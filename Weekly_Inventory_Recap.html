@@ -2371,8 +2371,10 @@ function handleMerkurySubField(input) {
   state[sku][field] = val;
   saveState();
   const col = field === 'openStock' ? 'open_stock' : 'skinny_qp';
-  debounceSync(`meta:${sku}:${col}`, () =>
-    sbClient.from('sku_meta').upsert({ sku, [col]: val }, { onConflict: 'sku' }));
+  if (!isTestMode && sbClient) {
+    sbClient.from('sku_meta').upsert({ sku, [col]: val }, { onConflict: 'sku' })
+      .catch(e => console.warn(field + ' sync failed:', e.message));
+  }
 }
 
 // ── Debounced per-field Supabase sync ─────────────────────────────────────────
@@ -2381,29 +2383,6 @@ function handleMerkurySubField(input) {
 // independently on their own schedule — and since every push carries only the
 // field that changed, two people editing different cells on the same SKU can
 // never overwrite each other's row.
-const _syncTimers = {};
-const _syncPending = {};
-function debounceSync(key, fn, delay = 800) {
-  if (isTestMode || !sbClient) return;
-  clearTimeout(_syncTimers[key]);
-  _syncPending[key] = fn;
-  _syncTimers[key] = setTimeout(() => {
-    delete _syncPending[key];
-    fn().catch(e => console.warn('Sync failed:', key, e.message));
-  }, delay);
-}
-// Fire any pending debounced Supabase writes immediately — called when leaving the
-// page (switch page, logout, close tab) so an edit made just before navigating away
-// isn't silently dropped by the debounce timer getting killed mid-wait.
-function flushPendingSyncs() {
-  Object.keys(_syncPending).forEach(key => {
-    clearTimeout(_syncTimers[key]);
-    const fn = _syncPending[key];
-    delete _syncPending[key];
-    fn().catch(e => console.warn('Sync flush failed:', key, e.message));
-  });
-}
-
 function handleChange(input) {
   const sku = input.dataset.sku;
   const row = input.dataset.row;
@@ -2412,8 +2391,10 @@ function handleChange(input) {
   const val = parseFloat(input.value.replace(/,/g, '')) || 0;
   if (row === 'firmReceipt') {
     state[sku].firmReceipts[idx] = val;
-    debounceSync(`fw:${sku}:${idx}:firm_receipt`, () =>
-      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, firm_receipt: val }, { onConflict: 'sku,week_idx' }));
+    if (!isTestMode && sbClient) {
+      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, firm_receipt: val }, { onConflict: 'sku,week_idx' })
+        .catch(e => console.warn('firmReceipt sync failed:', e.message));
+    }
   }
   if (row === 'reorder') {
     state[sku].reorders[idx] = val;
@@ -2442,13 +2423,17 @@ function handleChange(input) {
       setWosStyle(woCell, wosVal);
     }
     const manual = state[sku].salesRatesManual[idx];
-    debounceSync(`fw:${sku}:${idx}:sales_rate`, () =>
-      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, sales_rate: val, sales_rate_manual: manual }, { onConflict: 'sku,week_idx' }));
+    if (!isTestMode && sbClient) {
+      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, sales_rate: val, sales_rate_manual: manual }, { onConflict: 'sku,week_idx' })
+        .catch(e => console.warn('salesRate sync failed:', e.message));
+    }
   }
   if (row === 'posUnits') {
     state[sku].posUnits[idx] = val;
-    debounceSync(`fw:${sku}:${idx}:pos_units`, () =>
-      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, pos_units: val }, { onConflict: 'sku,week_idx' }));
+    if (!isTestMode && sbClient) {
+      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, pos_units: val }, { onConflict: 'sku,week_idx' })
+        .catch(e => console.warn('posUnits sync failed:', e.message));
+    }
   }
   updateCalcs(sku);
   saveState();
@@ -3457,8 +3442,10 @@ function toggleProductVisibility(sku) {
   [...visible, ...hidden].forEach(b => container.appendChild(b));
   renderSummary();
   saveState();
-  debounceSync(`meta:${sku}:hidden`, () =>
-    sbClient.from('sku_meta').upsert({ sku, hidden: isCollapsed }, { onConflict: 'sku' }));
+  if (!isTestMode && sbClient) {
+    sbClient.from('sku_meta').upsert({ sku, hidden: isCollapsed }, { onConflict: 'sku' })
+      .catch(e => console.warn('hidden sync failed:', e.message));
+  }
 }
 
 
@@ -5916,7 +5903,7 @@ function resetInactivityTimer() {
 }
 
 function autoLogout() {
-  if (!isTestMode) { saveState(); flushPendingSyncs(); }
+  if (!isTestMode) saveState();
   isTestMode = false;
   const box = document.getElementById('loginBox');
   box.classList.remove('expanding');
@@ -5944,7 +5931,7 @@ function startInactivityWatch() {
 
 // Auto-save on browser close or page refresh
 window.addEventListener('beforeunload', function() {
-  if (!isTestMode) { saveState(); flushPendingSyncs(); }
+  if (!isTestMode) saveState();
 });
 
 // ── Login modal ───────────────────────────────────────────────────────────────
@@ -8113,7 +8100,7 @@ function showPage(page) {
   const _overlay = document.getElementById('tryOnOverlay');
   if (_overlay && _overlay.classList.contains('open')) closeTryOnPanel();
   // Auto-save when switching pages
-  if (!isTestMode) { saveState(); flushPendingSyncs(); }
+  if (!isTestMode) saveState();
   document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const section = document.getElementById('page-' + page);
