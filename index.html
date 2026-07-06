@@ -2372,8 +2372,10 @@ function handleMerkurySubField(input) {
   saveState();
   const col = field === 'openStock' ? 'open_stock' : 'skinny_qp';
   if (!isTestMode && sbClient) {
-    sbClient.from('sku_meta').upsert({ sku, [col]: val }, { onConflict: 'sku' })
-      .catch(e => console.warn(field + ' sync failed:', e.message));
+    (async () => {
+      try { await sbClient.from('sku_meta').upsert({ sku, [col]: val }, { onConflict: 'sku' }); }
+      catch(e) { console.warn(field + ' sync failed:', e.message); }
+    })();
   }
 }
 
@@ -2392,8 +2394,10 @@ function handleChange(input) {
   if (row === 'firmReceipt') {
     state[sku].firmReceipts[idx] = val;
     if (!isTestMode && sbClient) {
-      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, firm_receipt: val }, { onConflict: 'sku,week_idx' })
-        .catch(e => console.warn('firmReceipt sync failed:', e.message));
+      (async () => {
+        try { await sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, firm_receipt: val }, { onConflict: 'sku,week_idx' }); }
+        catch(e) { console.warn('firmReceipt sync failed:', e.message); }
+      })();
     }
   }
   if (row === 'reorder') {
@@ -2424,15 +2428,19 @@ function handleChange(input) {
     }
     const manual = state[sku].salesRatesManual[idx];
     if (!isTestMode && sbClient) {
-      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, sales_rate: val, sales_rate_manual: manual }, { onConflict: 'sku,week_idx' })
-        .catch(e => console.warn('salesRate sync failed:', e.message));
+      (async () => {
+        try { await sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, sales_rate: val, sales_rate_manual: manual }, { onConflict: 'sku,week_idx' }); }
+        catch(e) { console.warn('salesRate sync failed:', e.message); }
+      })();
     }
   }
   if (row === 'posUnits') {
     state[sku].posUnits[idx] = val;
     if (!isTestMode && sbClient) {
-      sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, pos_units: val }, { onConflict: 'sku,week_idx' })
-        .catch(e => console.warn('posUnits sync failed:', e.message));
+      (async () => {
+        try { await sbClient.from('sku_weekly').upsert({ sku, week_idx: idx, pos_units: val }, { onConflict: 'sku,week_idx' }); }
+        catch(e) { console.warn('posUnits sync failed:', e.message); }
+      })();
     }
   }
   updateCalcs(sku);
@@ -3052,8 +3060,10 @@ function saveSentReorders() {
   if (isTestMode) return;
   localStorage.setItem(SENT_REORDERS_KEY, JSON.stringify(sentReorders));
   if (sbClient) {
-    sbClient.from('app_cache').upsert({ key: 'sent_reorders', data: sentReorders }, { onConflict: 'key' })
-      .catch(e => console.warn('sentReorders sync failed:', e.message));
+    (async () => {
+      try { await sbClient.from('app_cache').upsert({ key: 'sent_reorders', data: sentReorders }, { onConflict: 'key' }); }
+      catch(e) { console.warn('sentReorders sync failed:', e.message); }
+    })();
   }
 }
 
@@ -3086,8 +3096,10 @@ function _saveInboundEdit(rowKey, field, value) {
   }
   if (!isTestMode) localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(data));
   if (!isTestMode && sbClient) {
-    sbClient.from('app_cache').upsert({ key: 'inbound_edits', data }, { onConflict: 'key' })
-      .catch(e => console.warn('inboundEdits sync failed:', e.message));
+    (async () => {
+      try { await sbClient.from('app_cache').upsert({ key: 'inbound_edits', data }, { onConflict: 'key' }); }
+      catch(e) { console.warn('inboundEdits sync failed:', e.message); }
+    })();
   }
 }
 
@@ -3371,8 +3383,10 @@ function deleteProduct(sku) {
   // Track deletion so it survives page reload
   deletedSkus.add(sku);
   if (!isTestMode && sbClient) {
-    sbClient.from('sku_meta').upsert({ sku, deleted: true }, { onConflict: 'sku' })
-      .catch(e => console.warn('delete sync failed:', e.message));
+    (async () => {
+      try { await sbClient.from('sku_meta').upsert({ sku, deleted: true }, { onConflict: 'sku' }); }
+      catch(e) { console.warn('delete sync failed:', e.message); }
+    })();
   }
   // Remove from products array
   const idx = products.findIndex(x => x.sku === sku);
@@ -3444,8 +3458,10 @@ function toggleProductVisibility(sku) {
   renderSummary();
   saveState();
   if (!isTestMode && sbClient) {
-    sbClient.from('sku_meta').upsert({ sku, hidden: isCollapsed }, { onConflict: 'sku' })
-      .catch(e => console.warn('hidden sync failed:', e.message));
+    (async () => {
+      try { await sbClient.from('sku_meta').upsert({ sku, hidden: isCollapsed }, { onConflict: 'sku' }); }
+      catch(e) { console.warn('hidden sync failed:', e.message); }
+    })();
   }
 }
 
@@ -4150,8 +4166,10 @@ function submitAddItem() {
   deletedSkus.delete(sku);
   deletedSkus.delete(model);
   if (!isTestMode && sbClient) {
-    sbClient.from('sku_meta').upsert({ sku, deleted: false }, { onConflict: 'sku' })
-      .catch(e => console.warn('undelete sync failed:', e.message));
+    (async () => {
+      try { await sbClient.from('sku_meta').upsert({ sku, deleted: false }, { onConflict: 'sku' }); }
+      catch(e) { console.warn('undelete sync failed:', e.message); }
+    })();
   }
 
   // Register model→SKU mapping for future ATS syncs
