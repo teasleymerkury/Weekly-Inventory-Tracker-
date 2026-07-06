@@ -2382,10 +2382,26 @@ function handleMerkurySubField(input) {
 // field that changed, two people editing different cells on the same SKU can
 // never overwrite each other's row.
 const _syncTimers = {};
+const _syncPending = {};
 function debounceSync(key, fn, delay = 800) {
   if (isTestMode || !sbClient) return;
   clearTimeout(_syncTimers[key]);
-  _syncTimers[key] = setTimeout(() => { fn().catch(e => console.warn('Sync failed:', key, e.message)); }, delay);
+  _syncPending[key] = fn;
+  _syncTimers[key] = setTimeout(() => {
+    delete _syncPending[key];
+    fn().catch(e => console.warn('Sync failed:', key, e.message));
+  }, delay);
+}
+// Fire any pending debounced Supabase writes immediately — called when leaving the
+// page (switch page, logout, close tab) so an edit made just before navigating away
+// isn't silently dropped by the debounce timer getting killed mid-wait.
+function flushPendingSyncs() {
+  Object.keys(_syncPending).forEach(key => {
+    clearTimeout(_syncTimers[key]);
+    const fn = _syncPending[key];
+    delete _syncPending[key];
+    fn().catch(e => console.warn('Sync flush failed:', key, e.message));
+  });
 }
 
 function handleChange(input) {
@@ -5905,7 +5921,7 @@ function resetInactivityTimer() {
 }
 
 function autoLogout() {
-  if (!isTestMode) saveState();
+  if (!isTestMode) { saveState(); flushPendingSyncs(); }
   isTestMode = false;
   const box = document.getElementById('loginBox');
   box.classList.remove('expanding');
@@ -5933,7 +5949,7 @@ function startInactivityWatch() {
 
 // Auto-save on browser close or page refresh
 window.addEventListener('beforeunload', function() {
-  if (!isTestMode) saveState();
+  if (!isTestMode) { saveState(); flushPendingSyncs(); }
 });
 
 // ── Login modal ───────────────────────────────────────────────────────────────
@@ -8106,7 +8122,7 @@ function showPage(page) {
   const _overlay = document.getElementById('tryOnOverlay');
   if (_overlay && _overlay.classList.contains('open')) closeTryOnPanel();
   // Auto-save when switching pages
-  if (!isTestMode) saveState();
+  if (!isTestMode) { saveState(); flushPendingSyncs(); }
   document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const section = document.getElementById('page-' + page);
