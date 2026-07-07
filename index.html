@@ -1054,6 +1054,28 @@
 
   /* ── Inbound Detail page ── */
   .inbound-tab-wrap { padding: 24px 8px 48px 8px; }
+  .sheets-page-wrap { padding: 24px 8px 48px 8px; }
+  .sheets-card { background: var(--glass-bg); border-radius: 18px; padding: 20px 22px; }
+  .sheets-card-title { font-size: 15px; font-weight: 700; color: var(--text-1); margin-bottom: 14px; }
+  .sheets-section-label { font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .sheets-col-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+  .sheets-col-chip {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 5px 11px;
+    border: 1px solid rgba(255,255,255,0.28); border-radius: 14px; cursor: pointer; user-select: none;
+    color: var(--text-1); background: rgba(255,255,255,0.06);
+  }
+  .sheets-col-chip input { width: 13px; height: 13px; cursor: pointer; }
+  .sheets-controls-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; margin-bottom: 14px; }
+  .sheets-label { font-size: 11px; color: var(--text-2); margin-bottom: 4px; }
+  .sheets-sku-picker {
+    max-height: 160px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.18); border-radius: 10px;
+    padding: 8px; margin-bottom: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px;
+  }
+  .sheets-sku-picker label { font-size: 12px; color: var(--text-1); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .sheets-footer {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+    border-top: 1px solid rgba(255,255,255,0.12); padding-top: 14px;
+  }
   .inbound-tab-header {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 18px; flex-wrap: wrap; gap: 10px;
@@ -1259,6 +1281,10 @@
     <div class="nav-item" id="nav-forecast" onclick="showPage('forecast')">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       Sales &amp; Reorder Forecast
+    </div>
+    <div class="nav-item" id="nav-sheets" onclick="showPage('sheets')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+      Sheets
     </div>
   </nav>
 </aside>
@@ -1499,6 +1525,57 @@
     </div>
   </div>
   <button id="tryOnClose" onclick="closeTryOnPanel()">✕ Close</button>
+</div>
+
+<!-- Page: Sheets (report builder) -->
+<div class="page-section" id="page-sheets">
+  <div class="sheets-page-wrap">
+    <div class="inbound-tab-header">
+      <div>
+        <h1>Sheets</h1>
+        <p>Build a custom export from your current data</p>
+      </div>
+    </div>
+    <div class="sheets-card">
+      <div class="sheets-card-title">Build a report</div>
+      <div class="sheets-section-label">Columns to include</div>
+      <div class="sheets-col-chips" id="sheetsColChips"></div>
+      <div class="sheets-controls-row">
+        <div>
+          <div class="sheets-label">Week range</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <select class="fw-select" id="sheetsFwFrom" onchange="updateSheetsSummary()"></select>
+            <span style="font-size:11px;color:var(--text-2);">to</span>
+            <select class="fw-select" id="sheetsFwTo" onchange="updateSheetsSummary()"></select>
+          </div>
+        </div>
+        <div>
+          <div class="sheets-label">SKUs</div>
+          <select class="fw-select" id="sheetsSkuMode" onchange="onSheetsSkuModeChange()">
+            <option value="all">All SKUs</option>
+            <option value="select">Select…</option>
+          </select>
+        </div>
+        <div>
+          <div class="sheets-label">Layout</div>
+          <select class="fw-select" id="sheetsLayout" onchange="updateSheetsSummary()">
+            <option value="wide">Wide — one column per week</option>
+            <option value="long">Long — one row per SKU-week</option>
+          </select>
+        </div>
+      </div>
+      <div class="sheets-sku-picker" id="sheetsSkuPicker" style="display:none;"></div>
+      <div class="sheets-footer">
+        <span id="sheetsSummary" style="font-size:12px;color:var(--text-2);"></span>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="sheetsTemplateName" placeholder="Template name" class="fw-select" style="width:140px;" />
+          <button class="add-item-btn" onclick="saveReportTemplate()">&#128190; Save as template</button>
+          <select class="fw-select" id="sheetsTemplateSelect" onchange="loadReportTemplate(this.value)"><option value="">Load template…</option></select>
+          <button class="add-item-btn" onclick="exportReport()">&#128229; Export .xlsx</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Forecast chip detail modal -->
@@ -5372,7 +5449,7 @@ function subscribeRealtimeSync() {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }, { data: firmReceiptDetailRows }, { data: atsStatusRows }, { data: suofStatusRows }, { data: vdStatusRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }, { data: firmReceiptDetailRows }, { data: atsStatusRows }, { data: suofStatusRows }, { data: vdStatusRows }, { data: reportTemplatesRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         fetchAllSkuWeekly(),
@@ -5391,7 +5468,8 @@ async function loadFromSupabase() {
         sbClient.from('app_cache').select('*').eq('key', 'firm_receipt_detail'),
         sbClient.from('app_cache').select('*').eq('key', 'ats_status_msg'),
         sbClient.from('app_cache').select('*').eq('key', 'suof_status_msg'),
-        sbClient.from('app_cache').select('*').eq('key', 'vd_status_msg')
+        sbClient.from('app_cache').select('*').eq('key', 'vd_status_msg'),
+        sbClient.from('app_cache').select('*').eq('key', 'report_templates')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -5437,6 +5515,14 @@ async function loadFromSupabase() {
           if (map[sku].entries) state[sku].firmReceiptEntries = map[sku].entries;
           if (map[sku].cpData)  state[sku].savedCpData        = map[sku].cpData;
         });
+      }
+    }
+
+    // Restore saved report templates (Sheets page) from Supabase
+    if (reportTemplatesRows && reportTemplatesRows.length > 0) {
+      const map = reportTemplatesRows[0].data;
+      if (map && typeof map === 'object') {
+        try { localStorage.setItem('merkury_report_templates', JSON.stringify(map)); } catch(e) {}
       }
     }
 
@@ -5598,6 +5684,14 @@ async function loadFromSupabase() {
     // before this fix existed) fills in the gaps for every other device on their next login.
     if (!isTestMode && sbClient) {
       products.forEach(p => { syncProductIdentity(p); });
+    }
+
+    // Backfill firm receipt detail the same way — whichever device already has
+    // firmReceiptEntries/savedCpData sitting in its own localStorage (from a sync that
+    // ran before this cross-device fix existed) pushes it up on its next login, instead
+    // of only pushing on the next fresh ATS sync / model add-remove.
+    if (!isTestMode && sbClient) {
+      syncFirmReceiptDetail();
     }
 
     subscribeRealtimeSync();
@@ -8310,6 +8404,210 @@ function showPage(page) {
     if (fcPeriod.startIdx === -1) selectForecastQuarter('Q2', 2026);
     else renderForecastPage();
   }
+  if (page === 'sheets') initSheetsPage();
+}
+
+// ── Sheets: report builder ────────────────────────────────────────────────────
+const SHEETS_COLUMNS = [
+  { key: 'sku',           label: 'SKU',                  type: 'static', default: true },
+  { key: 'model',         label: 'Model',                type: 'static', default: true },
+  { key: 'desc',          label: 'Description',          type: 'static', default: true },
+  { key: 'inner',         label: 'Inner Pack',           type: 'static' },
+  { key: 'master',        label: 'Master Pack',          type: 'static' },
+  { key: 'onHandMerkury', label: 'On Hand (Merkury)',    type: 'static', default: true },
+  { key: 'onHandTHD',     label: 'On Hand (THD)',        type: 'static', default: true },
+  { key: 'openStock',     label: 'Open Stock',           type: 'static' },
+  { key: 'skinnyQP',      label: 'Skinny QP',            type: 'static' },
+  { key: 'firmReceipt',   label: 'Firm Receipt',         type: 'weekly', default: true },
+  { key: 'posUnits',      label: 'POS Units',            type: 'weekly' },
+  { key: 'salesRate',     label: 'Sales Rate',           type: 'weekly', default: true },
+  { key: 'suof',          label: 'SUOF Forecast',        type: 'weekly' },
+  { key: 'reorderQty',    label: 'Reorder Qty',          type: 'weekly' },
+  { key: 'endInv',        label: 'Projected Inventory',  type: 'weekly', default: true },
+  { key: 'wos',           label: 'WOS',                  type: 'weekly', default: true }
+];
+
+let _sheetsInitialized = false;
+function initSheetsPage() {
+  if (_sheetsInitialized) { updateSheetsSummary(); return; }
+  _sheetsInitialized = true;
+
+  document.getElementById('sheetsColChips').innerHTML = SHEETS_COLUMNS.map(c =>
+    `<label class="sheets-col-chip"><input type="checkbox" data-col="${c.key}" ${c.default ? 'checked' : ''} onchange="updateSheetsSummary()"> ${c.label}</label>`
+  ).join('');
+
+  const opts = weeks.map((w, i) => `<option value="${i}">${w.fw}</option>`).join('');
+  const fromSel = document.getElementById('sheetsFwFrom');
+  const toSel   = document.getElementById('sheetsFwTo');
+  fromSel.innerHTML = opts;
+  toSel.innerHTML = opts;
+  const curIdx = getCurrentWeekIdx();
+  fromSel.value = curIdx;
+  toSel.value = Math.min(curIdx + 12, weeks.length - 1);
+
+  document.getElementById('sheetsSkuPicker').innerHTML = products.map(p =>
+    `<label><input type="checkbox" data-sheets-sku="${p.sku}" checked onchange="updateSheetsSummary()"> ${p.model} — ${(p.desc||'').replace(/</g,'&lt;')}</label>`
+  ).join('');
+
+  refreshSheetsTemplateOptions();
+  updateSheetsSummary();
+}
+
+function onSheetsSkuModeChange() {
+  const mode = document.getElementById('sheetsSkuMode').value;
+  document.getElementById('sheetsSkuPicker').style.display = mode === 'select' ? 'grid' : 'none';
+  updateSheetsSummary();
+}
+
+function getSheetsSelectedColumns() {
+  return [...document.querySelectorAll('#sheetsColChips input:checked')].map(inp => inp.dataset.col);
+}
+
+function getSheetsSelectedSkus() {
+  const mode = document.getElementById('sheetsSkuMode').value;
+  if (mode === 'all') return products.map(p => p.sku);
+  return [...document.querySelectorAll('#sheetsSkuPicker input:checked')].map(inp => inp.dataset.sheetsSku);
+}
+
+function updateSheetsSummary() {
+  const cols = getSheetsSelectedColumns();
+  const from = parseInt(document.getElementById('sheetsFwFrom').value) || 0;
+  const to   = parseInt(document.getElementById('sheetsFwTo').value) || 0;
+  const wkCount = Math.max(1, Math.abs(to - from) + 1);
+  const skuCount = getSheetsSelectedSkus().length;
+  const weeklyCount = cols.filter(k => (SHEETS_COLUMNS.find(c => c.key === k) || {}).type === 'weekly').length;
+  const staticCount = cols.length - weeklyCount;
+  document.getElementById('sheetsSummary').textContent =
+    `${staticCount} field${staticCount===1?'':'s'} + ${weeklyCount} weekly column${weeklyCount===1?'':'s'} × ${wkCount} week${wkCount===1?'':'s'} × ${skuCount} SKU${skuCount===1?'':'s'}`;
+}
+
+function _sheetsStaticValue(p, s, key) {
+  switch (key) {
+    case 'sku': return p.sku;
+    case 'model': return p.model;
+    case 'desc': return p.desc;
+    case 'inner': return p.inner;
+    case 'master': return p.master;
+    case 'onHandMerkury': return s.onHandMerkury || 0;
+    case 'onHandTHD': return s.onHandTHD || 0;
+    case 'openStock': return s.openStock || 0;
+    case 'skinnyQP': return s.skinnyQP || 0;
+    default: return '';
+  }
+}
+function _sheetsWeeklyValue(s, rows, key, i) {
+  switch (key) {
+    case 'firmReceipt': return s.firmReceipts[i] || 0;
+    case 'posUnits': return s.posUnits[i] || 0;
+    case 'salesRate': return s.salesRates[i] || 0;
+    case 'suof': return (s.suofFromExcel && s.suofFromExcel[i] != null) ? s.suofFromExcel[i] : '';
+    case 'reorderQty': return s.reorders[i] || 0;
+    case 'endInv': return rows.endInv[i];
+    case 'wos': return rows.wos[i] != null ? Math.round(rows.wos[i] * 10) / 10 : '';
+    default: return '';
+  }
+}
+
+function exportReport() {
+  const cols = getSheetsSelectedColumns();
+  if (cols.length === 0) { alert('Select at least one column.'); return; }
+  const skus = getSheetsSelectedSkus();
+  if (skus.length === 0) { alert('Select at least one SKU.'); return; }
+  const from = parseInt(document.getElementById('sheetsFwFrom').value) || 0;
+  const to   = parseInt(document.getElementById('sheetsFwTo').value) || 0;
+  const layout   = document.getElementById('sheetsLayout').value;
+  const startIdx = Math.min(from, to), endIdx = Math.max(from, to);
+  const colDef      = k => SHEETS_COLUMNS.find(c => c.key === k);
+  const staticCols  = cols.filter(k => colDef(k).type === 'static');
+  const weeklyCols  = cols.filter(k => colDef(k).type === 'weekly');
+
+  const aoa = [];
+  if (layout === 'wide') {
+    const header = staticCols.map(k => colDef(k).label);
+    for (let i = startIdx; i <= endIdx; i++) {
+      weeklyCols.forEach(k => header.push(`${colDef(k).label} — ${weeks[i].fw}`));
+    }
+    aoa.push(header);
+    skus.forEach(sku => {
+      const p = products.find(x => x.sku === sku);
+      if (!p) return;
+      const s = state[sku];
+      const rows = calcRows(p);
+      const row = staticCols.map(k => _sheetsStaticValue(p, s, k));
+      for (let i = startIdx; i <= endIdx; i++) {
+        weeklyCols.forEach(k => row.push(_sheetsWeeklyValue(s, rows, k, i)));
+      }
+      aoa.push(row);
+    });
+  } else {
+    aoa.push([...staticCols.map(k => colDef(k).label), 'Week', ...weeklyCols.map(k => colDef(k).label)]);
+    skus.forEach(sku => {
+      const p = products.find(x => x.sku === sku);
+      if (!p) return;
+      const s = state[sku];
+      const rows = calcRows(p);
+      for (let i = startIdx; i <= endIdx; i++) {
+        aoa.push([...staticCols.map(k => _sheetsStaticValue(p, s, k)), weeks[i].fw, ...weeklyCols.map(k => _sheetsWeeklyValue(s, rows, k, i))]);
+      }
+    });
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = aoa[0].map((_, i) => ({ wch: i < staticCols.length ? 20 : 14 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Report');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `Merkury_Report_${dateStr}.xlsx`);
+}
+
+function getSavedReportTemplates() {
+  try { return JSON.parse(localStorage.getItem('merkury_report_templates') || '{}'); } catch(e) { return {}; }
+}
+
+function refreshSheetsTemplateOptions() {
+  const templates = getSavedReportTemplates();
+  const sel = document.getElementById('sheetsTemplateSelect');
+  const names = Object.keys(templates);
+  sel.innerHTML = '<option value="">Load template…</option>' + names.map(n => `<option value="${n.replace(/"/g,'&quot;')}">${n}</option>`).join('');
+}
+
+async function saveReportTemplate() {
+  const nameInput = document.getElementById('sheetsTemplateName');
+  const name = nameInput.value.trim();
+  if (!name) { alert('Enter a template name.'); return; }
+  const tpl = {
+    columns: getSheetsSelectedColumns(),
+    fwFrom: document.getElementById('sheetsFwFrom').value,
+    fwTo: document.getElementById('sheetsFwTo').value,
+    skuMode: document.getElementById('sheetsSkuMode').value,
+    selectedSkus: getSheetsSelectedSkus(),
+    layout: document.getElementById('sheetsLayout').value
+  };
+  const templates = getSavedReportTemplates();
+  templates[name] = tpl;
+  try { localStorage.setItem('merkury_report_templates', JSON.stringify(templates)); } catch(e) {}
+  if (!isTestMode && sbClient) {
+    try { await sbClient.from('app_cache').upsert({ key: 'report_templates', data: templates }, { onConflict: 'key' }); }
+    catch(e) { console.warn('report template save failed:', e.message); }
+  }
+  nameInput.value = '';
+  refreshSheetsTemplateOptions();
+}
+
+function loadReportTemplate(name) {
+  if (!name) return;
+  const tpl = getSavedReportTemplates()[name];
+  if (!tpl) return;
+  document.querySelectorAll('#sheetsColChips input').forEach(inp => { inp.checked = tpl.columns.includes(inp.dataset.col); });
+  document.getElementById('sheetsFwFrom').value = tpl.fwFrom;
+  document.getElementById('sheetsFwTo').value = tpl.fwTo;
+  document.getElementById('sheetsSkuMode').value = tpl.skuMode;
+  onSheetsSkuModeChange();
+  if (tpl.skuMode === 'select') {
+    document.querySelectorAll('#sheetsSkuPicker input').forEach(inp => { inp.checked = tpl.selectedSkus.includes(inp.dataset.sheetsSku); });
+  }
+  document.getElementById('sheetsLayout').value = tpl.layout;
+  updateSheetsSummary();
 }
 
 
