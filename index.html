@@ -3446,6 +3446,7 @@ function toggleProductVisibility(sku) {
   if (!block) return;
   const isCollapsed = block.classList.toggle('collapsed');
   btn.innerHTML = isCollapsed ? '&#9654; Show' : '&#9660; Hide';
+  if (state[sku]) state[sku].hidden = isCollapsed;
   // Hidden items sink to bottom, visible items float to top
   const container = document.getElementById('productsContainer');
   const allBlocks = [...container.querySelectorAll('.product-block')];
@@ -5157,6 +5158,166 @@ async function fetchAllSkuWeekly() {
   return { data: all, error: null };
 }
 
+// Apply a single sku_meta row to in-memory state (no DOM work — see refreshProductDom).
+// Shared by the login-time restore and the live Realtime subscription below.
+function applyMetaRow(row) {
+  const sku = row.sku;
+  if (row.deleted === true && !deletedSkus.has(sku)) {
+    // Deleted on another device — remove it here too
+    deletedSkus.add(sku);
+    const idx = products.findIndex(x => x.sku === sku);
+    if (idx >= 0) products.splice(idx, 1);
+    delete state[sku];
+    const block = document.getElementById('block-' + sku);
+    if (block) block.remove();
+    for (const m of Object.keys(modelToSku)) {
+      if (modelToSku[m] === sku) delete modelToSku[m];
+    }
+    return;
+  }
+  if (!state[sku]) {
+    // Unrecognized SKU on this device — if Supabase has enough identity info,
+    // create it locally so every login/update ends up with the same full product
+    // catalog, not just whatever this browser has personally added before.
+    if (!row.model || products.find(p => p.model === row.model)) return;
+    const newP = {
+      model: row.model, sku,
+      desc: row.description || '', inner: row.inner_pack || 1, master: row.master_pack || 1,
+      avgWeeklySales: 0, onHandMerkury: row.on_hand_merkury || 0, onHandTHD: row.on_hand_thd || 0,
+      firmReceipts: new Array(weeks.length).fill(0), salesRates: new Array(weeks.length).fill(0)
+    };
+    products.push(newP);
+    modelToSku[newP.model] = newP.sku;
+    state[sku] = {
+      firmReceipts: new Array(weeks.length).fill(0), reorders: new Array(weeks.length).fill(0),
+      reorderData: new Array(weeks.length).fill(null).map(() => ({qty:0,casePack:'',config:''})),
+      salesRates: new Array(weeks.length).fill(0), salesRatesManual: new Array(weeks.length).fill(false),
+      posUnits: new Array(weeks.length).fill(0), posStoreCount: new Array(weeks.length).fill(0),
+      posHistorical: POS_HISTORY[sku] ? Object.assign({}, POS_HISTORY[sku]) : {},
+      avgWeeklySalesVD: null, vdConnected: false, suofFromExcel: null,
+      atsConnected: false, onHandMerkury: newP.onHandMerkury, openStock: 0, skinnyQP: 0
+    };
+    const container = document.getElementById('productsContainer');
+    if (container) container.appendChild(buildProduct(newP));
+  }
+  if (row.hidden != null) state[sku].hidden = row.hidden;
+  if (row.on_hand_merkury != null) {
+    state[sku].onHandMerkury = row.on_hand_merkury;
+    const p = products.find(x => x.sku === sku);
+    if (p) p.onHandMerkury = row.on_hand_merkury;
+  }
+  if (row.avg_weekly_sales_vd != null) {
+    state[sku].avgWeeklySalesVD = parseFloat(row.avg_weekly_sales_vd);
+    state[sku].vdConnected = true;
+  }
+  if (row.on_hand_thd != null) {
+    state[sku].onHandTHD = row.on_hand_thd;
+    const prod = products.find(x => x.sku === sku);
+    if (prod) prod.onHandTHD = row.on_hand_thd;
+  }
+  if (row.open_stock != null) state[sku].openStock = row.open_stock;
+  if (row.skinny_qp  != null) state[sku].skinnyQP  = row.skinny_qp;
+}
+
+// Apply a single sku_weekly row to in-memory state (no DOM work — see refreshProductDom).
+// Shared by the login-time restore and the live Realtime subscription below.
+function applyWeeklyRow(row) {
+  const { sku, week_idx } = row;
+  if (!state[sku] || week_idx < 0 || week_idx >= weeks.length) return;
+  if (row.firm_receipt != null) {
+    state[sku].firmReceipts[week_idx] = row.firm_receipt;
+    if (row.firm_receipt > 0) state[sku].atsConnected = true;
+  }
+  if (row.suof_forecast != null) {
+    if (!state[sku].suofFromExcel) state[sku].suofFromExcel = new Array(weeks.length).fill(null);
+    state[sku].suofFromExcel[week_idx] = row.suof_forecast;
+  }
+  if (row.pos_units != null) state[sku].posUnits[week_idx] = row.pos_units;
+  if (row.sales_rate != null) {
+    state[sku].salesRates[week_idx] = row.sales_rate;
+    if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
+    state[sku].salesRatesManual[week_idx] = !!row.sales_rate_manual;
+  }
+  if (row.reorder_qty != null) {
+    state[sku].reorders[week_idx] = row.reorder_qty;
+    if (row.reorder_qty > 0 || row.reorder_case_pack || row.reorder_config) {
+      state[sku].reorderData[week_idx] = {
+        qty: row.reorder_qty || 0, casePack: row.reorder_case_pack || '', config: row.reorder_config || ''
+      };
+    }
+  }
+}
+
+// Sync one product's DOM to its current in-memory state. Used after the login-time
+// restore (all products) and after each live Realtime update (just the one affected
+// product). skipFocused avoids overwriting a cell the local user is actively typing into.
+function refreshProductDom(sku, opts) {
+  opts = opts || {};
+  const s = state[sku];
+  if (!s) return;
+  const skip = el => opts.skipFocused && document.activeElement === el;
+  const block = document.getElementById('block-' + sku);
+  if (block) {
+    block.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
+      if (!skip(inp)) inp.value = fmtInput(s.firmReceipts[parseInt(inp.dataset.idx)] || 0);
+    });
+    block.querySelectorAll('input[data-row="posUnits"]').forEach(inp => {
+      if (!skip(inp)) inp.value = fmtInput(s.posUnits[parseInt(inp.dataset.idx)] || 0);
+    });
+    block.querySelectorAll('input[data-row="salesRate"]').forEach(inp => {
+      if (!inp.readOnly && !skip(inp)) inp.value = fmtInput(s.salesRates[parseInt(inp.dataset.idx)] || 0);
+    });
+    block.querySelectorAll('input[data-row="reorder"]').forEach(inp => {
+      if (skip(inp)) return;
+      const idx = parseInt(inp.dataset.idx);
+      inp.value = fmtInput(s.reorders[idx] || 0);
+      const d = s.reorderData[idx];
+      if (d && d.casePack) applyReorderColor(inp.closest('td'), d.casePack);
+    });
+    if (s.hidden != null) {
+      const toggleBtn = document.getElementById('toggle-btn-' + sku);
+      if (s.hidden) { block.classList.add('collapsed'); if (toggleBtn) toggleBtn.innerHTML = '&#9654; Show'; }
+      else { block.classList.remove('collapsed'); if (toggleBtn) toggleBtn.innerHTML = '&#9660; Hide'; }
+    }
+  }
+  const merkuryEl = document.getElementById('kpi-merkury-' + sku);
+  if (merkuryEl && !skip(merkuryEl)) merkuryEl.value = (s.onHandMerkury || 0).toLocaleString();
+  const thdEl = document.getElementById('kpi-thd-' + sku);
+  if (thdEl) thdEl.textContent = (s.onHandTHD || 0).toLocaleString();
+  const openEl = document.getElementById('kpi-openstock-' + sku);
+  if (openEl && !skip(openEl)) openEl.value = (s.openStock || 0).toLocaleString();
+  const qpEl = document.getElementById('kpi-skinnyqp-' + sku);
+  if (qpEl && !skip(qpEl)) qpEl.value = (s.skinnyQP || 0).toLocaleString();
+  updateCalcs(sku);
+  updateFirmReceiptLabel(sku);
+  updateSuofLabel(sku);
+}
+
+// Subscribe to live changes on sku_weekly/sku_meta so every open browser reflects
+// other people's edits without needing to reload. skipFocused (see refreshProductDom)
+// means an incoming update never overwrites a cell someone is actively typing into.
+let _realtimeSubscribed = false;
+function subscribeRealtimeSync() {
+  if (isTestMode || !sbClient || _realtimeSubscribed) return;
+  _realtimeSubscribed = true;
+  sbClient.channel('sku_weekly_live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'sku_weekly' }, payload => {
+      const row = payload.new;
+      if (!row || !row.sku) return;
+      applyWeeklyRow(row);
+      refreshProductDom(row.sku, { skipFocused: true });
+    })
+    .subscribe();
+  sbClient.channel('sku_meta_live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'sku_meta' }, payload => {
+      const row = payload.new;
+      if (!row || !row.sku) return;
+      applyMetaRow(row);
+      refreshProductDom(row.sku, { skipFocused: true });
+    })
+    .subscribe();
+}
+
 // Load from Supabase and apply on top of in-memory state; re-render everything
 async function loadFromSupabase() {
   if (!sbClient) return;
@@ -5260,148 +5421,18 @@ async function loadFromSupabase() {
       }
     }
 
-    // Apply sku_meta
-    const _hiddenFromSupabase = {};
+    // Apply sku_meta (shared with the live Realtime subscription — see applyMetaRow)
     if (metaRows) {
-      metaRows.forEach(row => {
-        const sku = row.sku;
-        if (row.deleted === true && !deletedSkus.has(sku)) {
-          // Deleted on another device — remove it here too
-          deletedSkus.add(sku);
-          const idx = products.findIndex(x => x.sku === sku);
-          if (idx >= 0) products.splice(idx, 1);
-          delete state[sku];
-          const block = document.getElementById('block-' + sku);
-          if (block) block.remove();
-          for (const m of Object.keys(modelToSku)) {
-            if (modelToSku[m] === sku) delete modelToSku[m];
-          }
-          return;
-        }
-        if (!state[sku]) {
-          // Unrecognized SKU on this device — if Supabase has enough identity info,
-          // create it locally so every login ends up with the same full product
-          // catalog, not just whatever this browser has personally added before.
-          if (!row.model || products.find(p => p.model === row.model)) return;
-          const newP = {
-            model: row.model, sku,
-            desc: row.description || '', inner: row.inner_pack || 1, master: row.master_pack || 1,
-            avgWeeklySales: 0, onHandMerkury: row.on_hand_merkury || 0, onHandTHD: row.on_hand_thd || 0,
-            firmReceipts: new Array(weeks.length).fill(0), salesRates: new Array(weeks.length).fill(0)
-          };
-          products.push(newP);
-          modelToSku[newP.model] = newP.sku;
-          state[sku] = {
-            firmReceipts: new Array(weeks.length).fill(0), reorders: new Array(weeks.length).fill(0),
-            reorderData: new Array(weeks.length).fill(null).map(() => ({qty:0,casePack:'',config:''})),
-            salesRates: new Array(weeks.length).fill(0), salesRatesManual: new Array(weeks.length).fill(false),
-            posUnits: new Array(weeks.length).fill(0), posStoreCount: new Array(weeks.length).fill(0),
-            posHistorical: POS_HISTORY[sku] ? Object.assign({}, POS_HISTORY[sku]) : {},
-            avgWeeklySalesVD: null, vdConnected: false, suofFromExcel: null,
-            atsConnected: false, onHandMerkury: newP.onHandMerkury, openStock: 0, skinnyQP: 0
-          };
-          const container = document.getElementById('productsContainer');
-          if (container) container.appendChild(buildProduct(newP));
-        }
-        if (row.hidden != null) _hiddenFromSupabase[sku] = row.hidden;
-        if (row.on_hand_merkury != null) {
-          state[sku].onHandMerkury = row.on_hand_merkury;
-          const p = products.find(x => x.sku === sku);
-          if (p) p.onHandMerkury = row.on_hand_merkury;
-        }
-        if (row.avg_weekly_sales_vd != null) {
-          state[sku].avgWeeklySalesVD = parseFloat(row.avg_weekly_sales_vd);
-          state[sku].vdConnected = true;
-        }
-        if (row.on_hand_thd != null) {
-          state[sku].onHandTHD = row.on_hand_thd;
-          const prod = products.find(x => x.sku === sku);
-          if (prod) prod.onHandTHD = row.on_hand_thd;
-          const thdEl = document.getElementById('kpi-thd-' + sku);
-          if (thdEl) thdEl.textContent = row.on_hand_thd.toLocaleString();
-        }
-        if (row.open_stock != null) state[sku].openStock = row.open_stock;
-        if (row.skinny_qp  != null) state[sku].skinnyQP  = row.skinny_qp;
-      });
+      metaRows.forEach(row => applyMetaRow(row));
     }
 
-    // Pre-pass: mark SKUs that have SUOF or ATS data from Supabase
+    // Apply sku_weekly (shared with the live Realtime subscription — see applyWeeklyRow)
     if (weeklyRows) {
-      const skusWithSuof = new Set(weeklyRows.filter(r => r.suof_forecast != null).map(r => r.sku));
-      const skusWithAts  = new Set(weeklyRows.filter(r => r.firm_receipt  != null && r.firm_receipt > 0).map(r => r.sku));
-      skusWithSuof.forEach(sku => {
-        if (state[sku] && !state[sku].suofFromExcel)
-          state[sku].suofFromExcel = new Array(weeks.length).fill(null);
-      });
-      skusWithAts.forEach(sku => {
-        if (state[sku]) state[sku].atsConnected = true;
-      });
-
-      // Apply sku_weekly
-      weeklyRows.forEach(row => {
-        const { sku, week_idx } = row;
-        if (!state[sku] || week_idx < 0 || week_idx >= weeks.length) return;
-        if (row.firm_receipt  != null) state[sku].firmReceipts[week_idx] = row.firm_receipt;
-        if (row.suof_forecast != null && state[sku].suofFromExcel)
-          state[sku].suofFromExcel[week_idx] = row.suof_forecast;
-        if (row.pos_units  != null) state[sku].posUnits[week_idx]  = row.pos_units;
-        if (row.sales_rate != null) {
-          state[sku].salesRates[week_idx] = row.sales_rate;
-          if (!state[sku].salesRatesManual) state[sku].salesRatesManual = new Array(weeks.length).fill(false);
-          state[sku].salesRatesManual[week_idx] = !!row.sales_rate_manual;
-        }
-        if (row.reorder_qty != null) {
-          state[sku].reorders[week_idx] = row.reorder_qty;
-          if (row.reorder_qty > 0 || row.reorder_case_pack || row.reorder_config) {
-            state[sku].reorderData[week_idx] = {
-              qty:      row.reorder_qty || 0,
-              casePack: row.reorder_case_pack || '',
-              config:   row.reorder_config   || ''
-            };
-          }
-        }
-      });
+      weeklyRows.forEach(row => applyWeeklyRow(row));
     }
 
     // Re-render all product blocks to reflect Supabase data
-    products.forEach(p => {
-      const s = state[p.sku];
-      const block = document.getElementById('block-' + p.sku);
-      if (block) {
-        block.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
-          inp.value = fmtInput(s.firmReceipts[parseInt(inp.dataset.idx)] || 0);
-        });
-        block.querySelectorAll('input[data-row="posUnits"]').forEach(inp => {
-          inp.value = fmtInput(s.posUnits[parseInt(inp.dataset.idx)] || 0);
-        });
-        block.querySelectorAll('input[data-row="salesRate"]').forEach(inp => {
-          if (!inp.readOnly) inp.value = fmtInput(s.salesRates[parseInt(inp.dataset.idx)] || 0);
-        });
-        block.querySelectorAll('input[data-row="reorder"]').forEach(inp => {
-          const idx = parseInt(inp.dataset.idx);
-          inp.value = fmtInput(s.reorders[idx] || 0);
-          const d = s.reorderData[idx];
-          if (d && d.casePack) applyReorderColor(inp.closest('td'), d.casePack);
-        });
-        if (_hiddenFromSupabase[p.sku] != null) {
-          const toggleBtn = document.getElementById('toggle-btn-' + p.sku);
-          if (_hiddenFromSupabase[p.sku]) {
-            block.classList.add('collapsed');
-            if (toggleBtn) toggleBtn.innerHTML = '&#9654; Show';
-          } else {
-            block.classList.remove('collapsed');
-            if (toggleBtn) toggleBtn.innerHTML = '&#9660; Hide';
-          }
-        }
-      }
-      const openEl = document.getElementById('kpi-openstock-' + p.sku);
-      if (openEl) openEl.value = (s.openStock || 0).toLocaleString();
-      const qpEl = document.getElementById('kpi-skinnyqp-' + p.sku);
-      if (qpEl) qpEl.value = (s.skinnyQP || 0).toLocaleString();
-      updateCalcs(p.sku);
-      updateFirmReceiptLabel(p.sku);
-      updateSuofLabel(p.sku);
-    });
+    products.forEach(p => refreshProductDom(p.sku));
     renderSummary();
     renderReorderTab();
 
@@ -5494,6 +5525,8 @@ async function loadFromSupabase() {
     if (!isTestMode && sbClient) {
       products.forEach(p => { syncProductIdentity(p); });
     }
+
+    subscribeRealtimeSync();
 
   } catch(e) {
     console.warn('Supabase loadFromSupabase failed:', e.message);
