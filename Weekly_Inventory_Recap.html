@@ -4051,6 +4051,18 @@ document.getElementById('addItemModal').addEventListener('click', function(e) {
   if (e.target === this) closeAddItemModal();
 });
 
+// Push a product's core identity (model/desc/pack sizes) to Supabase so any other
+// device can reconstruct this product even if it never added it locally itself.
+async function syncProductIdentity(p) {
+  if (isTestMode || !sbClient) return;
+  try {
+    await sbClient.from('sku_meta').upsert({
+      sku: p.sku, model: p.model, description: p.desc,
+      inner_pack: p.inner, master_pack: p.master
+    }, { onConflict: 'sku' });
+  } catch(e) { console.warn('product identity sync failed:', e.message); }
+}
+
 function submitAddItem() {
   const model  = document.getElementById('mi-model').value.trim().toUpperCase();
   const sku    = document.getElementById('mi-sku').value.trim();
@@ -4157,6 +4169,7 @@ function submitAddItem() {
   const newP = { model, sku, desc, inner, master, avgWeeklySales: avgSales,
                  onHandMerkury, onHandTHD, firmReceipts, salesRates };
   products.push(newP);
+  syncProductIdentity(newP);
 
   // If this SKU/model was previously deleted, un-delete it so it survives reload
   deletedSkus.delete(sku);
@@ -5260,7 +5273,31 @@ async function loadFromSupabase() {
           }
           return;
         }
-        if (!state[sku]) return;
+        if (!state[sku]) {
+          // Unrecognized SKU on this device — if Supabase has enough identity info,
+          // create it locally so every login ends up with the same full product
+          // catalog, not just whatever this browser has personally added before.
+          if (!row.model || products.find(p => p.model === row.model)) return;
+          const newP = {
+            model: row.model, sku,
+            desc: row.description || '', inner: row.inner_pack || 1, master: row.master_pack || 1,
+            avgWeeklySales: 0, onHandMerkury: row.on_hand_merkury || 0, onHandTHD: row.on_hand_thd || 0,
+            firmReceipts: new Array(weeks.length).fill(0), salesRates: new Array(weeks.length).fill(0)
+          };
+          products.push(newP);
+          modelToSku[newP.model] = newP.sku;
+          state[sku] = {
+            firmReceipts: new Array(weeks.length).fill(0), reorders: new Array(weeks.length).fill(0),
+            reorderData: new Array(weeks.length).fill(null).map(() => ({qty:0,casePack:'',config:''})),
+            salesRates: new Array(weeks.length).fill(0), salesRatesManual: new Array(weeks.length).fill(false),
+            posUnits: new Array(weeks.length).fill(0), posStoreCount: new Array(weeks.length).fill(0),
+            posHistorical: POS_HISTORY[sku] ? Object.assign({}, POS_HISTORY[sku]) : {},
+            avgWeeklySalesVD: null, vdConnected: false, suofFromExcel: null,
+            atsConnected: false, onHandMerkury: newP.onHandMerkury, openStock: 0, skinnyQP: 0
+          };
+          const container = document.getElementById('productsContainer');
+          if (container) container.appendChild(buildProduct(newP));
+        }
         if (row.hidden != null) _hiddenFromSupabase[sku] = row.hidden;
         if (row.on_hand_merkury != null) {
           state[sku].onHandMerkury = row.on_hand_merkury;
@@ -5444,6 +5481,13 @@ async function loadFromSupabase() {
     // One-time: push embedded POS_HISTORY to Supabase so the weekly agent can access it
     if (!localStorage.getItem('merkury_pos_history_synced')) {
       savePosHistoryToSupabase();
+    }
+
+    // Backfill product identity for every locally-known product. Whichever device has
+    // the fullest catalog (e.g. items added via "Add Item" only ever saved locally
+    // before this fix existed) fills in the gaps for every other device on their next login.
+    if (!isTestMode && sbClient) {
+      products.forEach(p => { syncProductIdentity(p); });
     }
 
   } catch(e) {
