@@ -2952,6 +2952,7 @@ async function syncFromATS(autoBuffer = null) {
       }
     });
     saveState();
+    syncFirmReceiptDetail();
 
     // ── Upsert to Supabase ────────────────────────────────────────────────────
     if (!isTestMode && sbClient) {
@@ -3013,7 +3014,15 @@ function setAtsStatus(type, msg) {
   const el = document.getElementById('atsStatus');
   el.className = 'excel-status' + (type ? ' ' + type : '');
   el.textContent = msg;
-  if (type === 'connected') try { localStorage.setItem('ats_status_msg', msg); } catch(e) {}
+  if (type === 'connected') {
+    try { localStorage.setItem('ats_status_msg', msg); } catch(e) {}
+    if (!isTestMode && sbClient) {
+      (async () => {
+        try { await sbClient.from('app_cache').upsert({ key: 'ats_status_msg', data: { msg } }, { onConflict: 'key' }); }
+        catch(e) { console.warn('ats status sync failed:', e.message); }
+      })();
+    }
+  }
 }
 
 function toggleAutoSyncATS(on) {
@@ -3361,7 +3370,15 @@ function setExcelStatus(type, msg) {
   const el = document.getElementById('excelStatus');
   el.className = 'excel-status' + (type ? ' ' + type : '');
   el.textContent = msg;
-  if (type === 'connected') try { localStorage.setItem('suof_status_msg', msg); } catch(e) {}
+  if (type === 'connected') {
+    try { localStorage.setItem('suof_status_msg', msg); } catch(e) {}
+    if (!isTestMode && sbClient) {
+      (async () => {
+        try { await sbClient.from('app_cache').upsert({ key: 'suof_status_msg', data: { msg } }, { onConflict: 'key' }); }
+        catch(e) { console.warn('suof status sync failed:', e.message); }
+      })();
+    }
+  }
 }
 
 function toggleAutoSync(on) {
@@ -3484,7 +3501,15 @@ function setVdStatus(type, msg) {
   const el = document.getElementById('vdStatus');
   el.className = 'excel-status' + (type ? ' ' + type : '');
   el.textContent = msg;
-  if (type === 'connected') try { localStorage.setItem('vd_status_msg', msg); } catch(e) {}
+  if (type === 'connected') {
+    try { localStorage.setItem('vd_status_msg', msg); } catch(e) {}
+    if (!isTestMode && sbClient) {
+      (async () => {
+        try { await sbClient.from('app_cache').upsert({ key: 'vd_status_msg', data: { msg } }, { onConflict: 'key' }); }
+        catch(e) { console.warn('vd status sync failed:', e.message); }
+      })();
+    }
+  }
 }
 
 // Parse the pivot-table Sales tab.
@@ -4477,6 +4502,7 @@ function removeAdditionalModel(sku, model) {
   updateCalcs(sku);
   saveState();
   saveAdditionalModelsCache();
+  syncFirmReceiptDetail();
   // Rebuild sub-rows without this model
   buildFrSubRows(sku);
   applyFilters();
@@ -4627,6 +4653,7 @@ function saveAddModel() {
 
   saveState();
   saveAdditionalModelsCache();
+  syncFirmReceiptDetail();
 
   // Rebuild firmReceipts from all firmReceiptEntries — avoids double-counting on re-add
   const newFRAdd = new Array(weeks.length).fill(0);
@@ -4991,6 +5018,25 @@ async function saveAdditionalModelsCache() {
   } catch(e) { console.warn('Supabase additionalModels cache save failed:', e.message); }
 }
 
+// Push firmReceiptEntries + savedCpData (the exact PO/date/qty breakdown behind the
+// Inbound Detail page and the Firm Receipt "expand" sub-rows) to Supabase, so any
+// device shows the same detail without needing to have personally run a live ATS sync.
+async function syncFirmReceiptDetail() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const map = {};
+    products.forEach(p => {
+      const s = state[p.sku];
+      if (!s) return;
+      const entry = {};
+      if (s.firmReceiptEntries && s.firmReceiptEntries.length > 0) entry.entries = s.firmReceiptEntries;
+      if (s.savedCpData && Object.keys(s.savedCpData).length > 0) entry.cpData = s.savedCpData;
+      if (Object.keys(entry).length > 0) map[p.sku] = entry;
+    });
+    await sbClient.from('app_cache').upsert({ key: 'firm_receipt_detail', data: map }, { onConflict: 'key' });
+  } catch(e) { console.warn('firm receipt detail sync failed:', e.message); }
+}
+
 async function saveThdSalesOrdersCache() {
   if (isTestMode || !sbClient) return;
   try {
@@ -5301,6 +5347,8 @@ function subscribeRealtimeSync() {
       if (!row || !row.sku) return;
       applyWeeklyRow(row);
       refreshProductDom(row.sku, { skipFocused: true });
+      renderReorderTab();
+      renderSummary();
     })
     .subscribe();
   sbClient.channel('sku_meta_live')
@@ -5309,6 +5357,8 @@ function subscribeRealtimeSync() {
       if (!row || !row.sku) return;
       applyMetaRow(row);
       refreshProductDom(row.sku, { skipFocused: true });
+      renderReorderTab();
+      renderSummary();
     })
     .subscribe();
 }
@@ -5317,7 +5367,7 @@ function subscribeRealtimeSync() {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }, { data: firmReceiptDetailRows }, { data: atsStatusRows }, { data: suofStatusRows }, { data: vdStatusRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         fetchAllSkuWeekly(),
@@ -5332,7 +5382,11 @@ async function loadFromSupabase() {
         sbClient.from('app_cache').select('*').eq('key', 'fc_snapshot'),
         sbClient.from('app_cache').select('*').eq('key', 'forecast_accuracy'),
         sbClient.from('app_cache').select('*').eq('key', 'sent_reorders'),
-        sbClient.from('app_cache').select('*').eq('key', 'inbound_edits')
+        sbClient.from('app_cache').select('*').eq('key', 'inbound_edits'),
+        sbClient.from('app_cache').select('*').eq('key', 'firm_receipt_detail'),
+        sbClient.from('app_cache').select('*').eq('key', 'ats_status_msg'),
+        sbClient.from('app_cache').select('*').eq('key', 'suof_status_msg'),
+        sbClient.from('app_cache').select('*').eq('key', 'vd_status_msg')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -5363,6 +5417,21 @@ async function loadFromSupabase() {
         try { localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(editsData)); } catch(e) {}
         const inboundPageEl = document.getElementById('page-inbound');
         if (inboundPageEl && inboundPageEl.classList.contains('active')) renderInboundPage();
+      }
+    }
+
+    // Restore firm receipt detail (exact PO/date/qty entries + case-pack breakdown)
+    // from Supabase — this is what the Inbound Detail page and the Firm Receipt
+    // "expand" sub-rows are built from, so any device shows the same detail without
+    // needing to have personally run a live ATS sync.
+    if (firmReceiptDetailRows && firmReceiptDetailRows.length > 0) {
+      const map = firmReceiptDetailRows[0].data;
+      if (map && typeof map === 'object') {
+        Object.keys(map).forEach(sku => {
+          if (!state[sku]) return;
+          if (map[sku].entries) state[sku].firmReceiptEntries = map[sku].entries;
+          if (map[sku].cpData)  state[sku].savedCpData        = map[sku].cpData;
+        });
       }
     }
 
@@ -5452,20 +5521,25 @@ async function loadFromSupabase() {
       }
     }, 250);
 
-    // Show connection badges — restore last sync message if available, else generic
+    // Show connection badges — prefer the Supabase-synced sync message (so every
+    // device shows the same filename/timestamp/SKU-count detail, not just whichever
+    // device personally ran the sync), then this device's own localStorage, then generic.
+    const atsMsg  = (atsStatusRows  && atsStatusRows.length  > 0 && atsStatusRows[0].data  && atsStatusRows[0].data.msg)  || null;
+    const suofMsg = (suofStatusRows && suofStatusRows.length > 0 && suofStatusRows[0].data && suofStatusRows[0].data.msg) || null;
+    const vdMsg   = (vdStatusRows   && vdStatusRows.length   > 0 && vdStatusRows[0].data   && vdStatusRows[0].data.msg)   || null;
     const atsSku = Object.keys(state).find(s => state[s].atsConnected);
     if (atsSku) {
-      const saved = localStorage.getItem('ats_status_msg');
+      const saved = atsMsg || localStorage.getItem('ats_status_msg');
       setAtsStatus('connected', saved || '✓ Data loaded from Supabase');
     }
     const suofSku = Object.keys(state).find(s => state[s].suofFromExcel);
     if (suofSku) {
-      const saved = localStorage.getItem('suof_status_msg');
+      const saved = suofMsg || localStorage.getItem('suof_status_msg');
       setExcelStatus('connected', saved || '✓ Data loaded from Supabase');
     }
     const vdSku = Object.keys(state).find(s => state[s].vdConnected);
     if (vdSku) {
-      const saved = localStorage.getItem('vd_status_msg');
+      const saved = vdMsg || localStorage.getItem('vd_status_msg');
       setVdStatus('connected', saved || '✓ Data loaded from Supabase');
     }
 
