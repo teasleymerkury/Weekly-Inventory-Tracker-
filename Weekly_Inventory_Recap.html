@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Weekly Inventory Recap — Merkury Forecast</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1076,6 +1077,30 @@
     display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
     border-top: 1px solid rgba(255,255,255,0.12); padding-top: 14px;
   }
+  .sheets-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .sheets-tab {
+    padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;
+    color: var(--text-2); background: rgba(255,255,255,0.05); user-select: none;
+  }
+  .sheets-tab.active { color: var(--text-1); background: rgba(255,255,255,0.14); }
+  .sheets-fill-preview-wrap {
+    overflow: auto; max-height: 440px; border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 10px; margin-bottom: 14px;
+  }
+  .sheets-fill-preview-table { border-collapse: collapse; font-size: 11px; white-space: nowrap; }
+  .sheets-fill-preview-table th, .sheets-fill-preview-table td {
+    border: 1px solid rgba(255,255,255,0.1); padding: 4px 6px; vertical-align: top;
+  }
+  .sheets-fill-preview-table th.colletter {
+    background: rgba(255,255,255,0.04); color: var(--text-2); font-weight: 400; text-align: center; position: sticky; top: 0;
+  }
+  .sheets-fill-preview-table td.fill-map-cell { background: rgba(255,255,255,0.03); }
+  .sheets-fill-preview-table select { font-size: 10px; max-width: 130px; margin-bottom: 3px; display: block; }
+  .sheets-fill-preview-table .fill-header-text {
+    font-weight: 600; color: var(--text-1); max-width: 130px; overflow: hidden; text-overflow: ellipsis; display: block;
+  }
+  .sheets-fill-preview-table td.data-cell { color: var(--text-2); max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+  .sheets-fill-summary-line { font-size: 12px; color: var(--text-2); }
   .inbound-tab-header {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 18px; flex-wrap: wrap; gap: 10px;
@@ -1527,16 +1552,21 @@
   <button id="tryOnClose" onclick="closeTryOnPanel()">✕ Close</button>
 </div>
 
-<!-- Page: Sheets (report builder) -->
+<!-- Page: Sheets (report builder / fill a template) -->
 <div class="page-section" id="page-sheets">
   <div class="sheets-page-wrap">
     <div class="inbound-tab-header">
       <div>
         <h1>Sheets</h1>
-        <p>Build a custom export from your current data</p>
+        <p>Build a custom export, or fill in someone else's template</p>
       </div>
     </div>
-    <div class="sheets-card">
+    <div class="sheets-tabs">
+      <div class="sheets-tab active" id="sheetsTabReport" onclick="switchSheetsTab('report')">Build a Report</div>
+      <div class="sheets-tab" id="sheetsTabFill" onclick="switchSheetsTab('fill')">Fill a Template</div>
+    </div>
+
+    <div class="sheets-card" id="sheetsReportPanel">
       <div class="sheets-card-title">Build a report</div>
       <div class="sheets-section-label">Columns to include</div>
       <div class="sheets-col-chips" id="sheetsColChips"></div>
@@ -1572,6 +1602,46 @@
           <button class="add-item-btn" onclick="saveReportTemplate()">&#128190; Save as template</button>
           <select class="fw-select" id="sheetsTemplateSelect" onchange="loadReportTemplate(this.value)"><option value="">Load template…</option></select>
           <button class="add-item-btn" onclick="exportReport()">&#128229; Export .xlsx</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sheets-card" id="sheetsFillPanel" style="display:none;">
+      <div class="sheets-card-title">Fill a template</div>
+      <div class="sheets-section-label">1. Upload the template file (.xlsx)</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
+        <input type="file" id="sheetsFillFileInput" accept=".xlsx" onchange="onSheetsFillFileChosen(event)" />
+        <span id="sheetsFillFileStatus" style="font-size:12px;color:var(--text-2);"></span>
+      </div>
+      <div id="sheetsFillMapSection" style="display:none;">
+        <div class="sheets-controls-row">
+          <div>
+            <div class="sheets-label">Sheet</div>
+            <select class="fw-select" id="sheetsFillSheetSelect" onchange="onSheetsFillSheetChange()"></select>
+          </div>
+          <div>
+            <div class="sheets-label">Header row</div>
+            <select class="fw-select" id="sheetsFillHeaderRow" onchange="onSheetsFillRowSettingChange()"></select>
+          </div>
+          <div>
+            <div class="sheets-label">Week dates in row below header?</div>
+            <select class="fw-select" id="sheetsFillDateRowToggle" onchange="onSheetsFillRowSettingChange()">
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+          <div>
+            <div class="sheets-label">First data row</div>
+            <select class="fw-select" id="sheetsFillDataStartRow" onchange="updateSheetsFillSummary()"></select>
+          </div>
+        </div>
+        <div class="sheets-section-label">2. Map each column, then fill &amp; download</div>
+        <div class="sheets-fill-preview-wrap">
+          <table class="sheets-fill-preview-table" id="sheetsFillPreviewTable"></table>
+        </div>
+        <div class="sheets-footer">
+          <span id="sheetsFillSummary" class="sheets-fill-summary-line"></span>
+          <button class="add-item-btn" onclick="populateAndDownloadTemplate()">&#11015;&#65039; Fill &amp; download</button>
         </div>
       </div>
     </div>
@@ -5493,14 +5563,16 @@ async function loadFromSupabase() {
       }
     }
 
-    // Restore Inbound Detail manual edits from Supabase
-    if (inboundEditsRows && inboundEditsRows.length > 0) {
-      const editsData = inboundEditsRows[0].data;
-      if (editsData && typeof editsData === 'object') {
-        try { localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(editsData)); } catch(e) {}
-        const inboundPageEl = document.getElementById('page-inbound');
-        if (inboundPageEl && inboundPageEl.classList.contains('active')) renderInboundPage();
-      }
+    // Restore Inbound Detail manual edits from Supabase — merge with whatever is already
+    // sitting in this device's localStorage rather than overwriting it, so edits typed
+    // before this device ever synced aren't lost.
+    {
+      const serverEdits = (inboundEditsRows && inboundEditsRows.length > 0 && inboundEditsRows[0].data && typeof inboundEditsRows[0].data === 'object') ? inboundEditsRows[0].data : {};
+      const localEdits = _loadInboundEdits();
+      const mergedEdits = { ...serverEdits, ...localEdits };
+      try { localStorage.setItem(INBOUND_EDIT_KEY, JSON.stringify(mergedEdits)); } catch(e) {}
+      const inboundPageEl = document.getElementById('page-inbound');
+      if (inboundPageEl && inboundPageEl.classList.contains('active')) renderInboundPage();
     }
 
     // Restore firm receipt detail (exact PO/date/qty entries + case-pack breakdown)
@@ -5692,6 +5764,20 @@ async function loadFromSupabase() {
     // of only pushing on the next fresh ATS sync / model add-remove.
     if (!isTestMode && sbClient) {
       syncFirmReceiptDetail();
+    }
+
+    // Backfill Inbound Detail manual edits (Purchase Order ID, Case Pack, etc.) the same
+    // way — these were only ever pushed on the next onchange, so anything typed before
+    // this sync existed was stuck in that one device's localStorage until now.
+    if (!isTestMode && sbClient) {
+      (async () => {
+        try {
+          const edits = _loadInboundEdits();
+          if (Object.keys(edits).length > 0) {
+            await sbClient.from('app_cache').upsert({ key: 'inbound_edits', data: edits }, { onConflict: 'key' });
+          }
+        } catch (e) { console.warn('inboundEdits backfill failed:', e.message); }
+      })();
     }
 
     subscribeRealtimeSync();
@@ -8409,22 +8495,22 @@ function showPage(page) {
 
 // ── Sheets: report builder ────────────────────────────────────────────────────
 const SHEETS_COLUMNS = [
-  { key: 'sku',           label: 'SKU',                  type: 'static', default: true },
-  { key: 'model',         label: 'Model',                type: 'static', default: true },
-  { key: 'desc',          label: 'Description',          type: 'static', default: true },
-  { key: 'inner',         label: 'Inner Pack',           type: 'static' },
-  { key: 'master',        label: 'Master Pack',          type: 'static' },
-  { key: 'onHandMerkury', label: 'On Hand (Merkury)',    type: 'static', default: true },
-  { key: 'onHandTHD',     label: 'On Hand (THD)',        type: 'static', default: true },
-  { key: 'openStock',     label: 'Open Stock',           type: 'static' },
-  { key: 'skinnyQP',      label: 'Skinny QP',            type: 'static' },
-  { key: 'firmReceipt',   label: 'Firm Receipt',         type: 'weekly', default: true },
-  { key: 'posUnits',      label: 'POS Units',            type: 'weekly' },
-  { key: 'salesRate',     label: 'Sales Rate',           type: 'weekly', default: true },
-  { key: 'suof',          label: 'SUOF Forecast',        type: 'weekly' },
-  { key: 'reorderQty',    label: 'Reorder Qty',          type: 'weekly' },
-  { key: 'endInv',        label: 'Projected Inventory',  type: 'weekly', default: true },
-  { key: 'wos',           label: 'WOS',                  type: 'weekly', default: true }
+  { key: 'sku',           label: 'SKU',                  type: 'static', default: true, aliases: ['sku', 'item number', 'item #'] },
+  { key: 'model',         label: 'Model',                type: 'static', default: true, aliases: ['model'] },
+  { key: 'desc',          label: 'Description',          type: 'static', default: true, aliases: ['description', 'desc'] },
+  { key: 'inner',         label: 'Inner Pack',           type: 'static', aliases: ['inner pack', 'inner'] },
+  { key: 'master',        label: 'Master Pack',          type: 'static', aliases: ['master pack', 'master'] },
+  { key: 'onHandMerkury', label: 'On Hand (Merkury)',    type: 'static', default: true, aliases: ['on hand (merkury)', 'on hands (merkury)', 'onhand merkury'] },
+  { key: 'onHandTHD',     label: 'On Hand (THD)',        type: 'static', default: true, aliases: ['on hand (thd)', 'on hands (thd)', 'onhand thd', 'on hands\n(thd)'] },
+  { key: 'openStock',     label: 'Open Stock',           type: 'static', aliases: ['open stock'] },
+  { key: 'skinnyQP',      label: 'Skinny QP',            type: 'static', aliases: ['skinny qp', 'skinny'] },
+  { key: 'firmReceipt',   label: 'Firm Receipt',         type: 'weekly', default: true, aliases: ['firm receipt', 'inbound', 'receipt'] },
+  { key: 'posUnits',      label: 'POS Units',            type: 'weekly', aliases: ['pos units', 'units sold'] },
+  { key: 'salesRate',     label: 'Sales Rate',           type: 'weekly', default: true, aliases: ['avg weekly sales', 'sales rate', 'weekly sales'] },
+  { key: 'suof',          label: 'SUOF Forecast',        type: 'weekly', aliases: ['suof', 'forecast'] },
+  { key: 'reorderQty',    label: 'Reorder Qty',          type: 'weekly', aliases: ['reorder'] },
+  { key: 'endInv',        label: 'Projected Inventory',  type: 'weekly', default: true, aliases: ['projected inventory', 'ending inventory', 'end inv'] },
+  { key: 'wos',           label: 'WOS',                  type: 'weekly', default: true, aliases: ['wos', 'weeks of stock', 'weeks on hand'] }
 ];
 
 let _sheetsInitialized = false;
@@ -8608,6 +8694,253 @@ function loadReportTemplate(name) {
   }
   document.getElementById('sheetsLayout').value = tpl.layout;
   updateSheetsSummary();
+}
+
+function switchSheetsTab(tab) {
+  document.getElementById('sheetsTabReport').classList.toggle('active', tab === 'report');
+  document.getElementById('sheetsTabFill').classList.toggle('active', tab === 'fill');
+  document.getElementById('sheetsReportPanel').style.display = tab === 'report' ? '' : 'none';
+  document.getElementById('sheetsFillPanel').style.display = tab === 'fill' ? '' : 'none';
+}
+
+// ── Sheets: fill a template ────────────────────────────────────────────────────
+let _sheetsFillWorkbook = null;
+let _sheetsFillFileName = '';
+let _sheetsFillGrid = [];       // 2D array of raw cell values for the active sheet's used range
+let _sheetsFillStartRow = 1;    // 1-based sheet row number of grid[0]
+let _sheetsFillStartCol = 1;    // 1-based sheet column number of grid[0][0]
+let _sheetsFillWeekDates = null; // cached [{idx, date}] for weeks[]
+
+function _sheetsFillParsedWeeks() {
+  if (_sheetsFillWeekDates) return _sheetsFillWeekDates;
+  _sheetsFillWeekDates = weeks.map((w, i) => ({ idx: i, date: new Date(w.dt) }));
+  return _sheetsFillWeekDates;
+}
+
+function _excelSerialToDate(serial) {
+  return new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 86400000);
+}
+
+function _sheetsFillCellText(v) {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) return v.toLocaleDateString();
+  if (typeof v === 'object') { try { return v.text(); } catch (e) { return ''; } }
+  return String(v);
+}
+
+function _sheetsFillCellDate(v) {
+  if (v instanceof Date) return v;
+  if (typeof v === 'number' && v > 20000 && v < 60000) return _excelSerialToDate(v);
+  if (typeof v === 'string') { const d = new Date(v); if (!isNaN(d)) return d; }
+  return null;
+}
+
+function _sheetsFillMatchWeek(date) {
+  if (!date) return getCurrentWeekIdx();
+  const parsed = _sheetsFillParsedWeeks();
+  let best = null, bestDiff = Infinity;
+  parsed.forEach(p => {
+    const diff = Math.abs(p.date.getTime() - date.getTime());
+    if (diff < bestDiff) { bestDiff = diff; best = p; }
+  });
+  const THREE_DAYS = 3 * 86400000;
+  return (best && bestDiff <= THREE_DAYS) ? best.idx : getCurrentWeekIdx();
+}
+
+function _sheetsFillGuessField(text) {
+  const t = (text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  let best = '', bestLen = 0;
+  SHEETS_COLUMNS.forEach(col => {
+    (col.aliases || []).forEach(a => {
+      if (t.includes(a) && a.length > bestLen) { bestLen = a.length; best = col.key; }
+    });
+  });
+  return best;
+}
+
+async function onSheetsFillFileChosen(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  _sheetsFillFileName = file.name.replace(/\.xlsx$/i, '');
+  document.getElementById('sheetsFillFileStatus').textContent = 'Reading…';
+  try {
+    const buf = await file.arrayBuffer();
+    _sheetsFillWorkbook = await XlsxPopulate.fromDataAsync(buf);
+    const sheetSel = document.getElementById('sheetsFillSheetSelect');
+    sheetSel.innerHTML = _sheetsFillWorkbook.sheets().map((s, i) => `<option value="${i}">${s.name()}</option>`).join('');
+    document.getElementById('sheetsFillFileStatus').textContent = `Loaded ${file.name}`;
+    document.getElementById('sheetsFillMapSection').style.display = '';
+    loadSheetsFillSheet(0);
+  } catch (e) {
+    document.getElementById('sheetsFillFileStatus').textContent = 'Could not read that file — is it a valid .xlsx?';
+    console.warn('sheets fill load failed:', e.message);
+  }
+}
+
+function onSheetsFillSheetChange() {
+  loadSheetsFillSheet(parseInt(document.getElementById('sheetsFillSheetSelect').value) || 0);
+}
+
+function loadSheetsFillSheet(sheetIdx) {
+  const sheet = _sheetsFillWorkbook.sheets()[sheetIdx];
+  const used = sheet.usedRange();
+  _sheetsFillGrid = used.value();
+  _sheetsFillStartRow = used.startCell().rowNumber();
+  _sheetsFillStartCol = used.startCell().columnNumber();
+
+  const rowCount = _sheetsFillGrid.length;
+  const rowOpts = n => Array.from({ length: Math.min(n, rowCount) }, (_, i) =>
+    `<option value="${i}">Row ${_sheetsFillStartRow + i}</option>`).join('');
+
+  // Guess the header row: the row (within first 20) with the most non-empty text cells
+  let guessIdx = 0, guessCount = -1;
+  for (let i = 0; i < Math.min(20, rowCount); i++) {
+    const cnt = _sheetsFillGrid[i].filter(v => typeof v === 'string' && v.trim()).length;
+    if (cnt > guessCount) { guessCount = cnt; guessIdx = i; }
+  }
+
+  const headerSel = document.getElementById('sheetsFillHeaderRow');
+  headerSel.innerHTML = rowOpts(30);
+  headerSel.value = guessIdx;
+
+  // Guess whether the row right below the header is a per-column date row
+  const dateRowIdx = guessIdx + 1;
+  const dateRow = _sheetsFillGrid[dateRowIdx] || [];
+  const dateLikeCount = dateRow.filter(v => _sheetsFillCellDate(v)).length;
+  document.getElementById('sheetsFillDateRowToggle').value = dateLikeCount >= 2 ? 'yes' : 'no';
+
+  const dataStartGuess = dateLikeCount >= 2 ? guessIdx + 2 : guessIdx + 1;
+  const dataSel = document.getElementById('sheetsFillDataStartRow');
+  dataSel.innerHTML = rowOpts(rowCount);
+  dataSel.value = Math.min(dataStartGuess, rowCount - 1);
+
+  renderSheetsFillPreview();
+}
+
+function onSheetsFillRowSettingChange() {
+  renderSheetsFillPreview();
+}
+
+function renderSheetsFillPreview() {
+  const headerIdx = parseInt(document.getElementById('sheetsFillHeaderRow').value) || 0;
+  const useDateRow = document.getElementById('sheetsFillDateRowToggle').value === 'yes';
+  const dateRowIdx = headerIdx + 1;
+  const headerRow = _sheetsFillGrid[headerIdx] || [];
+  const dateRow = useDateRow ? (_sheetsFillGrid[dateRowIdx] || []) : [];
+  const colCount = Math.max(headerRow.length, dateRow.length, ..._sheetsFillGrid.slice(0, 15).map(r => r.length));
+
+  const sampleStartIdx = parseInt(document.getElementById('sheetsFillDataStartRow').value) || (headerIdx + 1);
+  const sampleRows = _sheetsFillGrid.slice(sampleStartIdx, sampleStartIdx + 6);
+
+  const colLetter = n => { let s = ''; n++; while (n > 0) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); } return s; };
+
+  let html = '<tr>' + Array.from({ length: colCount }, (_, c) => `<th class="colletter">${colLetter(_sheetsFillStartCol - 1 + c)}</th>`).join('') + '</tr>';
+
+  html += '<tr>';
+  for (let c = 0; c < colCount; c++) {
+    const labelText = _sheetsFillCellText(headerRow[c]);
+    const dateVal = useDateRow ? _sheetsFillCellDate(dateRow[c]) : null;
+    const effectiveText = labelText || (dateVal ? dateVal.toLocaleDateString() : '');
+    const fieldGuess = _sheetsFillGuessField(labelText);
+    const weekGuess = _sheetsFillMatchWeek(dateVal);
+
+    const fieldOpts = ['<option value="">— ignore —</option>'].concat(
+      SHEETS_COLUMNS.map(col => `<option value="${col.key}" ${col.key === fieldGuess ? 'selected' : ''}>${col.label}</option>`)
+    ).join('');
+
+    let cellHtml = `<span class="fill-header-text">${(effectiveText || '(blank)').replace(/</g, '&lt;')}</span>`;
+    cellHtml += `<select class="fill-col-field" data-col="${c}" onchange="onSheetsFillFieldSelectChange(this)">${fieldOpts}</select>`;
+
+    const isWeeklyGuess = fieldGuess && (SHEETS_COLUMNS.find(x => x.key === fieldGuess) || {}).type === 'weekly';
+    const showWeekSelect = isWeeklyGuess || (dateVal && !fieldGuess);
+    const weekOpts = weeks.map((w, i) => `<option value="${i}" ${i === weekGuess ? 'selected' : ''}>${w.fw}</option>`).join('');
+    cellHtml += `<select class="fill-col-week" data-col="${c}" style="${showWeekSelect ? '' : 'display:none;'}">${weekOpts}</select>`;
+
+    html += `<td class="fill-map-cell">${cellHtml}</td>`;
+  }
+  html += '</tr>';
+
+  sampleRows.forEach(row => {
+    html += '<tr>' + Array.from({ length: colCount }, (_, c) => `<td class="data-cell">${_sheetsFillCellText(row[c]).replace(/</g, '&lt;')}</td>`).join('') + '</tr>';
+  });
+
+  document.getElementById('sheetsFillPreviewTable').innerHTML = html;
+  updateSheetsFillSummary();
+}
+
+function onSheetsFillFieldSelectChange(sel) {
+  const col = sel.closest('td');
+  const weekSel = col.querySelector('.fill-col-week');
+  const fieldDef = SHEETS_COLUMNS.find(c => c.key === sel.value);
+  weekSel.style.display = (fieldDef && fieldDef.type === 'weekly') ? '' : 'none';
+  updateSheetsFillSummary();
+}
+
+function getSheetsFillMappings() {
+  const mappings = [];
+  document.querySelectorAll('#sheetsFillPreviewTable .fill-col-field').forEach(sel => {
+    if (!sel.value) return;
+    const col = parseInt(sel.dataset.col);
+    const fieldDef = SHEETS_COLUMNS.find(c => c.key === sel.value);
+    const weekSel = sel.closest('td').querySelector('.fill-col-week');
+    mappings.push({ col, key: sel.value, type: fieldDef.type, weekIdx: fieldDef.type === 'weekly' ? parseInt(weekSel.value) : null });
+  });
+  return mappings;
+}
+
+function updateSheetsFillSummary() {
+  const mappings = getSheetsFillMappings();
+  const keyMapped = mappings.some(m => m.key === 'sku' || m.key === 'model');
+  const el = document.getElementById('sheetsFillSummary');
+  el.textContent = `${mappings.length} column${mappings.length === 1 ? '' : 's'} mapped` + (keyMapped ? '' : ' — map SKU or Model so rows can be matched');
+}
+
+function populateAndDownloadTemplate() {
+  const mappings = getSheetsFillMappings();
+  if (mappings.length === 0) { alert('Map at least one column.'); return; }
+  const keyMapping = mappings.find(m => m.key === 'sku') || mappings.find(m => m.key === 'model');
+  if (!keyMapping) { alert('Map a column to SKU or Model so each row can be matched to a product.'); return; }
+
+  const dataStartIdx = parseInt(document.getElementById('sheetsFillDataStartRow').value) || 0;
+  const sheetIdx = parseInt(document.getElementById('sheetsFillSheetSelect').value) || 0;
+  const sheet = _sheetsFillWorkbook.sheets()[sheetIdx];
+
+  let filled = 0, skipped = 0;
+  for (let r = dataStartIdx; r < _sheetsFillGrid.length; r++) {
+    const row = _sheetsFillGrid[r];
+    const rawKey = row[keyMapping.col];
+    const keyVal = (rawKey === null || rawKey === undefined) ? '' : String(rawKey).trim();
+    if (!keyVal) { continue; }
+    const p = keyMapping.key === 'sku'
+      ? products.find(x => x.sku === keyVal)
+      : products.find(x => x.model.toLowerCase() === keyVal.toLowerCase());
+    if (!p) { skipped++; continue; }
+    const s = state[p.sku];
+    const rows = calcRows(p);
+    const sheetRowNum = _sheetsFillStartRow + r;
+
+    mappings.forEach(m => {
+      const sheetColNum = _sheetsFillStartCol + m.col;
+      const val = m.type === 'static' ? _sheetsStaticValue(p, s, m.key) : _sheetsWeeklyValue(s, rows, m.key, m.weekIdx);
+      sheet.cell(sheetRowNum, sheetColNum).value(val === '' ? null : val);
+    });
+    filled++;
+  }
+
+  document.getElementById('sheetsFillSummary').textContent =
+    `Filled ${filled} row${filled === 1 ? '' : 's'}${skipped ? `, skipped ${skipped} unmatched row${skipped === 1 ? '' : 's'}` : ''}`;
+
+  _sheetsFillWorkbook.outputAsync().then(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${_sheetsFillFileName || 'template'}_filled.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
 }
 
 
