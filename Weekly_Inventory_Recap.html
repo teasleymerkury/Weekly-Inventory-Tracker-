@@ -371,6 +371,13 @@
   .sidebar-logo .logo-title { font-size: 13px; font-weight: 700; color: var(--text-1); }
   .sidebar-logo .logo-sub   { font-size: 10px; color: var(--text-2); margin-top: 3px; }
   .sidebar-nav { flex: 1; padding: 10px 10px 0; }
+  .account-switcher { display: flex; flex-direction: column; gap: 4px; padding: 12px 10px 4px; border-bottom: 1px solid rgba(255,255,255,0.10); }
+  .account-switch-btn {
+    padding: 8px 12px; border-radius: 8px; font-size: 11.5px; font-weight: 600; cursor: pointer;
+    color: var(--text-2); background: rgba(255,255,255,0.04); text-align: left; user-select: none;
+    border: 1px solid transparent;
+  }
+  .account-switch-btn.active { color: var(--text-1); background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.18); }
   .nav-item {
     display: flex; align-items: center; gap: 9px;
     padding: 9px 12px; border-radius: 11px; cursor: pointer;
@@ -604,6 +611,7 @@
 
   /* ── Sync row (horizontal 3-col) ── */
   .sync-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .sync-row-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
   .sync-col {
     background: var(--glass-bg);
     backdrop-filter: blur(28px) saturate(1.7);
@@ -860,6 +868,11 @@
     font-size:10px; color:rgba(180,190,200,0.65); padding: 1px 6px !important;
     font-style:italic;
   }
+  tr.fr-group-header td.fr-group-header-lbl {
+    background: rgba(255,255,255,0.06); color: var(--text-1); font-weight: 700;
+    font-size: 11.5px; padding: 6px 12px !important; letter-spacing: 0.3px;
+  }
+  tr.fr-sub-row td.fr-sub-lbl { padding-left: 22px !important; }
   tr.fr-sub-row td input {
     font-size:11px; color:rgba(255,255,255,0.80); background:transparent;
     border:none; pointer-events:none; text-align:center; width:100%;
@@ -1293,8 +1306,12 @@
     <div class="logo-title">Merkury Forecast</div>
     <div class="logo-sub">Inventory Dashboard</div>
   </div>
+  <div class="account-switcher" id="accountSwitcher">
+    <div class="account-switch-btn active" id="acct-thd" onclick="switchAccount('thd')">The Home Depot US</div>
+    <div class="account-switch-btn" id="acct-sudslab" onclick="switchAccount('sudslab')">suds.lab</div>
+  </div>
   <nav class="sidebar-nav">
-    <div class="nav-item active" id="nav-inventory" onclick="showPage('inventory')">
+    <div class="nav-item active" id="nav-inventory" onclick="showWeeklyRecap()">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M8 3v18M2 9h20"/></svg>
       Weekly Recap
     </div>
@@ -1454,6 +1471,62 @@
 
 </div>
 </div>
+    <!-- Page: suds.lab Weekly Recap -->
+    <div class="page-section" id="page-sudslab-recap">
+      <div class="inbound-tab-header">
+        <div>
+          <h1>Weekly Recap — suds.lab</h1>
+          <p>SL- products only &mdash; firm receipts grouped by shipping source</p>
+        </div>
+      </div>
+      <div class="sync-row sync-row-4">
+        <div class="sync-col">
+          <div class="sync-col-head">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V21H3V8"/><path d="M23 3H1v5h22V3z"/><path d="M10 12h4"/></svg>
+            San Pedro
+          </div>
+          <span class="sync-col-status" id="sudslabSanPedroStatus">Not connected</span>
+          <div class="sync-col-btns">
+            <button class="xbtn primary" id="btnSudslabSanPedroConnect" onclick="connectSudsLabSanPedro()">&#128194; Connect</button>
+            <button class="xbtn sync"    id="btnSudslabSanPedroSync"    onclick="syncSudsLabATS('sanPedro')" disabled>&#128260; Sync</button>
+          </div>
+        </div>
+        <div class="sync-col">
+          <div class="sync-col-head">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V21H3V8"/><path d="M23 3H1v5h22V3z"/><path d="M10 12h4"/></svg>
+            Toll E-Comm
+          </div>
+          <span class="sync-col-status" id="sudslabTollEcommStatus">Not connected</span>
+          <div class="sync-col-btns">
+            <button class="xbtn primary" id="btnSudslabTollEcommConnect" onclick="connectSudsLabTollEcomm()">&#128194; Connect</button>
+            <button class="xbtn sync"    id="btnSudslabTollEcommSync"    onclick="syncSudsLabATS('tollEcomm')" disabled>&#128260; Sync</button>
+          </div>
+        </div>
+        <div class="sync-col">
+          <div class="sync-col-head">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V21H3V8"/><path d="M23 3H1v5h22V3z"/><path d="M10 12h4"/></svg>
+            Canada
+          </div>
+          <span class="sync-col-status" id="sudslabCanadaStatus">Not connected</span>
+          <div class="sync-col-btns">
+            <button class="xbtn primary" id="btnSudslabCanadaConnect" onclick="connectSudsLabCanada()">&#128194; Connect</button>
+            <button class="xbtn sync"    id="btnSudslabCanadaSync"    onclick="syncSudsLabATS('canada')" disabled>&#128260; Sync</button>
+          </div>
+        </div>
+        <div class="sync-col">
+          <div class="sync-col-head">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M8 3v18M16 3v18M2 9h20M2 15h20"/></svg>
+            Star &amp; Ultra Stock
+          </div>
+          <span class="sync-col-status" id="sudslabStockStatus">Not connected</span>
+          <div class="sync-col-btns">
+            <button class="xbtn primary" id="btnSudslabStockConnect" onclick="connectSudsLabStock()">&#128194; Connect</button>
+            <button class="xbtn sync"    id="btnSudslabStockSync"    onclick="syncSudsLabStock()" disabled>&#128260; Sync</button>
+          </div>
+        </div>
+      </div>
+      <div id="sudslabProductsContainer"></div>
+    </div>
     <!-- Page: Reorder -->
     <div class="page-section" id="page-reorder">
       <div class="reorder-tab-wrap">
@@ -1667,6 +1740,10 @@
 <input type="file" id="inputSuof" accept=".xlsx,.xlsm,.xls" style="display:none" />
 <input type="file" id="inputAts"  accept=".xlsx,.xlsm,.xls" style="display:none" />
 <input type="file" id="inputVd"   accept=".xlsx,.xlsm,.xls" style="display:none" />
+<input type="file" id="inputSudslabSanPedro"  accept=".xlsx,.xlsm,.xls" style="display:none" />
+<input type="file" id="inputSudslabTollEcomm" accept=".xlsx,.xlsm,.xls" style="display:none" />
+<input type="file" id="inputSudslabCanada"    accept=".xlsx,.xlsm,.xls" style="display:none" />
+<input type="file" id="inputSudslabStock"     accept=".xlsx,.xlsm,.xls" style="display:none" />
 
 <!-- Reorder Cell Popup -->
 <div class="rp-overlay" id="rpOverlay">
@@ -2494,6 +2571,356 @@ function buildProduct(p) {
   return wrap;
 }
 
+// ── suds.lab: calc + render (independent of buildProduct/calcRows above) ──────
+function calcSudsLabRows(p) {
+  const s = sudslabState[p.sku];
+  const curIdx = getCurrentWeekIdx();
+  const totalOnHand = (s.onHandSanPedro||0) + (s.onHandTollEcomm||0) + (s.onHandCanada||0) + (s.onHandStar||0) + (s.onHandUltra||0);
+  const totalFR = weeks.map((_, i) => (s.firmReceiptsSanPedro[i]||0) + (s.firmReceiptsTollEcomm[i]||0) + (s.firmReceiptsCanada[i]||0));
+  const hasHistoricalData = s.salesRates.slice(0, curIdx).some(v => v > 0) || totalFR.slice(0, curIdx).some(v => v > 0);
+  const trackStart = hasHistoricalData ? 0 : curIdx;
+  const endInv = new Array(weeks.length).fill(0);
+  endInv[curIdx] = totalOnHand;
+  for (let i = curIdx + 1; i < weeks.length; i++) {
+    endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1]||0) + totalFR[i-1] - (s.salesRates[i-1]||0));
+  }
+  for (let i = curIdx - 1; i >= trackStart; i--) {
+    endInv[i] = endInv[i+1] - (s.reorders[i]||0) - totalFR[i] + (s.salesRates[i]||0);
+  }
+  return { endInv, totalFR, curIdx, totalOnHand };
+}
+
+function buildSudsLabProduct(p) {
+  const s = sudslabState[p.sku];
+  const rows = calcSudsLabRows(p);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'product-block';
+  wrap.id = 'sudslab-block-' + p.sku;
+
+  wrap.innerHTML = `
+    <div class="product-header-compact">
+      <div class="phc-info">
+        <span class="phc-id">${p.sku}</span>
+        <span class="phc-sep">·</span>
+        <span class="phc-name">${p.desc || ''}</span>
+        <span class="phc-sep">·</span>
+        <span class="phc-pill">Inner: ${p.inner || '—'}</span>
+        <span class="phc-pill">Master: ${p.master || '—'}</span>
+      </div>
+      <div class="product-header-btns">
+        <button class="delete-btn" onclick="deleteSudsLabProduct('${p.sku}')" title="Remove this item permanently">&#128465; Delete</button>
+        <button class="toggle-vis-btn" id="sudslab-toggle-btn-${p.sku}" onclick="toggleSudsLabProductVisibility('${p.sku}')">&#9660; Hide</button>
+      </div>
+    </div>
+    <div class="product-body" id="sudslab-body-${p.sku}">
+    <div class="kpi-strip">
+      <div class="kpi-item" style="flex:1.4;min-width:120px;">
+        <div class="k">On Hand (suds.lab)</div>
+        <div class="v" id="sudslab-kpi-onhand-${p.sku}">${rows.totalOnHand.toLocaleString()}</div>
+      </div>
+      <div class="kpi-item" style="flex:0.7;min-width:90px;"><div class="k">San Pedro</div><div class="v">${(s.onHandSanPedro||0).toLocaleString()}</div></div>
+      <div class="kpi-item" style="flex:0.7;min-width:90px;"><div class="k">Toll E-Comm</div><div class="v">${(s.onHandTollEcomm||0).toLocaleString()}</div></div>
+      <div class="kpi-item" style="flex:0.7;min-width:90px;"><div class="k">Vertex West (CA)</div><div class="v">${(s.onHandCanada||0).toLocaleString()}</div></div>
+      <div class="kpi-item" style="flex:0.7;min-width:90px;"><div class="k">Star Distribution</div><div class="v">${(s.onHandStar||0).toLocaleString()}</div></div>
+      <div class="kpi-item" style="flex:0.7;min-width:90px;"><div class="k">Ultra-Look</div><div class="v">${(s.onHandUltra||0).toLocaleString()}</div></div>
+    </div>
+  `;
+
+  const scrollWrap = document.createElement('div');
+  scrollWrap.className = 'scroll-wrap';
+  const table = document.createElement('table');
+  table.className = 'grid';
+
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  const thLabel = document.createElement('th');
+  thLabel.className = 'row-lbl';
+  thLabel.textContent = 'Row';
+  headerRow.appendChild(thLabel);
+  weeks.forEach((w, i) => {
+    const th = document.createElement('th');
+    if (i < rows.curIdx - 1) th.className = 'col-past col-old-past';
+    else if (i < rows.curIdx) th.className = 'col-past';
+    else if (i === rows.curIdx) th.className = 'col-cur';
+    const dtStyle = i < rows.curIdx ? 'color:#ddd' : 'color:#bbb';
+    th.innerHTML = `<div style="text-align:center">${w.fw}</div><div style="font-weight:400;font-size:10px;margin-top:2px;${dtStyle};text-align:center">${w.dt}</div>`;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+
+  function addGroupHeaderRow(label) {
+    const tr = document.createElement('tr');
+    tr.className = 'fr-group-header';
+    const td = document.createElement('td');
+    td.className = 'row-lbl fr-group-header-lbl';
+    td.colSpan = weeks.length + 1;
+    td.textContent = label;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  function addDataRow(key, label, opts) {
+    opts = opts || {};
+    const tr = document.createElement('tr');
+    if (opts.indent) tr.className = 'fr-sub-row';
+    const tdLabel = document.createElement('td');
+    tdLabel.className = 'row-lbl' + (opts.isEnding ? ' ending' : '') + (opts.indent ? ' fr-sub-lbl' : '');
+    tdLabel.textContent = label;
+    tr.appendChild(tdLabel);
+
+    weeks.forEach((w, i) => {
+      const td = document.createElement('td');
+      const isPast = i < rows.curIdx;
+      const isCur  = i === rows.curIdx;
+      const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (isCur ? 'col-cur' : ''));
+      if (opts.editable) {
+        td.className = 'editable editable-row' + (colCls ? ' ' + colCls : '');
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.inputMode = 'numeric';
+        inp.value = fmtInput(opts.valueAt(i));
+        inp.dataset.sku = p.sku;
+        inp.dataset.row = key;
+        inp.dataset.idx = i;
+        if (isPast) { inp.readOnly = true; inp.title = 'Past week — read only'; }
+        else {
+          inp.addEventListener('input', function() { handleSudsLabChange(this); });
+          inp.addEventListener('change', function() { handleSudsLabChange(this); });
+          inp.addEventListener('focus', function() { this.value = this.value.replace(/,/g, ''); this.select(); });
+          inp.addEventListener('blur', function() { this.value = fmtInput(parseFloat(this.value.replace(/,/g,''))||0); });
+        }
+        td.appendChild(inp);
+      } else {
+        td.id = `sudslab-cell-${p.sku}-${key}-${i}`;
+        const v = opts.valueAt(i);
+        td.textContent = fmt(v);
+        const isStockout = opts.isEnding && v === 0 && !isPast;
+        td.className = (isStockout ? 'neg' : '') + (colCls ? ' ' + colCls : '');
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+
+  addDataRow('endInv', 'Ending INV', { isEnding: true, valueAt: i => rows.endInv[i] });
+  addDataRow('reorder', 'Reorder', { editable: true, valueAt: i => s.reorders[i] || 0 });
+
+  addGroupHeaderRow('Firm Receipt — US');
+  addDataRow('firmReceiptsSanPedro', 'San Pedro', { indent: true, valueAt: i => s.firmReceiptsSanPedro[i] || 0 });
+  addDataRow('firmReceiptsTollEcomm', 'Toll E-Comm', { indent: true, valueAt: i => s.firmReceiptsTollEcomm[i] || 0 });
+  addDataRow('onHandStarRow', 'Star Distribution', { indent: true, valueAt: () => 0 });
+  addDataRow('onHandUltraRow', 'Ultra-Look', { indent: true, valueAt: () => 0 });
+
+  addGroupHeaderRow('Firm Receipt — CA');
+  addDataRow('firmReceiptsCanada', 'Vertex West (Canada)', { indent: true, valueAt: i => s.firmReceiptsCanada[i] || 0 });
+
+  addDataRow('salesRate', 'Sales rate', { editable: true, valueAt: i => s.salesRates[i] || 0 });
+  addDataRow('sudslabSalesOrder', 'Suds.lab Sales Orders', { valueAt: i => (s.sudslabSalesOrders || [])[i] || 0 });
+
+  table.appendChild(tbody);
+  scrollWrap.appendChild(table);
+  const bodyDiv = wrap.querySelector('.product-body');
+  bodyDiv.appendChild(scrollWrap);
+  return wrap;
+}
+
+function renderSudsLabProducts() {
+  const container = document.getElementById('sudslabProductsContainer');
+  if (!container) return;
+  container.innerHTML = '';
+  sudslabProducts.forEach(p => {
+    if (sudslabState[p.sku] && sudslabState[p.sku].hidden) return; // rebuilt below, hidden sink handled by toggle
+    container.appendChild(buildSudsLabProduct(p));
+  });
+  // Append hidden ones after, collapsed
+  sudslabProducts.forEach(p => {
+    if (sudslabState[p.sku] && sudslabState[p.sku].hidden) {
+      const block = buildSudsLabProduct(p);
+      block.classList.add('collapsed');
+      container.appendChild(block);
+    }
+  });
+}
+
+function updateSudsLabCalcs(sku) {
+  const p = sudslabProducts.find(x => x.sku === sku);
+  if (!p) return;
+  const rows = calcSudsLabRows(p);
+  const s = sudslabState[sku];
+  weeks.forEach((w, i) => {
+    const isPast = i < rows.curIdx;
+    const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (i === rows.curIdx ? 'col-cur' : ''));
+    const ei = document.getElementById(`sudslab-cell-${sku}-endInv-${i}`);
+    if (ei) {
+      ei.textContent = fmt(rows.endInv[i]);
+      const stockout = rows.endInv[i] === 0 && !isPast ? 'neg' : '';
+      ei.className = (stockout + ' ' + colCls).trim();
+    }
+  });
+  const kpiOnHand = document.getElementById(`sudslab-kpi-onhand-${sku}`);
+  if (kpiOnHand) kpiOnHand.textContent = rows.totalOnHand.toLocaleString();
+}
+
+function handleSudsLabChange(input) {
+  const sku = input.dataset.sku;
+  const row = input.dataset.row;
+  const idx = parseInt(input.dataset.idx);
+  if (idx < getCurrentWeekIdx()) return;
+  const val = parseFloat(input.value.replace(/,/g, '')) || 0;
+  const s = sudslabState[sku];
+  if (row === 'reorder') s.reorders[idx] = val;
+  if (row === 'salesRate') s.salesRates[idx] = val;
+  updateSudsLabCalcs(sku);
+  if (!isTestMode && sbClient) {
+    (async () => {
+      try {
+        const payload = { sku, week_idx: idx };
+        if (row === 'reorder') payload.reorder_qty = val;
+        if (row === 'salesRate') payload.sales_rate = val;
+        await sbClient.from('sudslab_sku_weekly').upsert(payload, { onConflict: 'sku,week_idx' });
+      } catch(e) { console.warn('sudslab weekly sync failed:', e.message); }
+    })();
+  }
+}
+
+function deleteSudsLabProduct(sku) {
+  const p = sudslabProducts.find(x => x.sku === sku);
+  const name = p ? p.desc || sku : sku;
+  if (!confirm('Delete "' + name + '"?\nThis will permanently remove the item and all its data.')) return;
+  if (!isTestMode && sbClient) {
+    (async () => {
+      try { await sbClient.from('sudslab_sku_meta').upsert({ sku, deleted: true }, { onConflict: 'sku' }); }
+      catch(e) { console.warn('sudslab delete sync failed:', e.message); }
+    })();
+  }
+  const idx = sudslabProducts.findIndex(x => x.sku === sku);
+  if (idx >= 0) sudslabProducts.splice(idx, 1);
+  delete sudslabState[sku];
+  const block = document.getElementById('sudslab-block-' + sku);
+  if (block) block.remove();
+}
+
+function toggleSudsLabProductVisibility(sku) {
+  const block = document.getElementById('sudslab-block-' + sku);
+  const btn = document.getElementById('sudslab-toggle-btn-' + sku);
+  if (!block) return;
+  const isCollapsed = block.classList.toggle('collapsed');
+  btn.innerHTML = isCollapsed ? '&#9654; Show' : '&#9660; Hide';
+  if (sudslabState[sku]) sudslabState[sku].hidden = isCollapsed;
+  if (!isTestMode && sbClient) {
+    (async () => {
+      try { await sbClient.from('sudslab_sku_meta').upsert({ sku, hidden: isCollapsed }, { onConflict: 'sku' }); }
+      catch(e) { console.warn('sudslab hidden sync failed:', e.message); }
+    })();
+  }
+  const container = document.getElementById('sudslabProductsContainer');
+  const allBlocks = [...container.querySelectorAll('.product-block')];
+  const visible = allBlocks.filter(b => !b.classList.contains('collapsed'));
+  const hidden  = allBlocks.filter(b =>  b.classList.contains('collapsed'));
+  [...visible, ...hidden].forEach(b => container.appendChild(b));
+}
+
+// ── suds.lab: persistence (separate tables, separate from THD's sku_meta/sku_weekly) ──
+async function _fetchAllSudsLabWeekly() {
+  let all = [], from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const res = await sbClient.from('sudslab_sku_weekly').select('*').range(from, from + pageSize - 1);
+    if (res.error) return { data: all, error: res.error };
+    all = all.concat(res.data || []);
+    if (!res.data || res.data.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: all, error: null };
+}
+
+async function saveSudsLabState() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const metaRows = sudslabProducts.map(p => {
+      const s = sudslabState[p.sku] || {};
+      return {
+        sku: p.sku, description: p.desc || '', inner_pack: p.inner || null, master_pack: p.master || null,
+        on_hand_san_pedro: s.onHandSanPedro || 0, on_hand_toll_ecomm: s.onHandTollEcomm || 0,
+        on_hand_canada: s.onHandCanada || 0, on_hand_star: s.onHandStar || 0, on_hand_ultra: s.onHandUltra || 0,
+        hidden: !!s.hidden, deleted: false
+      };
+    });
+    if (metaRows.length > 0) {
+      await sbClient.from('sudslab_sku_meta').upsert(metaRows, { onConflict: 'sku' });
+    }
+
+    const weeklyRows = [];
+    sudslabProducts.forEach(p => {
+      const s = sudslabState[p.sku];
+      weeks.forEach((w, i) => {
+        const fr1 = s.firmReceiptsSanPedro[i] || 0, fr2 = s.firmReceiptsTollEcomm[i] || 0, fr3 = s.firmReceiptsCanada[i] || 0;
+        const sr = s.salesRates[i] || 0, ro = s.reorders[i] || 0, so = (s.sudslabSalesOrders || [])[i] || 0;
+        if (fr1 || fr2 || fr3 || sr || ro || so) {
+          weeklyRows.push({
+            sku: p.sku, week_idx: i,
+            firm_receipt_san_pedro: fr1, firm_receipt_toll_ecomm: fr2, firm_receipt_canada: fr3,
+            sales_rate: sr, reorder_qty: ro, sudslab_sales_order: so
+          });
+        }
+      });
+    });
+    const CHUNK = 500;
+    for (let i = 0; i < weeklyRows.length; i += CHUNK) {
+      await sbClient.from('sudslab_sku_weekly').upsert(weeklyRows.slice(i, i + CHUNK), { onConflict: 'sku,week_idx' });
+    }
+  } catch (e) {
+    console.warn('saveSudsLabState failed:', e.message);
+  }
+}
+
+async function loadSudsLabFromSupabase() {
+  if (!sbClient) return;
+  try {
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }] = await Promise.all([
+      sbClient.from('sudslab_sku_meta').select('*'),
+      _fetchAllSudsLabWeekly()
+    ]);
+    if (metaErr) throw metaErr;
+    if (weeklyErr) throw weeklyErr;
+
+    sudslabProducts = [];
+    sudslabState = {};
+    (metaRows || []).forEach(row => {
+      if (row.deleted) return;
+      sudslabProducts.push({ sku: row.sku, desc: row.description || '', inner: row.inner_pack, master: row.master_pack });
+      const s = _sudslabEmptyState();
+      s.onHandSanPedro  = row.on_hand_san_pedro  || 0;
+      s.onHandTollEcomm = row.on_hand_toll_ecomm || 0;
+      s.onHandCanada    = row.on_hand_canada     || 0;
+      s.onHandStar       = row.on_hand_star       || 0;
+      s.onHandUltra       = row.on_hand_ultra       || 0;
+      s.hidden = !!row.hidden;
+      sudslabState[row.sku] = s;
+    });
+
+    (weeklyRows || []).forEach(row => {
+      const s = sudslabState[row.sku];
+      if (!s || row.week_idx == null || row.week_idx >= weeks.length) return;
+      s.firmReceiptsSanPedro[row.week_idx]  = row.firm_receipt_san_pedro  || 0;
+      s.firmReceiptsTollEcomm[row.week_idx] = row.firm_receipt_toll_ecomm || 0;
+      s.firmReceiptsCanada[row.week_idx]    = row.firm_receipt_canada    || 0;
+      s.salesRates[row.week_idx]            = row.sales_rate             || 0;
+      s.reorders[row.week_idx]              = row.reorder_qty            || 0;
+      s.sudslabSalesOrders[row.week_idx]    = row.sudslab_sales_order    || 0;
+    });
+
+    _sudslabLoaded = true;
+    renderSudsLabProducts();
+  } catch (e) {
+    console.warn('loadSudsLabFromSupabase failed:', e.message);
+  }
+}
+
 async function handleOnHandMerkuryEdit(input) {
   const sku = input.dataset.sku;
   const val = parseFloat(input.value.replace(/,/g, '')) || 0;
@@ -2881,6 +3308,302 @@ function openThdSoPopup(sku, weekIdx) {
   document.getElementById('frDetailOverlay').classList.add('open');
 }
 
+// ── suds.lab: ATS import (San Pedro / Toll E-Comm / Canada) ───────────────────
+// Reuses the exact same "ATS" sheet layout/columns already proven for Home Depot's
+// syncFromATS() (ATS_MODEL_COL/ATS_DESC_COL/ATS_NOW_COL/ATS_ETA_COL, parseEtaField),
+// filtered to SL- prefixed rows only, routed into sudslabProducts/sudslabState
+// instead of the flat Home Depot products/state.
+let sudslabAtsFiles = { sanPedro: null, tollEcomm: null, canada: null };
+let sudslabStockFile = null;
+const SUDSLAB_GROUP_LABELS       = { sanPedro: 'San Pedro',            tollEcomm: 'Toll E-Comm',            canada: 'Canada' };
+const SUDSLAB_GROUP_STATUS_ID    = { sanPedro: 'sudslabSanPedroStatus', tollEcomm: 'sudslabTollEcommStatus', canada: 'sudslabCanadaStatus' };
+const SUDSLAB_GROUP_ONHAND_FIELD = { sanPedro: 'onHandSanPedro',        tollEcomm: 'onHandTollEcomm',        canada: 'onHandCanada' };
+const SUDSLAB_GROUP_FR_FIELD     = { sanPedro: 'firmReceiptsSanPedro',  tollEcomm: 'firmReceiptsTollEcomm',  canada: 'firmReceiptsCanada' };
+
+function connectSudsLabSanPedro()  { document.getElementById('inputSudslabSanPedro').click(); }
+function connectSudsLabTollEcomm() { document.getElementById('inputSudslabTollEcomm').click(); }
+function connectSudsLabCanada()    { document.getElementById('inputSudslabCanada').click(); }
+function connectSudsLabStock()     { document.getElementById('inputSudslabStock').click(); }
+
+function _sudslabSetStatus(elId, msg, type) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'sync-col-status' + (type ? ' ' + type : '');
+}
+
+function _sudslabEmptyState() {
+  return {
+    onHandSanPedro: 0, onHandTollEcomm: 0, onHandCanada: 0, onHandStar: 0, onHandUltra: 0,
+    firmReceiptsSanPedro: new Array(weeks.length).fill(0),
+    firmReceiptsTollEcomm: new Array(weeks.length).fill(0),
+    firmReceiptsCanada: new Array(weeks.length).fill(0),
+    salesRates: new Array(weeks.length).fill(0),
+    reorders: new Array(weeks.length).fill(0),
+    sudslabSalesOrders: new Array(weeks.length).fill(0),
+    hidden: false
+  };
+}
+
+// Auto-creates the product/state entry the first time this SL- sku is seen.
+function _sudslabEnsureProduct(sku) {
+  let p = sudslabProducts.find(x => x.sku === sku);
+  if (!p) {
+    p = { sku, desc: '', inner: null, master: null };
+    sudslabProducts.push(p);
+  }
+  if (!sudslabState[sku]) sudslabState[sku] = _sudslabEmptyState();
+  return p;
+}
+
+// Dynamic-header lookup against a parsed "Item Info" sheet — same pattern as
+// lookupAtsItemInfo() but keyed off this workbook's own data (not the shared
+// lastAtsItemInfo global, to avoid any cross-contamination with the THD sync).
+function _sudslabLookupItemInfo(itemInfoData, materialId) {
+  if (!itemInfoData) return null;
+  const target = materialId.trim().toUpperCase();
+  let headerRow = -1, descCol = -1, innerCol = -1, masterCol = -1;
+  for (let ri = 0; ri < Math.min(itemInfoData.length, 10); ri++) {
+    const row = itemInfoData[ri];
+    if (!row) continue;
+    let found = false;
+    for (let ci = 0; ci < row.length; ci++) {
+      const h = String(row[ci] || '').toLowerCase();
+      if (h.includes('material') && h.includes('text')) { descCol = ci; found = true; }
+      if (h.includes('inner') && h.includes('case'))    { innerCol = ci; found = true; }
+      if (h.includes('master') && h.includes('case'))   { masterCol = ci; found = true; }
+    }
+    if (found) { headerRow = ri; break; }
+  }
+  const startRow = headerRow >= 0 ? headerRow + 1 : 0;
+  for (let ri = startRow; ri < itemInfoData.length; ri++) {
+    const row = itemInfoData[ri];
+    if (!row || row[0] == null) continue;
+    if (String(row[0]).trim().toUpperCase() === target) {
+      return {
+        desc:   descCol   >= 0 ? String(row[descCol] || '').trim() : '',
+        inner:  innerCol  >= 0 ? (parseInt(row[innerCol])  || null) : null,
+        master: masterCol >= 0 ? (parseInt(row[masterCol]) || null) : null
+      };
+    }
+  }
+  return null;
+}
+
+// Simplified version of buildThdSalesOrders() — totals only (no detail popup),
+// applied to whichever SL- skus were just seen in this sync.
+function _sudslabApplySoDetail(soData) {
+  if (!soData || soData.length < 2) return;
+  let hdrIdx = 0;
+  for (let i = 0; i < Math.min(5, soData.length); i++) {
+    const r = soData[i];
+    if (r && r.filter(c => c != null && String(c).trim() !== '').length >= 4) { hdrIdx = i; break; }
+  }
+  const hdr = (soData[hdrIdx] || []).map(c => c != null ? String(c).trim().toLowerCase() : '');
+  const findH = (...terms) => { for (const t of terms) { const i = hdr.findIndex(h => h.includes(t.toLowerCase())); if (i !== -1) return i; } return -1; };
+  const SO_MODEL_COL    = findH('product', 'material id', 'model', 'item no');
+  const SO_START_COL    = findH('start date', 'startdate');
+  const SO_REQ_DATE_COL = findH('requested date', 'request date', 'req date');
+  const SO_REQ_QTY_COL  = findH('requested qty', 'req qty', 'requested quantity');
+
+  const toJsDate = v => {
+    if (!v) return null;
+    if (typeof v === 'number') {
+      const utc = new Date(Math.round((v - 25569) * 86400 * 1000));
+      return new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
+    }
+    const parts = String(v).split('/');
+    if (parts.length === 3) { const [mo, dy, yr] = parts.map(Number); return new Date(yr, mo - 1, dy); }
+    const d = new Date(String(v));
+    return isNaN(d) ? null : d;
+  };
+
+  const soMap = {}; // sku -> { weekIdx: total }
+  for (let ri = hdrIdx + 1; ri < soData.length; ri++) {
+    const row = soData[ri];
+    if (!row || row[SO_MODEL_COL] == null) continue;
+    const rowText = row.map(c => String(c || '').trim()).join('|').toLowerCase();
+    if (rowText.includes('result')) continue;
+    const materialId = String(row[SO_MODEL_COL]).trim();
+    if (!materialId.toUpperCase().startsWith('SL-')) continue;
+    if (!sudslabState[materialId]) continue; // only skus already seen via this sync's ATS rows
+
+    const reqQtyRaw = SO_REQ_QTY_COL >= 0 ? row[SO_REQ_QTY_COL] : null;
+    const reqQty = Math.round(parseFloat(String(reqQtyRaw || '').replace(/[^0-9.]/g, ''))) || 0;
+    if (reqQty === 0) continue;
+
+    const dateJs = toJsDate(SO_START_COL >= 0 ? row[SO_START_COL] : null) || toJsDate(SO_REQ_DATE_COL >= 0 ? row[SO_REQ_DATE_COL] : null);
+    const weekIdx = dateJs ? findWeekIdx(dateJs) : -1;
+    if (weekIdx < 0) continue;
+
+    if (!soMap[materialId]) soMap[materialId] = {};
+    soMap[materialId][weekIdx] = (soMap[materialId][weekIdx] || 0) + reqQty;
+  }
+
+  Object.keys(soMap).forEach(sku => {
+    const arr = new Array(weeks.length).fill(0);
+    Object.keys(soMap[sku]).forEach(wi => { arr[parseInt(wi)] = soMap[sku][wi]; });
+    sudslabState[sku].sudslabSalesOrders = arr;
+  });
+}
+
+// Different warehouses/3PLs export slightly different column layouts (e.g. San
+// Pedro's "ATS" sheet has "ATS NOW" at column 10, Toll E-Comm's "ATS Summary"
+// sheet has it at column 9 due to a missing duplicate "Sales Orders" column) —
+// so columns are detected dynamically by header text per file, not hardcoded.
+function _sudslabFindAtsSheet(wb) {
+  return wb.Sheets['ATS'] || wb.Sheets['ATS Summary'] || wb.Sheets['Ats'] || wb.Sheets['ats'];
+}
+function _sudslabFindAtsColumns(headerRow) {
+  const hdr = (headerRow || []).map(c => c != null ? String(c).trim().toLowerCase() : '');
+  const findExact = (...terms) => { for (const t of terms) { const i = hdr.indexOf(t.toLowerCase()); if (i !== -1) return i; } return -1; };
+  return {
+    modelCol: findExact('material id'),
+    descCol:  findExact('material id (text)'),
+    nowCol:   findExact('ats now'),
+    etaCol:   findExact('po detail eta', 'eta')
+  };
+}
+
+// Guards against a race between the lazy background load triggered by
+// switchAccount('sudslab') and a sync/save that runs immediately after —
+// without this, the load's array reset can silently clobber a sync that
+// completes first (confirmed via real testing against production Supabase).
+async function _sudslabAwaitLoad() {
+  if (_sudslabLoadPromise) { try { await _sudslabLoadPromise; } catch(e) {} _sudslabLoadPromise = null; }
+}
+
+async function syncSudsLabATS(group) {
+  const file = sudslabAtsFiles[group];
+  if (!file) return;
+  await _sudslabAwaitLoad();
+  const statusId = SUDSLAB_GROUP_STATUS_ID[group];
+  const onHandField = SUDSLAB_GROUP_ONHAND_FIELD[group];
+  const frField = SUDSLAB_GROUP_FR_FIELD[group];
+  _sudslabSetStatus(statusId, 'Syncing…');
+  try {
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array', raw: true });
+    const ws = _sudslabFindAtsSheet(wb);
+    if (!ws) throw new Error('No "ATS"/"ATS Summary" sheet found in the workbook.');
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+    const { modelCol, descCol, nowCol, etaCol } = _sudslabFindAtsColumns(data[1]);
+    if (modelCol < 0) throw new Error('Could not find a "Material ID" column in the ATS sheet.');
+
+    const wsItemInfo = wb.Sheets['Item Info'] || wb.Sheets['Item info'] || wb.Sheets['item info'] || wb.Sheets['Case Pack'] || wb.Sheets['case pack'];
+    const itemInfoData = wsItemInfo ? XLSX.utils.sheet_to_json(wsItemInfo, { header: 1, defval: null, raw: true }) : null;
+
+    let synced = 0;
+    for (let ri = 2; ri < data.length; ri++) {
+      const row = data[ri];
+      if (!row || row[modelCol] == null) continue;
+      const materialId = String(row[modelCol]).trim();
+      if (!materialId.toUpperCase().startsWith('SL-')) continue;
+
+      const p = _sudslabEnsureProduct(materialId);
+      const s = sudslabState[materialId];
+
+      if (!p.desc) {
+        const info = _sudslabLookupItemInfo(itemInfoData, materialId);
+        p.desc = (info && info.desc) || (descCol >= 0 ? String(row[descCol] || '').trim() : '');
+        p.inner = (info && info.inner) || p.inner;
+        p.master = (info && info.master) || p.master;
+      }
+
+      const nowVal = nowCol >= 0 ? row[nowCol] : null;
+      if (nowVal != null && !isNaN(nowVal)) s[onHandField] = Math.round(Number(nowVal));
+
+      const newFR = new Array(weeks.length).fill(0);
+      if (etaCol >= 0) {
+        parseEtaField(row[etaCol]).forEach(({ weekIdx, qty }) => {
+          newFR[weekIdx] = (newFR[weekIdx] || 0) + qty;
+        });
+      }
+      s[frField] = newFR;
+
+      synced++;
+    }
+
+    if (synced === 0) throw new Error('No SL- rows found in the ATS sheet.');
+
+    const wsSoDetail = wb.Sheets['SO Detail'] || wb.Sheets['So Detail'] || wb.Sheets['so detail'];
+    if (wsSoDetail) {
+      const soData = XLSX.utils.sheet_to_json(wsSoDetail, { header: 1, defval: null, raw: true });
+      _sudslabApplySoDetail(soData);
+    }
+
+    renderSudsLabProducts();
+    _sudslabSetStatus(statusId, `Connected — ${synced} SKU${synced === 1 ? '' : 's'} synced`, 'connected');
+    if (!isTestMode) saveSudsLabState();
+  } catch (e) {
+    _sudslabSetStatus(statusId, e.message, 'error');
+    console.warn('syncSudsLabATS(' + group + ') failed:', e.message);
+  }
+}
+
+// ── suds.lab: Star & Ultra stock import (ListofInventoryStock format) ─────────
+// On-hand only — never writes firm receipts (Star Distribution / Ultra-Look
+// never get firm receipt data, per explicit confirmation).
+function _sudslabFindStockColumns(headerRow) {
+  const hdr = (headerRow || []).map(c => c != null ? String(c).trim().toLowerCase() : '');
+  const findCol = (...terms) => { for (const t of terms) { const i = hdr.findIndex(h => h.includes(t.toLowerCase())); if (i !== -1) return i; } return -1; };
+  return {
+    productCol: findCol('product id'),
+    onHandCol:  findCol('on-hand stock', 'on hand stock'),
+    siteCol:    findCol('site id')
+  };
+}
+
+async function syncSudsLabStock() {
+  const file = sudslabStockFile;
+  if (!file) return;
+  await _sudslabAwaitLoad();
+  _sudslabSetStatus('sudslabStockStatus', 'Syncing…');
+  try {
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array', raw: true });
+    const ws = wb.Sheets['_DATA_MASTER'] || wb.Sheets[wb.SheetNames[0]];
+    if (!ws) throw new Error('No data sheet found in the workbook.');
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+
+    let hdrIdx = -1;
+    for (let i = 0; i < Math.min(15, data.length); i++) {
+      const row = data[i];
+      if (row && row.some(c => String(c || '').trim().toLowerCase() === 'product id')) { hdrIdx = i; break; }
+    }
+    if (hdrIdx < 0) throw new Error('Could not find a "Product ID" header row.');
+    const { productCol, onHandCol, siteCol } = _sudslabFindStockColumns(data[hdrIdx]);
+    if (productCol < 0 || onHandCol < 0 || siteCol < 0) throw new Error('Missing expected columns (Product ID / On-Hand Stock / Site ID).');
+
+    let synced = 0, starCount = 0, ultraCount = 0;
+    for (let ri = hdrIdx + 1; ri < data.length; ri++) {
+      const row = data[ri];
+      if (!row || row[productCol] == null) continue;
+      const materialId = String(row[productCol]).trim();
+      if (!materialId.toUpperCase().startsWith('SL-')) continue;
+
+      const site = String(row[siteCol] || '').trim();
+      if (site !== '200-310' && site !== '200-300') continue;
+      const onHand = Math.round(Number(row[onHandCol])) || 0;
+
+      _sudslabEnsureProduct(materialId);
+      const s = sudslabState[materialId];
+      if (site === '200-310') { s.onHandStar = onHand; starCount++; }
+      else { s.onHandUltra = onHand; ultraCount++; }
+      synced++;
+    }
+
+    if (synced === 0) throw new Error('No SL- rows found for Site ID 200-300/200-310.');
+
+    renderSudsLabProducts();
+    _sudslabSetStatus('sudslabStockStatus', `Connected — ${starCount} Star, ${ultraCount} Ultra`, 'connected');
+    if (!isTestMode) saveSudsLabState();
+  } catch (e) {
+    _sudslabSetStatus('sudslabStockStatus', e.message, 'error');
+    console.warn('syncSudsLabStock failed:', e.message);
+  }
+}
+
 function connectATS() {
   document.getElementById('inputAts').click();
 }
@@ -3212,6 +3935,51 @@ let sentReorders = {};
 try { sentReorders = JSON.parse(localStorage.getItem(SENT_REORDERS_KEY) || '{}'); } catch(e) {}
 let isTestMode = false;
 let deletedSkus = new Set();
+
+// ── Account switcher (The Home Depot US / suds.lab) ────────────────────────────
+let activeAccount = 'thd'; // 'thd' | 'sudslab'
+let accountRestriction = null; // null (real login, both accounts) | 'thd' | 'sudslab' (test logins, locked to one)
+let _sudslabLoaded = false;
+let _sudslabLoadPromise = null; // in-flight loadSudsLabFromSupabase() promise, if any
+let sudslabProducts = []; // grows via auto-create as new SL- SKUs are seen in imports
+let sudslabState = {};    // keyed by SL- sku
+
+// Test logins are restricted to a single account — hide the other account's
+// switcher button entirely, and for the suds.lab test login, jump straight in.
+function applyAccountRestriction() {
+  const thdBtn = document.getElementById('acct-thd');
+  const slBtn  = document.getElementById('acct-sudslab');
+  if (accountRestriction === 'thd') {
+    if (slBtn) slBtn.style.display = 'none';
+  } else if (accountRestriction === 'sudslab') {
+    if (thdBtn) thdBtn.style.display = 'none';
+    switchAccount('sudslab');
+  }
+}
+
+function switchAccount(name) {
+  if (accountRestriction && accountRestriction !== name) return; // locked to one account
+  if (activeAccount === name) return;
+  activeAccount = name;
+  document.getElementById('acct-thd').classList.toggle('active', name === 'thd');
+  document.getElementById('acct-sudslab').classList.toggle('active', name === 'sudslab');
+  ['nav-reorder', 'nav-inbound', 'nav-forecast', 'nav-sheets'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = name === 'sudslab' ? 'none' : '';
+  });
+  // Test-mode logins can still view real synced data (read-only) — same as the
+  // existing THD test account, which loads real data but blocks writes via isTestMode.
+  if (name === 'sudslab' && !_sudslabLoaded) _sudslabLoadPromise = loadSudsLabFromSupabase();
+  showWeeklyRecap();
+}
+function showWeeklyRecap() {
+  if (activeAccount === 'sudslab') {
+    showPage('sudslab-recap');
+    document.getElementById('nav-inventory').classList.add('active');
+  } else {
+    showPage('inventory');
+  }
+}
 function saveSentReorders() {
   if (isTestMode) return;
   localStorage.setItem(SENT_REORDERS_KEY, JSON.stringify(sentReorders));
@@ -6746,14 +7514,18 @@ function doLogin() {
   const REAL_USER_LC   = 'teasley@merkuryinnovations.com';
   const REAL_PASS_HASH = '65d550630e648d6c35597db2272259a545fc41a08e626c2793193104de99fcff';
   const TEST_USER_LC   = 'test';
-  const TEST_PASS_HASH = '532eaabd9574880dbf76b9b8cc00832c20a6ec113d682299550d7a6e0f345e25';
+  const TEST_PASS_HASH = '26ea0ae294881f1260ecafec008426894e80bc4d7dc1cd6557ab9169e1a803ee';
+  const SLTEST_USER_LC   = 'sltest';
+  const SLTEST_PASS_HASH = '593606cf156ec48a3bbffff5980c1222e66d03989d27b9663ddeae4e79056b44';
 
   const passHash = _sha256(pass);
   const isReal   = user.toLowerCase() === REAL_USER_LC && passHash === REAL_PASS_HASH;
   const isTest   = user.toLowerCase() === TEST_USER_LC && passHash === TEST_PASS_HASH;
+  const isSlTest = user.toLowerCase() === SLTEST_USER_LC && passHash === SLTEST_PASS_HASH;
 
-  if (isReal || isTest) {
-    isTestMode = isTest;
+  if (isReal || isTest || isSlTest) {
+    isTestMode = isTest || isSlTest;
+    accountRestriction = isTest ? 'thd' : (isSlTest ? 'sudslab' : null);
     if (errEl) errEl.style.display = 'none';
     const box = document.getElementById('loginBox');
     const overlay = document.getElementById('loginOverlay');
@@ -6767,6 +7539,7 @@ function doLogin() {
         overlay.style.transition = '';
         loadFromSupabase();
         startInactivityWatch();
+        applyAccountRestriction();
       }, 460);
     }
 
@@ -8955,14 +9728,18 @@ function doLogin() {
   const REAL_USER_LC   = 'teasley@merkuryinnovations.com';
   const REAL_PASS_HASH = '65d550630e648d6c35597db2272259a545fc41a08e626c2793193104de99fcff';
   const TEST_USER_LC   = 'test';
-  const TEST_PASS_HASH = '532eaabd9574880dbf76b9b8cc00832c20a6ec113d682299550d7a6e0f345e25';
+  const TEST_PASS_HASH = '26ea0ae294881f1260ecafec008426894e80bc4d7dc1cd6557ab9169e1a803ee';
+  const SLTEST_USER_LC   = 'sltest';
+  const SLTEST_PASS_HASH = '593606cf156ec48a3bbffff5980c1222e66d03989d27b9663ddeae4e79056b44';
 
   const passHash = _sha256(pass);
   const isReal   = user.toLowerCase() === REAL_USER_LC && passHash === REAL_PASS_HASH;
   const isTest   = user.toLowerCase() === TEST_USER_LC && passHash === TEST_PASS_HASH;
+  const isSlTest = user.toLowerCase() === SLTEST_USER_LC && passHash === SLTEST_PASS_HASH;
 
-  if (isReal || isTest) {
-    isTestMode = isTest;
+  if (isReal || isTest || isSlTest) {
+    isTestMode = isTest || isSlTest;
+    accountRestriction = isTest ? 'thd' : (isSlTest ? 'sudslab' : null);
     if (errEl) errEl.style.display = 'none';
     const box = document.getElementById('loginBox');
     const overlay = document.getElementById('loginOverlay');
@@ -8976,6 +9753,7 @@ function doLogin() {
         overlay.style.transition = '';
         loadFromSupabase();
         startInactivityWatch();
+        applyAccountRestriction();
       }, 460);
     }
 
@@ -9093,6 +9871,35 @@ document.getElementById('inputVd').addEventListener('change', function(e) {
   if (!file) return;
   vdFile = file;
   syncFromVD();
+  this.value = '';
+});
+
+document.getElementById('inputSudslabSanPedro').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  sudslabAtsFiles.sanPedro = file;
+  syncSudsLabATS('sanPedro');
+  this.value = '';
+});
+document.getElementById('inputSudslabTollEcomm').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  sudslabAtsFiles.tollEcomm = file;
+  syncSudsLabATS('tollEcomm');
+  this.value = '';
+});
+document.getElementById('inputSudslabCanada').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  sudslabAtsFiles.canada = file;
+  syncSudsLabATS('canada');
+  this.value = '';
+});
+document.getElementById('inputSudslabStock').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  sudslabStockFile = file;
+  syncSudsLabStock();
   this.value = '';
 });
 
