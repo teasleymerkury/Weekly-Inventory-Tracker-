@@ -868,11 +868,19 @@
     font-size:10px; color:rgba(180,190,200,0.65); padding: 1px 6px !important;
     font-style:italic;
   }
+  tr.fr-group-header td {
+    background: rgba(255,255,255,0.06); color: var(--text-1); font-weight: 600;
+  }
   tr.fr-group-header td.fr-group-header-lbl {
-    background: rgba(255,255,255,0.06); color: var(--text-1); font-weight: 700;
-    font-size: 11.5px; padding: 6px 12px !important; letter-spacing: 0.3px;
+    font-weight: 700; font-size: 11.5px; padding: 6px 12px !important; letter-spacing: 0.3px;
   }
   tr.fr-sub-row td.fr-sub-lbl { padding-left: 22px !important; }
+  .fr-del-wh {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:12px; height:12px; margin-left:5px; border-radius:3px;
+    color:rgba(255,140,140,0.75); font-size:12px; line-height:1; cursor:pointer; vertical-align:middle;
+  }
+  .fr-del-wh:hover { color:rgba(255,120,120,1); background:rgba(255,100,100,0.15); }
   tr.fr-sub-row td input {
     font-size:11px; color:rgba(255,255,255,0.80); background:transparent;
     border:none; pointer-events:none; text-align:center; width:100%;
@@ -1473,6 +1481,7 @@
 </div>
     <!-- Page: suds.lab Weekly Recap -->
     <div class="page-section" id="page-sudslab-recap">
+      <div class="page-wrap">
       <div class="inbound-tab-header">
         <div>
           <h1>Weekly Recap — suds.lab</h1>
@@ -1525,7 +1534,35 @@
           </div>
         </div>
       </div>
+      <!-- Filter Bar -->
+      <div class="filter-bar" id="sudslabFilterBar">
+        <span class="filter-lbl">Filter</span>
+        <div class="filter-dropdown-wrap">
+          <button class="filter-dd-btn" id="sudslabFilterDdBtn" onclick="toggleSudslabFilterDropdown()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+            Items <span class="dd-count" id="sudslabFilterDdCount">All</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="filter-dd-panel" id="sudslabFilterDdPanel">
+            <div class="filter-dd-header">
+              <span>Select Items</span>
+              <div class="filter-dd-actions">
+                <a onclick="sudslabFilterSelectAll()">Select All</a>
+                <a onclick="sudslabFilterClearAll()">Clear All</a>
+              </div>
+            </div>
+            <div class="filter-dd-list" id="sudslabFilterDdList"></div>
+          </div>
+        </div>
+        <div class="filter-sep"></div>
+        <span class="filter-lbl">Range</span>
+        <select class="fw-select" id="sudslabFwFrom" onchange="applySudslabFilters()"></select>
+        <span style="font-size:11px;color:var(--text-2);">to</span>
+        <select class="fw-select" id="sudslabFwTo" onchange="applySudslabFilters()"></select>
+        <div style="flex:1;"></div>
+      </div>
       <div id="sudslabProductsContainer"></div>
+      </div>
     </div>
     <!-- Page: Reorder -->
     <div class="page-section" id="page-reorder">
@@ -2576,7 +2613,9 @@ function calcSudsLabRows(p) {
   const s = sudslabState[p.sku];
   const curIdx = getCurrentWeekIdx();
   const totalOnHand = (s.onHandSanPedro||0) + (s.onHandTollEcomm||0) + (s.onHandCanada||0) + (s.onHandStar||0) + (s.onHandUltra||0);
-  const totalFR = weeks.map((_, i) => (s.firmReceiptsSanPedro[i]||0) + (s.firmReceiptsTollEcomm[i]||0) + (s.firmReceiptsCanada[i]||0));
+  const customFRArrays = Object.values(s.customFR || {});
+  const totalFR = weeks.map((_, i) => (s.firmReceiptsSanPedro[i]||0) + (s.firmReceiptsTollEcomm[i]||0) + (s.firmReceiptsCanada[i]||0)
+    + customFRArrays.reduce((sum, arr) => sum + (arr[i] || 0), 0));
   const hasHistoricalData = s.salesRates.slice(0, curIdx).some(v => v > 0) || totalFR.slice(0, curIdx).some(v => v > 0);
   const trackStart = hasHistoricalData ? 0 : curIdx;
   const endInv = new Array(weeks.length).fill(0);
@@ -2600,6 +2639,7 @@ function buildSudsLabProduct(p) {
 
   wrap.innerHTML = `
     <div class="product-header-compact">
+      <div class="drag-handle" title="Grab and Drag"><svg width="12" height="16" viewBox="0 0 12 16" fill="#ffffff"><circle cx="3.5" cy="2.5" r="2.2"/><circle cx="8.5" cy="2.5" r="2.2"/><circle cx="3.5" cy="8"   r="2.2"/><circle cx="8.5" cy="8"   r="2.2"/><circle cx="3.5" cy="13.5" r="2.2"/><circle cx="8.5" cy="13.5" r="2.2"/></svg></div>
       <div class="phc-info">
         <span class="phc-id">${p.sku}</span>
         <span class="phc-sep">·</span>
@@ -2652,14 +2692,29 @@ function buildSudsLabProduct(p) {
 
   const tbody = document.createElement('tbody');
 
-  function addGroupHeaderRow(label) {
+  function addGroupTotalRow(groupKey, label, totalAt) {
     const tr = document.createElement('tr');
     tr.className = 'fr-group-header';
-    const td = document.createElement('td');
-    td.className = 'row-lbl fr-group-header-lbl';
-    td.colSpan = weeks.length + 1;
-    td.textContent = label;
-    tr.appendChild(td);
+    tr.id = `sudslab-fr-group-${groupKey}-${p.sku}`;
+    const tdLabel = document.createElement('td');
+    tdLabel.className = 'row-lbl fr-group-header-lbl';
+    tdLabel.innerHTML = `${label}`
+      + `<span class="fr-ctrl-group">`
+      + `<button class="fr-ctrl-btn" title="Expand" onclick="expandSudsLabFRGroup('${p.sku}','${groupKey}')"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" fill="none" style="pointer-events:none;display:block"><line x1="1" y1="9" x2="9" y2="1"/><polyline points="5,1 9,1 9,5"/><line x1="1" y1="9" x2="5" y2="9"/><polyline points="1,5 1,9 5,9"/></svg></button>`
+      + `<button class="fr-ctrl-btn" title="Collapse to total" onclick="shrinkSudsLabFRGroup('${p.sku}','${groupKey}')"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" fill="none" style="pointer-events:none;display:block"><line x1="4" y1="6" x2="1" y2="9"/><polyline points="4,9 4,6 1,6"/><line x1="6" y1="4" x2="9" y2="1"/><polyline points="6,1 6,4 9,4"/></svg></button>`
+      + `<button class="fr-ctrl-btn add-btn" title="Add warehouse" onclick="addSudsLabWarehouse('${groupKey}')">&#43;</button>`
+      + `</span>`;
+    tr.appendChild(tdLabel);
+    weeks.forEach((w, i) => {
+      const td = document.createElement('td');
+      const isPast = i < rows.curIdx;
+      const isCur  = i === rows.curIdx;
+      const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (isCur ? 'col-cur' : ''));
+      td.id = `sudslab-cell-${p.sku}-frgroup-${groupKey}-${i}`;
+      td.textContent = fmt(totalAt(i));
+      td.className = colCls || '';
+      tr.appendChild(td);
+    });
     tbody.appendChild(tr);
   }
 
@@ -2667,9 +2722,14 @@ function buildSudsLabProduct(p) {
     opts = opts || {};
     const tr = document.createElement('tr');
     if (opts.indent) tr.className = 'fr-sub-row';
+    if (opts.groupKey) tr.classList.add(`fr-group-sub-${opts.groupKey}`);
     const tdLabel = document.createElement('td');
     tdLabel.className = 'row-lbl' + (opts.isEnding ? ' ending' : '') + (opts.indent ? ' fr-sub-lbl' : '');
-    tdLabel.textContent = label;
+    if (opts.custom) {
+      tdLabel.innerHTML = `${label}<span class="fr-del-wh" title="Remove warehouse" onclick="removeSudsLabWarehouse('${opts.groupKey}','${opts.whId}')">&times;</span>`;
+    } else {
+      tdLabel.textContent = label;
+    }
     tr.appendChild(tdLabel);
 
     weeks.forEach((w, i) => {
@@ -2706,17 +2766,27 @@ function buildSudsLabProduct(p) {
     tbody.appendChild(tr);
   }
 
+  function customWhTotal(groupKey, i) {
+    return (sudslabCustomWarehouses[groupKey] || []).reduce((sum, wh) => sum + ((s.customFR[wh.id] || [])[i] || 0), 0);
+  }
+
   addDataRow('endInv', 'Ending INV', { isEnding: true, valueAt: i => rows.endInv[i] });
   addDataRow('reorder', 'Reorder', { editable: true, valueAt: i => s.reorders[i] || 0 });
 
-  addGroupHeaderRow('Firm Receipt — US');
-  addDataRow('firmReceiptsSanPedro', 'San Pedro', { indent: true, valueAt: i => s.firmReceiptsSanPedro[i] || 0 });
-  addDataRow('firmReceiptsTollEcomm', 'Toll E-Comm', { indent: true, valueAt: i => s.firmReceiptsTollEcomm[i] || 0 });
-  addDataRow('onHandStarRow', 'Star Distribution', { indent: true, valueAt: () => 0 });
-  addDataRow('onHandUltraRow', 'Ultra-Look', { indent: true, valueAt: () => 0 });
+  addGroupTotalRow('us', 'Firm Receipt — US', i => (s.firmReceiptsSanPedro[i] || 0) + (s.firmReceiptsTollEcomm[i] || 0) + customWhTotal('us', i));
+  addDataRow('firmReceiptsSanPedro', 'San Pedro', { indent: true, groupKey: 'us', valueAt: i => s.firmReceiptsSanPedro[i] || 0 });
+  addDataRow('firmReceiptsTollEcomm', 'Toll E-Comm', { indent: true, groupKey: 'us', valueAt: i => s.firmReceiptsTollEcomm[i] || 0 });
+  addDataRow('onHandStarRow', 'Star Distribution', { indent: true, groupKey: 'us', valueAt: () => 0 });
+  addDataRow('onHandUltraRow', 'Ultra-Look', { indent: true, groupKey: 'us', valueAt: () => 0 });
+  (sudslabCustomWarehouses.us || []).forEach(wh => {
+    addDataRow(`customFR_${wh.id}`, wh.name, { indent: true, groupKey: 'us', editable: true, custom: true, whId: wh.id, valueAt: i => (s.customFR[wh.id] || [])[i] || 0 });
+  });
 
-  addGroupHeaderRow('Firm Receipt — CA');
-  addDataRow('firmReceiptsCanada', 'Vertex West (Canada)', { indent: true, valueAt: i => s.firmReceiptsCanada[i] || 0 });
+  addGroupTotalRow('ca', 'Firm Receipt — CA', i => (s.firmReceiptsCanada[i] || 0) + customWhTotal('ca', i));
+  addDataRow('firmReceiptsCanada', 'Vertex West (Canada)', { indent: true, groupKey: 'ca', valueAt: i => s.firmReceiptsCanada[i] || 0 });
+  (sudslabCustomWarehouses.ca || []).forEach(wh => {
+    addDataRow(`customFR_${wh.id}`, wh.name, { indent: true, groupKey: 'ca', editable: true, custom: true, whId: wh.id, valueAt: i => (s.customFR[wh.id] || [])[i] || 0 });
+  });
 
   addDataRow('salesRate', 'Sales rate', { editable: true, valueAt: i => s.salesRates[i] || 0 });
   addDataRow('sudslabSalesOrder', 'Suds.lab Sales Orders', { valueAt: i => (s.sudslabSalesOrders || [])[i] || 0 });
@@ -2728,6 +2798,19 @@ function buildSudsLabProduct(p) {
   return wrap;
 }
 
+// Scrolls a product's grid so the current-week (col-cur) column sits right
+// after the sticky Row-label column, instead of opening on FW1.
+function scrollSudsLabToCurrentWeek(sku) {
+  const block = document.getElementById('sudslab-block-' + sku);
+  if (!block) return;
+  const scrollWrap = block.querySelector('.scroll-wrap');
+  const curTh = scrollWrap && scrollWrap.querySelector('thead th.col-cur');
+  if (!scrollWrap || !curTh) return;
+  const lblTh = scrollWrap.querySelector('thead th.row-lbl');
+  const stickyWidth = lblTh ? lblTh.offsetWidth : 0;
+  scrollWrap.scrollLeft = Math.max(0, curTh.offsetLeft - stickyWidth);
+}
+
 function renderSudsLabProducts() {
   const container = document.getElementById('sudslabProductsContainer');
   if (!container) return;
@@ -2735,6 +2818,7 @@ function renderSudsLabProducts() {
   sudslabProducts.forEach(p => {
     if (sudslabState[p.sku] && sudslabState[p.sku].hidden) return; // rebuilt below, hidden sink handled by toggle
     container.appendChild(buildSudsLabProduct(p));
+    scrollSudsLabToCurrentWeek(p.sku);
   });
   // Append hidden ones after, collapsed
   sudslabProducts.forEach(p => {
@@ -2744,6 +2828,82 @@ function renderSudsLabProducts() {
       container.appendChild(block);
     }
   });
+}
+
+function expandSudsLabFRGroup(sku, groupKey) {
+  const block = document.getElementById('sudslab-block-' + sku);
+  if (!block) return;
+  block.querySelectorAll(`tr.fr-group-sub-${groupKey}`).forEach(r => r.style.display = '');
+}
+function shrinkSudsLabFRGroup(sku, groupKey) {
+  const block = document.getElementById('sudslab-block-' + sku);
+  if (!block) return;
+  block.querySelectorAll(`tr.fr-group-sub-${groupKey}`).forEach(r => r.style.display = 'none');
+}
+
+// ── suds.lab: manually-added warehouses (future shipping sources) ────────────
+// Account-wide list (not per-SKU) persisted via the generic app_cache table —
+// avoids a schema migration on sudslab_sku_meta/sudslab_sku_weekly.
+function addSudsLabWarehouse(groupKey) {
+  const name = prompt(`New ${groupKey === 'us' ? 'US' : 'Canada'} warehouse name:`);
+  if (!name || !name.trim()) return;
+  const id = 'wh_' + Date.now();
+  sudslabCustomWarehouses[groupKey].push({ id, name: name.trim() });
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    if (!s.customFR) s.customFR = {};
+    if (!s.customFR[id]) s.customFR[id] = new Array(weeks.length).fill(0);
+  });
+  renderSudsLabProducts();
+  buildSudslabFilterDropdown();
+  applySudslabFilters();
+  if (!isTestMode) saveSudsLabCustomWarehouses();
+}
+
+function removeSudsLabWarehouse(groupKey, whId) {
+  const wh = (sudslabCustomWarehouses[groupKey] || []).find(w => w.id === whId);
+  if (!wh) return;
+  if (!confirm(`Remove warehouse "${wh.name}"?\nThis will delete its firm receipt data for every SKU.`)) return;
+  sudslabCustomWarehouses[groupKey] = sudslabCustomWarehouses[groupKey].filter(w => w.id !== whId);
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    if (s.customFR) delete s.customFR[whId];
+  });
+  renderSudsLabProducts();
+  buildSudslabFilterDropdown();
+  applySudslabFilters();
+  if (!isTestMode) { saveSudsLabCustomWarehouses(); saveSudsLabCustomFR(); }
+}
+
+async function saveSudsLabCustomWarehouses() {
+  if (isTestMode || !sbClient) return;
+  try {
+    await sbClient.from('app_cache').upsert({ key: 'sudslab_custom_warehouses', data: sudslabCustomWarehouses }, { onConflict: 'key' });
+  } catch(e) { console.warn('saveSudsLabCustomWarehouses failed:', e.message); }
+}
+
+async function saveSudsLabCustomFR() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const blob = {};
+    sudslabProducts.forEach(p => {
+      const s = sudslabState[p.sku];
+      if (s && s.customFR && Object.keys(s.customFR).length) blob[p.sku] = s.customFR;
+    });
+    await sbClient.from('app_cache').upsert({ key: 'sudslab_custom_fr', data: blob }, { onConflict: 'key' });
+  } catch(e) { console.warn('saveSudsLabCustomFR failed:', e.message); }
+}
+
+function updateSudsLabGroupTotalCell(sku, groupKey, idx) {
+  const s = sudslabState[sku];
+  if (!s) return;
+  const cell = document.getElementById(`sudslab-cell-${sku}-frgroup-${groupKey}-${idx}`);
+  if (!cell) return;
+  const customTotal = (sudslabCustomWarehouses[groupKey] || []).reduce((sum, wh) => sum + ((s.customFR[wh.id] || [])[idx] || 0), 0);
+  const base = groupKey === 'us'
+    ? (s.firmReceiptsSanPedro[idx] || 0) + (s.firmReceiptsTollEcomm[idx] || 0)
+    : (s.firmReceiptsCanada[idx] || 0);
+  cell.textContent = fmt(base + customTotal);
 }
 
 function updateSudsLabCalcs(sku) {
@@ -2772,16 +2932,28 @@ function handleSudsLabChange(input) {
   if (idx < getCurrentWeekIdx()) return;
   const val = parseFloat(input.value.replace(/,/g, '')) || 0;
   const s = sudslabState[sku];
+  let customWhId = null, customGroupKey = null;
   if (row === 'reorder') s.reorders[idx] = val;
   if (row === 'salesRate') s.salesRates[idx] = val;
+  if (row.startsWith('customFR_')) {
+    customWhId = row.slice('customFR_'.length);
+    if (!s.customFR[customWhId]) s.customFR[customWhId] = new Array(weeks.length).fill(0);
+    s.customFR[customWhId][idx] = val;
+    customGroupKey = (sudslabCustomWarehouses.us || []).some(w => w.id === customWhId) ? 'us' : 'ca';
+  }
   updateSudsLabCalcs(sku);
+  if (customGroupKey) updateSudsLabGroupTotalCell(sku, customGroupKey, idx);
   if (!isTestMode && sbClient) {
     (async () => {
       try {
-        const payload = { sku, week_idx: idx };
-        if (row === 'reorder') payload.reorder_qty = val;
-        if (row === 'salesRate') payload.sales_rate = val;
-        await sbClient.from('sudslab_sku_weekly').upsert(payload, { onConflict: 'sku,week_idx' });
+        if (customWhId) {
+          await saveSudsLabCustomFR();
+        } else {
+          const payload = { sku, week_idx: idx };
+          if (row === 'reorder') payload.reorder_qty = val;
+          if (row === 'salesRate') payload.sales_rate = val;
+          await sbClient.from('sudslab_sku_weekly').upsert(payload, { onConflict: 'sku,week_idx' });
+        }
       } catch(e) { console.warn('sudslab weekly sync failed:', e.message); }
     })();
   }
@@ -2881,9 +3053,10 @@ async function saveSudsLabState() {
 async function loadSudsLabFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }] = await Promise.all([
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }] = await Promise.all([
       sbClient.from('sudslab_sku_meta').select('*'),
-      _fetchAllSudsLabWeekly()
+      _fetchAllSudsLabWeekly(),
+      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr'])
     ]);
     if (metaErr) throw metaErr;
     if (weeklyErr) throw weeklyErr;
@@ -2914,8 +3087,18 @@ async function loadSudsLabFromSupabase() {
       s.sudslabSalesOrders[row.week_idx]    = row.sudslab_sales_order    || 0;
     });
 
+    const whRow = (cacheRows || []).find(r => r.key === 'sudslab_custom_warehouses');
+    if (whRow && whRow.data) sudslabCustomWarehouses = { us: whRow.data.us || [], ca: whRow.data.ca || [] };
+    const frRow = (cacheRows || []).find(r => r.key === 'sudslab_custom_fr');
+    if (frRow && frRow.data) {
+      Object.keys(frRow.data).forEach(sku => {
+        if (sudslabState[sku]) sudslabState[sku].customFR = frRow.data[sku] || {};
+      });
+    }
+
     _sudslabLoaded = true;
     renderSudsLabProducts();
+    initSudslabFilterBar();
   } catch (e) {
     console.warn('loadSudsLabFromSupabase failed:', e.message);
   }
@@ -3319,6 +3502,9 @@ const SUDSLAB_GROUP_LABELS       = { sanPedro: 'San Pedro',            tollEcomm
 const SUDSLAB_GROUP_STATUS_ID    = { sanPedro: 'sudslabSanPedroStatus', tollEcomm: 'sudslabTollEcommStatus', canada: 'sudslabCanadaStatus' };
 const SUDSLAB_GROUP_ONHAND_FIELD = { sanPedro: 'onHandSanPedro',        tollEcomm: 'onHandTollEcomm',        canada: 'onHandCanada' };
 const SUDSLAB_GROUP_FR_FIELD     = { sanPedro: 'firmReceiptsSanPedro',  tollEcomm: 'firmReceiptsTollEcomm',  canada: 'firmReceiptsCanada' };
+const SUDSLAB_GROUP_SYNC_BTN     = { sanPedro: 'btnSudslabSanPedroSync', tollEcomm: 'btnSudslabTollEcommSync', canada: 'btnSudslabCanadaSync' };
+const SUDSLAB_GROUP_CONNECT_BTN  = { sanPedro: 'btnSudslabSanPedroConnect', tollEcomm: 'btnSudslabTollEcommConnect', canada: 'btnSudslabCanadaConnect' };
+const SUDSLAB_GROUP_FILE_KEY     = { sanPedro: 'sudslab_ats_sanPedro_file_name', tollEcomm: 'sudslab_ats_tollEcomm_file_name', canada: 'sudslab_ats_canada_file_name' };
 
 function connectSudsLabSanPedro()  { document.getElementById('inputSudslabSanPedro').click(); }
 function connectSudsLabTollEcomm() { document.getElementById('inputSudslabTollEcomm').click(); }
@@ -3341,6 +3527,7 @@ function _sudslabEmptyState() {
     salesRates: new Array(weeks.length).fill(0),
     reorders: new Array(weeks.length).fill(0),
     sudslabSalesOrders: new Array(weeks.length).fill(0),
+    customFR: {},
     hidden: false
   };
 }
@@ -3480,6 +3667,8 @@ async function syncSudsLabATS(group) {
   const statusId = SUDSLAB_GROUP_STATUS_ID[group];
   const onHandField = SUDSLAB_GROUP_ONHAND_FIELD[group];
   const frField = SUDSLAB_GROUP_FR_FIELD[group];
+  const btnSync = document.getElementById(SUDSLAB_GROUP_SYNC_BTN[group]);
+  if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
   _sudslabSetStatus(statusId, 'Syncing…');
   try {
     const buffer = await file.arrayBuffer();
@@ -3533,11 +3722,18 @@ async function syncSudsLabATS(group) {
     }
 
     renderSudsLabProducts();
-    _sudslabSetStatus(statusId, `Connected — ${synced} SKU${synced === 1 ? '' : 's'} synced`, 'connected');
+    buildSudslabFilterDropdown();
+    applySudslabFilters();
+    const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    _sudslabSetStatus(statusId, `✓ Connected — ${file.name} — last synced ${ts} (${synced} SKU${synced === 1 ? '' : 's'} synced)`, 'connected');
+    const connectBtn = document.getElementById(SUDSLAB_GROUP_CONNECT_BTN[group]);
+    if (connectBtn) connectBtn.textContent = '📂 Change File';
     if (!isTestMode) saveSudsLabState();
   } catch (e) {
-    _sudslabSetStatus(statusId, e.message, 'error');
+    _sudslabSetStatus(statusId, '⚠ Sync failed: ' + e.message, 'error');
     console.warn('syncSudsLabATS(' + group + ') failed:', e.message);
+  } finally {
+    if (btnSync) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
   }
 }
 
@@ -3558,6 +3754,8 @@ async function syncSudsLabStock() {
   const file = sudslabStockFile;
   if (!file) return;
   await _sudslabAwaitLoad();
+  const btnSync = document.getElementById('btnSudslabStockSync');
+  if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
   _sudslabSetStatus('sudslabStockStatus', 'Syncing…');
   try {
     const buffer = await file.arrayBuffer();
@@ -3596,11 +3794,18 @@ async function syncSudsLabStock() {
     if (synced === 0) throw new Error('No SL- rows found for Site ID 200-300/200-310.');
 
     renderSudsLabProducts();
-    _sudslabSetStatus('sudslabStockStatus', `Connected — ${starCount} Star, ${ultraCount} Ultra`, 'connected');
+    buildSudslabFilterDropdown();
+    applySudslabFilters();
+    const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    _sudslabSetStatus('sudslabStockStatus', `✓ Connected — ${file.name} — last synced ${ts} (${starCount} Star, ${ultraCount} Ultra)`, 'connected');
+    const connectBtn = document.getElementById('btnSudslabStockConnect');
+    if (connectBtn) connectBtn.textContent = '📂 Change File';
     if (!isTestMode) saveSudsLabState();
   } catch (e) {
-    _sudslabSetStatus('sudslabStockStatus', e.message, 'error');
+    _sudslabSetStatus('sudslabStockStatus', '⚠ Sync failed: ' + e.message, 'error');
     console.warn('syncSudsLabStock failed:', e.message);
+  } finally {
+    if (btnSync) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
   }
 }
 
@@ -3943,6 +4148,7 @@ let _sudslabLoaded = false;
 let _sudslabLoadPromise = null; // in-flight loadSudsLabFromSupabase() promise, if any
 let sudslabProducts = []; // grows via auto-create as new SL- SKUs are seen in imports
 let sudslabState = {};    // keyed by SL- sku
+let sudslabCustomWarehouses = { us: [], ca: [] }; // manually-added shipping sources: { id, name }[]
 
 // Test logins are restricted to a single account — hide the other account's
 // switcher button entirely, and for the suds.lab test login, jump straight in.
@@ -6802,6 +7008,110 @@ function applyFilters() {
   });
 }
 
+// ── suds.lab: Filter & date range (mirrors the THD filter bar above, own state) ──
+let sudslabFilterSelected = null;
+
+function initSudslabFilterBar() {
+  const from = document.getElementById('sudslabFwFrom');
+  const to   = document.getElementById('sudslabFwTo');
+  if (!from || !to) return;
+  from.innerHTML = ''; to.innerHTML = '';
+  weeks.forEach((w, i) => {
+    from.appendChild(new Option(w.fw, i));
+    to.appendChild(new Option(w.fw, i));
+  });
+  const curIdx = getCurrentWeekIdx();
+  from.value = Math.max(0, curIdx - 1);
+  to.value   = Math.min(27, weeks.length - 1);
+  buildSudslabFilterDropdown();
+  applySudslabFilters();
+}
+
+function buildSudslabFilterDropdown() {
+  const list = document.getElementById('sudslabFilterDdList');
+  if (!list) return;
+  list.innerHTML = '';
+  sudslabProducts.forEach(p => {
+    const checked = sudslabFilterSelected === null || sudslabFilterSelected.has(p.sku);
+    const item = document.createElement('label');
+    item.className = 'filter-dd-item';
+    item.innerHTML = `
+      <input type="checkbox" value="${p.sku}" ${checked ? 'checked' : ''} onchange="onSudslabFilterCheck(this)" />
+      <span>
+        <div class="fdi-name">${p.desc || p.sku}</div>
+        <div class="fdi-sub">${p.sku}</div>
+      </span>`;
+    list.appendChild(item);
+  });
+  updateSudslabFilterCount();
+}
+
+function onSudslabFilterCheck(cb) {
+  if (sudslabFilterSelected === null) {
+    sudslabFilterSelected = new Set(sudslabProducts.map(p => p.sku));
+  }
+  if (cb.checked) sudslabFilterSelected.add(cb.value);
+  else            sudslabFilterSelected.delete(cb.value);
+  if (sudslabFilterSelected.size === sudslabProducts.length) sudslabFilterSelected = null;
+  updateSudslabFilterCount();
+  applySudslabFilters();
+}
+
+function sudslabFilterSelectAll() {
+  sudslabFilterSelected = null;
+  document.querySelectorAll('#sudslabFilterDdList input[type=checkbox]').forEach(cb => cb.checked = true);
+  updateSudslabFilterCount();
+  applySudslabFilters();
+}
+
+function sudslabFilterClearAll() {
+  sudslabFilterSelected = new Set();
+  document.querySelectorAll('#sudslabFilterDdList input[type=checkbox]').forEach(cb => cb.checked = false);
+  updateSudslabFilterCount();
+  applySudslabFilters();
+}
+
+function updateSudslabFilterCount() {
+  const countEl = document.getElementById('sudslabFilterDdCount');
+  if (!countEl) return;
+  countEl.textContent = sudslabFilterSelected === null ? 'All' : (sudslabFilterSelected.size + ' / ' + sudslabProducts.length);
+}
+
+function toggleSudslabFilterDropdown() {
+  const panel = document.getElementById('sudslabFilterDdPanel');
+  if (panel) panel.classList.toggle('open');
+}
+
+document.addEventListener('click', function(e) {
+  const wrap = document.querySelector('#sudslabFilterBar .filter-dropdown-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    const panel = document.getElementById('sudslabFilterDdPanel');
+    if (panel) panel.classList.remove('open');
+  }
+});
+
+function applySudslabFilters() {
+  const fromEl = document.getElementById('sudslabFwFrom');
+  const toEl   = document.getElementById('sudslabFwTo');
+  if (!fromEl || !toEl) return;
+  const fromIdx = parseInt(fromEl.value);
+  const toIdx   = parseInt(toEl.value);
+
+  sudslabProducts.forEach(p => {
+    const block = document.getElementById('sudslab-block-' + p.sku);
+    if (!block) return;
+    const visible = sudslabFilterSelected === null || sudslabFilterSelected.has(p.sku);
+    block.style.display = visible ? '' : 'none';
+
+    block.querySelectorAll('table.grid thead tr th, table.grid tbody tr td').forEach(cell => {
+      const idx = cell.cellIndex;
+      if (idx === 0) return; // row label — always show
+      const weekIdx = idx - 1;
+      cell.classList.toggle('col-range-hidden', weekIdx < fromIdx || weekIdx > toIdx);
+    });
+  });
+}
+
 
 // ── Drag-and-drop reordering (smooth floating clone) ─────────────────────────
 function initDragDrop() {
@@ -6887,7 +7197,82 @@ function initDragDrop() {
   document.addEventListener('pointercancel', endDrag);
 }
 
+// ── suds.lab: Drag-and-drop reordering (mirrors initDragDrop() above) ────────
+function initSudsLabDragDrop() {
+  const container = document.getElementById('sudslabProductsContainer');
+  let dragSrc = null, floatClone = null, placeholder = null;
+  let offsetY = 0, offsetX = 0;
 
+  container.addEventListener('pointerdown', e => {
+    if (!e.target.closest('.drag-handle')) return;
+    dragSrc = e.target.closest('.product-block');
+    if (!dragSrc) return;
+    e.preventDefault();
+
+    const rect = dragSrc.getBoundingClientRect();
+    offsetY = e.clientY - rect.top;
+    offsetX = e.clientX - rect.left;
+
+    placeholder = document.createElement('div');
+    placeholder.className = 'drag-placeholder';
+    placeholder.style.cssText = 'height:' + rect.height + 'px;margin-bottom:14px;border:2px dashed rgba(255,255,255,0.38);border-radius:18px;background:rgba(255,255,255,0.05);box-sizing:border-box;';
+    dragSrc.parentNode.insertBefore(placeholder, dragSrc.nextSibling);
+
+    floatClone = dragSrc.cloneNode(true);
+    floatClone.style.cssText = 'position:fixed;z-index:5000;pointer-events:none;width:' + rect.width + 'px;left:' + (e.clientX - offsetX) + 'px;top:' + (e.clientY - offsetY) + 'px;opacity:0.93;transform:scale(1.015);box-shadow:0 24px 64px rgba(0,0,0,0.38);transition:none;border-radius:18px;overflow:hidden;';
+    document.body.appendChild(floatClone);
+
+    dragSrc.style.visibility = 'hidden';
+    container.setPointerCapture && container.setPointerCapture(e.pointerId);
+  });
+
+  document.addEventListener('pointermove', e => {
+    if (!floatClone || !dragSrc) return;
+
+    floatClone.style.left = (e.clientX - offsetX) + 'px';
+    floatClone.style.top  = (e.clientY - offsetY) + 'px';
+
+    const scroller = document.querySelector('.main-content');
+    const sr = scroller ? scroller.getBoundingClientRect() : {top:0,bottom:window.innerHeight};
+    const ZONE = 90, MAX_SPEED = 14;
+    if (e.clientY < sr.top + ZONE) {
+      (scroller || window).scrollBy(0, -Math.round(MAX_SPEED * (1 - (e.clientY - sr.top) / ZONE)));
+    } else if (e.clientY > sr.bottom - ZONE) {
+      (scroller || window).scrollBy(0, Math.round(MAX_SPEED * (1 - (sr.bottom - e.clientY) / ZONE)));
+    }
+
+    const blocks = [...container.querySelectorAll('.product-block:not(.drag-placeholder)')].filter(b => b !== dragSrc);
+    let inserted = false;
+    for (const b of blocks) {
+      const br = b.getBoundingClientRect();
+      if (e.clientY < br.top + br.height / 2) {
+        container.insertBefore(placeholder, b);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) container.appendChild(placeholder);
+  });
+
+  const endDrag = () => {
+    if (!dragSrc) return;
+    container.insertBefore(dragSrc, placeholder);
+    dragSrc.style.visibility = '';
+    floatClone.remove();
+    placeholder.remove();
+    dragSrc = null; floatClone = null; placeholder = null;
+
+    const newOrder = [...container.querySelectorAll('.product-block')]
+      .map(el => el.id.replace('sudslab-block-', ''))
+      .map(sku => sudslabProducts.find(p => p.sku === sku))
+      .filter(Boolean);
+    sudslabProducts.length = 0;
+    newOrder.forEach(p => sudslabProducts.push(p));
+    saveSudsLabState();
+  };
+  document.addEventListener('pointerup',     endDrag);
+  document.addEventListener('pointercancel', endDrag);
+}
 
 
 // ── PO Confirmation Popup ─────────────────────────────────────────────────────
@@ -9811,6 +10196,7 @@ products.forEach(p => {
 
 initFilterBar();
 initDragDrop();
+initSudsLabDragDrop();
 
 // ── Try-on panel divider drag-to-resize ──────────────────────────────────────
 (function() {
