@@ -2933,7 +2933,7 @@ function updateSudsLabCalcs(sku) {
     if (ei) {
       ei.textContent = fmt(rows.endInv[i]);
       const stockout = rows.endInv[i] === 0 && !isPast ? 'neg' : '';
-      ei.className = (stockout + ' ' + colCls).trim();
+      setColClass(ei, (stockout + ' ' + colCls).trim());
     }
   });
   const kpiOnHand = document.getElementById(`sudslab-kpi-onhand-${sku}`);
