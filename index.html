@@ -8238,12 +8238,15 @@ function computeReorderSuggestion(sku, startIdx, endIdx, forecastRates) {
 }
 
 // ── Reorder-point / chained order-up-to-level engine ──────────────────────────
-// Resolves the demand rate for week index i: a manual override always wins for
-// that week; otherwise prefer the AI agent's per-week rate; otherwise fall back
-// to the page's own M3 forecast (fcRatesByIdx), then raw state as a last resort.
+// Resolves the demand rate for week index i, matching the same priority the
+// rest of the app already treats as authoritative: a manual override always
+// wins; otherwise THD's own SUOF forecast (real retailer data, where THD has
+// provided one — normally only near-term weeks); otherwise the AI agent's
+// per-week rate; otherwise the page's own M3 forecast; raw state as a last resort.
 function resolveDemandRate(sku, i, fcRatesByIdx, agentWeeklyRates) {
   const s = state[sku];
   if (s.salesRatesManual && s.salesRatesManual[i] && s.salesRates[i] > 0) return s.salesRates[i];
+  if (s.suofFromExcel && s.suofFromExcel[i] != null) return s.suofFromExcel[i];
   if (agentWeeklyRates) {
     const v = agentWeeklyRates[i] != null ? agentWeeklyRates[i] : agentWeeklyRates[String(i)];
     if (v != null) return v;
@@ -8326,15 +8329,19 @@ function computeReorderSchedule(sku) {
     // keep scanning for a breach that actually needs action.
     if (roundedQty <= 0) { cursor = breachOff + 1; continue; }
 
-    const placeDate  = new Date(); placeDate.setDate(placeDate.getDate() + placeOff * 7);
-    const arriveDate = new Date(); arriveDate.setDate(arriveDate.getDate() + LEAD_DAYS + placeOff * 7);
+    // Use the actual fiscal week dates (same grid the rest of the page shows)
+    // rather than raw calendar-day math, so this never drifts a day or two off
+    // the surrounding week-dated UI.
+    const placeWeek  = weeks[curIdx + placeOff];
+    const arriveWeek = weeks[curIdx + arriveOff];
 
     cycles.push({
       status,
       stockoutWeekIdx: curIdx + breachOff,
       stockoutWeek: weeks[curIdx + breachOff] ? weeks[curIdx + breachOff].fw : null,
-      placeDate:  placeDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
-      arriveDate: arriveDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
+      placeDate:  placeWeek  ? placeWeek.dt  : null,
+      arriveDate: arriveWeek ? arriveWeek.dt : null,
+      arriveWeek: arriveWeek ? arriveWeek.fw : null,
       qty: roundedQty,
       masterCases,
       gapWeeks: status === 'critical' ? Math.round((leadWeeks - breachOff) * 10) / 10 : 0
@@ -8963,7 +8970,7 @@ function renderForecastPage() {
         <div class="fc-row-desc">${p.desc}</div>
       </div>
       <div class="fc-row-qty">${cycle ? cycle.qty.toLocaleString() + ' units' : '—'}</div>
-      <div class="fc-row-date">${cycle ? cycle.arriveDate : '—'}</div>
+      <div class="fc-row-date">${cycle ? `${cycle.arriveDate} <span style="color:var(--text-3);font-size:10.5px;">(${cycle.arriveWeek})</span>` : '—'}</div>
       <div class="fc-row-status" style="color:${rowMeta.color}">${rowMeta.label}</div>
       <div class="fc-row-chevron">▾</div>
     `;
@@ -9290,7 +9297,12 @@ function fcApply(sku, startIdx, endIdx) {
   if (overlay && overlay.classList.contains('open')) {
     const card = document.getElementById('fc-card-' + sku);
     const leftInner = document.getElementById('tryOnLeftInner');
-    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    if (leftInner && card) {
+      leftInner.innerHTML = '';
+      const clone = card.cloneNode(true);
+      clone.style.display = ''; // the source card may be collapsed (display:none) in the list view
+      leftInner.appendChild(clone);
+    }
     refreshTryOnRight(sku, startIdx, endIdx);
   }
 }
@@ -9324,7 +9336,12 @@ function fcUnapply(sku, startIdx, endIdx) {
   if (overlay && overlay.classList.contains('open')) {
     const card = document.getElementById('fc-card-' + sku);
     const leftInner = document.getElementById('tryOnLeftInner');
-    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    if (leftInner && card) {
+      leftInner.innerHTML = '';
+      const clone = card.cloneNode(true);
+      clone.style.display = ''; // the source card may be collapsed (display:none) in the list view
+      leftInner.appendChild(clone);
+    }
     refreshTryOnRight(sku, startIdx, endIdx);
   }
 }
@@ -9352,7 +9369,11 @@ function openTryOnPanel(sku, startIdx, endIdx) {
   const card = document.getElementById('fc-card-' + sku);
   const leftInner = document.getElementById('tryOnLeftInner');
   leftInner.innerHTML = '';
-  if (card) leftInner.appendChild(card.cloneNode(true));
+  if (card) {
+    const clone = card.cloneNode(true);
+    clone.style.display = ''; // the source card may be collapsed (display:none) in the list view
+    leftInner.appendChild(clone);
+  }
   // Right: render the live product block and highlight forecast cells
   refreshTryOnRight(sku, startIdx, endIdx);
   document.getElementById('tryOnOverlay').classList.add('open');
@@ -9605,7 +9626,7 @@ function fcAddReorderRow(sku) {
   if (overlay && overlay.classList.contains('open')) {
     const card = document.getElementById('fc-card-' + sku);
     const leftInner = document.getElementById('tryOnLeftInner');
-    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    if (leftInner && card) { leftInner.innerHTML = ''; const clone = card.cloneNode(true); clone.style.display = ''; leftInner.appendChild(clone); }
   }
 }
 
@@ -9618,7 +9639,7 @@ function fcRemoveReorderRow(sku, rowIdx) {
   if (overlay && overlay.classList.contains('open')) {
     const card = document.getElementById('fc-card-' + sku);
     const leftInner = document.getElementById('tryOnLeftInner');
-    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    if (leftInner && card) { leftInner.innerHTML = ''; const clone = card.cloneNode(true); clone.style.display = ''; leftInner.appendChild(clone); }
     // Refresh right panel so deleted active rows no longer appear
     const fc = s.fcRange || {};
     refreshTryOnRight(sku, fc.startIdx, fc.endIdx);
@@ -9637,7 +9658,7 @@ function fcReorderTryOn(sku, rowIdx) {
   // Re-clone left panel to reflect updated button state
   const card = document.getElementById('fc-card-' + sku);
   const leftInner = document.getElementById('tryOnLeftInner');
-  if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+  if (leftInner && card) { leftInner.innerHTML = ''; const clone = card.cloneNode(true); clone.style.display = ''; leftInner.appendChild(clone); }
   const overlay = document.getElementById('tryOnOverlay');
   if (overlay && overlay.classList.contains('open')) {
     refreshTryOnRight(sku, startIdx, endIdx);
@@ -9671,7 +9692,7 @@ function fcApproveReorderRow(sku, rowIdx) {
   if (overlay && overlay.classList.contains('open')) {
     const card = document.getElementById('fc-card-' + sku);
     const leftInner = document.getElementById('tryOnLeftInner');
-    if (leftInner && card) { leftInner.innerHTML = ''; leftInner.appendChild(card.cloneNode(true)); }
+    if (leftInner && card) { leftInner.innerHTML = ''; const clone = card.cloneNode(true); clone.style.display = ''; leftInner.appendChild(clone); }
     refreshTryOnRight(sku, (s.fcRange||{}).startIdx, (s.fcRange||{}).endIdx);
   }
 }
