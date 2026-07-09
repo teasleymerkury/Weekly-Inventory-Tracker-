@@ -83,7 +83,7 @@
     cursor: default;
     transition: transform 0.30s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  .product-block:not(.dragging):hover { transform: scale(1.03); transform-origin: top left; z-index: 10; }
+  .product-block:not(.dragging):hover { z-index: 10; }
   .product-block.dragging { opacity: 0.40; border-style: dashed; transform: none !important; }
   .product-block.drag-over { border-color: rgba(255,255,255,0.80); box-shadow: var(--glass-shadow), 0 0 0 2px rgba(255,255,255,0.35); }
 
@@ -292,20 +292,6 @@
 
   .page-footer { text-align: center; font-size: 11px; color: var(--text-3); margin-top: 32px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.14); }
 
-  /* ── Visibility toggle ── */
-  .product-block.collapsed .product-body { display: none; }
-  .product-block.collapsed .product-header-compact { border-bottom: none; }
-  .toggle-vis-btn {
-    margin-left: auto; font-size: 11px; cursor: pointer;
-    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.28);
-    border-radius: 8px; padding: 4px 10px; color: rgba(255,255,255,0.88);
-    display: flex; align-items: center; gap: 4px; transition: background 0.15s;
-    white-space: nowrap; flex-shrink: 0;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
-  }
-  .toggle-vis-btn:hover { background: rgba(255,255,255,0.22); color: #fff; }
-  .product-block.collapsed .toggle-vis-btn { color: #fff; border-color: rgba(255,255,255,0.45); background: rgba(255,255,255,0.18); }
-
   /* ── Summary bar ── */
   .summary-bar { display: flex; align-items: stretch; border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
   .summary-bar .s-item { flex: 1; padding: 5px 18px; border-right: 1px solid rgba(255,255,255,0.14); }
@@ -419,6 +405,22 @@
   .period-custom select { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.28); border-radius:7px; color:var(--text-1); font-size:12px; padding:4px 8px; cursor:pointer; }
   .period-custom select option { background:#3b4e78; color:#fff; }
   .period-custom span { font-size:11px; color:var(--text-2); }
+
+  .fc-list-row {
+    display:flex; align-items:center; gap:14px; cursor:pointer;
+    background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.6); -webkit-backdrop-filter:blur(20px) saturate(1.6);
+    border:1px solid var(--glass-border); border-radius:12px; padding:10px 16px; margin-bottom:6px;
+    transition:background 0.15s;
+  }
+  .fc-list-row:hover { background:rgba(255,255,255,0.10); }
+  .fc-list-row.open { border-color:rgba(255,255,255,0.45); margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+  .fc-row-sku { flex:1.4; min-width:0; }
+  .fc-row-model { font-size:10px; font-weight:600; color:var(--text-3); letter-spacing:.5px; text-transform:uppercase; }
+  .fc-row-desc { font-size:13px; font-weight:700; color:var(--text-1); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fc-row-qty, .fc-row-date { flex:0.8; min-width:90px; font-size:12.5px; color:var(--text-2); text-align:right; }
+  .fc-row-status { flex:1.1; min-width:150px; font-size:12px; font-weight:600; text-align:right; }
+  .fc-row-chevron { flex:0 0 16px; font-size:11px; color:var(--text-3); text-align:center; transition:transform 0.2s; }
+  .fc-list-row.open .fc-row-chevron { transform:rotate(180deg); }
 
   .fc-card { background:var(--glass-bg); backdrop-filter:blur(28px) saturate(1.7); -webkit-backdrop-filter:blur(28px) saturate(1.7); border:1px solid var(--glass-border); box-shadow:var(--glass-shadow); border-radius:16px; margin-bottom:12px; overflow:hidden; position:relative; padding-bottom:38px; }
   .fc-card::before { content:''; position:absolute; top:0; left:8%; width:84%; height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,.50) 25%,rgba(255,255,255,.82) 50%,rgba(255,255,255,.50) 75%,transparent); pointer-events:none; z-index:3; }
@@ -2327,19 +2329,10 @@ function fmtWos(n) {
 function renderSummary() {
   const bar = document.getElementById('summaryBar');
   const total = products.length;
-  const hidden = products.filter(p => {
-    const b = document.getElementById('block-' + p.sku);
-    return b && b.classList.contains('collapsed');
-  }).length;
-  const visible = total - hidden;
   bar.innerHTML = `
     <div class="s-item">
       <div class="s-lbl">Items tracked</div>
       <div class="s-num">${total}</div>
-    </div>
-    <div class="s-item">
-      <div class="s-lbl">Showing</div>
-      <div class="s-num">${visible} <span style="font-size:12px;font-weight:400;color:#999;">of ${total}</span></div>
     </div>
     <div class="s-action">
       <button class="add-item-btn" onclick="openAddItemModal()">&#43; Add Item</button>
@@ -2375,7 +2368,6 @@ function buildProduct(p) {
       </div>
       <div class="product-header-btns">
         <button class="delete-btn" onclick="deleteProduct('${p.sku}')" title="Remove this item permanently">&#128465; Delete</button>
-        <button class="toggle-vis-btn" id="toggle-btn-${p.sku}" onclick="toggleProductVisibility('${p.sku}')">&#9660; Hide</button>
       </div>
     </div>
     <div class="product-body" id="body-${p.sku}">
@@ -2654,7 +2646,6 @@ function buildSudsLabProduct(p) {
       </div>
       <div class="product-header-btns">
         <button class="delete-btn" onclick="deleteSudsLabProduct('${p.sku}')" title="Remove this item permanently">&#128465; Delete</button>
-        <button class="toggle-vis-btn" id="sudslab-toggle-btn-${p.sku}" onclick="toggleSudsLabProductVisibility('${p.sku}')">&#9660; Hide</button>
       </div>
     </div>
     <div class="product-body" id="sudslab-body-${p.sku}">
@@ -2830,16 +2821,7 @@ function renderSudsLabProducts() {
   if (!container) return;
   container.innerHTML = '';
   sudslabProducts.forEach(p => {
-    if (sudslabState[p.sku] && sudslabState[p.sku].hidden) return; // rebuilt below, hidden sink handled by toggle
     container.appendChild(buildSudsLabProduct(p));
-  });
-  // Append hidden ones after, collapsed
-  sudslabProducts.forEach(p => {
-    if (sudslabState[p.sku] && sudslabState[p.sku].hidden) {
-      const block = buildSudsLabProduct(p);
-      block.classList.add('collapsed');
-      container.appendChild(block);
-    }
   });
 }
 
@@ -2989,26 +2971,6 @@ function deleteSudsLabProduct(sku) {
   delete sudslabState[sku];
   const block = document.getElementById('sudslab-block-' + sku);
   if (block) block.remove();
-}
-
-function toggleSudsLabProductVisibility(sku) {
-  const block = document.getElementById('sudslab-block-' + sku);
-  const btn = document.getElementById('sudslab-toggle-btn-' + sku);
-  if (!block) return;
-  const isCollapsed = block.classList.toggle('collapsed');
-  btn.innerHTML = isCollapsed ? '&#9654; Show' : '&#9660; Hide';
-  if (sudslabState[sku]) sudslabState[sku].hidden = isCollapsed;
-  if (!isTestMode && sbClient) {
-    (async () => {
-      try { await sbClient.from('sudslab_sku_meta').upsert({ sku, hidden: isCollapsed }, { onConflict: 'sku' }); }
-      catch(e) { console.warn('sudslab hidden sync failed:', e.message); }
-    })();
-  }
-  const container = document.getElementById('sudslabProductsContainer');
-  const allBlocks = [...container.querySelectorAll('.product-block')];
-  const visible = allBlocks.filter(b => !b.classList.contains('collapsed'));
-  const hidden  = allBlocks.filter(b =>  b.classList.contains('collapsed'));
-  [...visible, ...hidden].forEach(b => container.appendChild(b));
 }
 
 // ── suds.lab: persistence (separate tables, separate from THD's sku_meta/sku_weekly) ──
@@ -4596,31 +4558,6 @@ function poPlaced(sku) {
   renderReorderTab();
   saveState();
 }
-
-// ── Product visibility toggle ─────────────────────────────────────────────────
-function toggleProductVisibility(sku) {
-  const block = document.getElementById('block-' + sku);
-  const btn   = document.getElementById('toggle-btn-' + sku);
-  if (!block) return;
-  const isCollapsed = block.classList.toggle('collapsed');
-  btn.innerHTML = isCollapsed ? '&#9654; Show' : '&#9660; Hide';
-  if (state[sku]) state[sku].hidden = isCollapsed;
-  // Hidden items sink to bottom, visible items float to top
-  const container = document.getElementById('productsContainer');
-  const allBlocks = [...container.querySelectorAll('.product-block')];
-  const visible = allBlocks.filter(b => !b.classList.contains('collapsed'));
-  const hidden  = allBlocks.filter(b =>  b.classList.contains('collapsed'));
-  [...visible, ...hidden].forEach(b => container.appendChild(b));
-  renderSummary();
-  saveState();
-  if (!isTestMode && sbClient) {
-    (async () => {
-      try { await sbClient.from('sku_meta').upsert({ sku, hidden: isCollapsed }, { onConflict: 'sku' }); }
-      catch(e) { console.warn('hidden sync failed:', e.message); }
-    })();
-  }
-}
-
 
 // ── VendorDrill sync ──────────────────────────────────────────────────────────
 // VendorDrill Template (US).xlsm — Sales tab
@@ -6461,11 +6398,6 @@ function refreshProductDom(sku, opts) {
       const d = s.reorderData[idx];
       if (d && d.casePack) applyReorderColor(inp.closest('td'), d.casePack);
     });
-    if (s.hidden != null) {
-      const toggleBtn = document.getElementById('toggle-btn-' + sku);
-      if (s.hidden) { block.classList.add('collapsed'); if (toggleBtn) toggleBtn.innerHTML = '&#9654; Show'; }
-      else { block.classList.remove('collapsed'); if (toggleBtn) toggleBtn.innerHTML = '&#9660; Hide'; }
-    }
   }
   const merkuryEl = document.getElementById('kpi-merkury-' + sku);
   if (merkuryEl && !skip(merkuryEl)) merkuryEl.value = (s.onHandMerkury || 0).toLocaleString();
@@ -6797,8 +6729,7 @@ function saveState() {
         onHandTHD: p.onHandTHD,
         openStock: state[p.sku].openStock || 0,
         skinnyQP:  state[p.sku].skinnyQP  || 0
-      })),
-      collapsed: {}
+      }))
     };
     products.forEach(p => {
       const s = state[p.sku];
@@ -6822,8 +6753,6 @@ function saveState() {
         trackingStartIdx:  s.trackingStartIdx != null ? s.trackingStartIdx : 0,
         savedCpData:       s.savedCpData || null
       };
-      const b = document.getElementById('block-' + p.sku);
-      snapshot.collapsed[p.sku] = b ? b.classList.contains('collapsed') : false;
     });
     localStorage.setItem(STORE_KEY, JSON.stringify(snapshot));
     if (_syncChannel) _syncChannel.postMessage({ type: 'state_update' });
@@ -7975,6 +7904,8 @@ document.getElementById('loginUser').addEventListener('keydown', function(e) {
 
 const LEAD_DAYS = 80; // 50 production + 30 ocean
 const SAFETY_WOS = 4; // flag risk when projected WOS < 4 weeks
+const ORDER_TARGET_WOS = 16;    // restock target once a chained reorder cycle lands
+const REORDER_CHAIN_WEEKS = 26; // don't project chained reorder cycles further than 2 quarters out
 
 // Fiscal quarter → FW range mapping
 const FC_QUARTERS = {
@@ -8306,6 +8237,116 @@ function computeReorderSuggestion(sku, startIdx, endIdx, forecastRates) {
   };
 }
 
+// ── Reorder-point / chained order-up-to-level engine ──────────────────────────
+// Resolves the demand rate for week index i: a manual override always wins for
+// that week; otherwise prefer the AI agent's per-week rate; otherwise fall back
+// to the page's own M3 forecast (fcRatesByIdx), then raw state as a last resort.
+function resolveDemandRate(sku, i, fcRatesByIdx, agentWeeklyRates) {
+  const s = state[sku];
+  if (s.salesRatesManual && s.salesRatesManual[i] && s.salesRates[i] > 0) return s.salesRates[i];
+  if (agentWeeklyRates) {
+    const v = agentWeeklyRates[i] != null ? agentWeeklyRates[i] : agentWeeklyRates[String(i)];
+    if (v != null) return v;
+  }
+  if (fcRatesByIdx && fcRatesByIdx[i] != null) return fcRatesByIdx[i];
+  return s.salesRates[i] || 0;
+}
+
+// Simulates a SKU's inventory forward (live on-hand + already-known firm
+// receipts/reorders) and returns a chronological list of reorder cycles —
+// each an order-up-to-ORDER_TARGET_WOS replenishment timed against the
+// 80-day lead time so the SAFETY_WOS floor is protected whenever there's
+// still time to act. Chaining stops at REORDER_CHAIN_WEEKS out.
+//
+// Each cycle's status:
+//   'critical' — the floor breach is already closer than the lead time allows;
+//                some time below SAFETY_WOS is now unavoidable (gapWeeks shows how much).
+//   'reminder' — right on the edge: ordering now lands exactly in time.
+//   'upcoming' — further out than the lead time requires; informational only,
+//                not something to act on yet.
+function computeReorderSchedule(sku) {
+  const s = state[sku];
+  const p = products.find(x => x.sku === sku);
+  if (!p || !s) return [];
+
+  const curIdx = getCurrentWeekIdx();
+  const capIdx = Math.min(curIdx + REORDER_CHAIN_WEEKS, weeks.length - 1);
+  if (capIdx <= curIdx) return [];
+  const leadWeeks = Math.round(LEAD_DAYS / 7);
+
+  const agentSug = agentSuggestions && agentSuggestions.skus && agentSuggestions.skus[sku];
+  const agentWeeklyRates = agentSug && agentSug.weeklyRates;
+  const fc = computeFcRates(sku, curIdx, capIdx);
+  const fcRatesByIdx = {};
+  fc.rates.forEach((r, off) => { fcRatesByIdx[curIdx + off] = r; });
+
+  const rates = [];
+  for (let i = curIdx; i <= capIdx; i++) rates.push(resolveDemandRate(sku, i, fcRatesByIdx, agentWeeklyRates));
+
+  // Baseline projection using only what's already committed — left un-clamped
+  // at 0 so "how far below the floor" stays measurable if a cycle is ignored.
+  let inv = s.onHandMerkury || 0;
+  const track = [];
+  for (let off = 0; off < rates.length; off++) {
+    const wi = curIdx + off;
+    inv = inv + (s.firmReceipts[wi] || 0) + (s.reorders[wi] || 0) - rates[off];
+    track.push(inv);
+  }
+
+  function nextBreach(fromOff) {
+    for (let off = fromOff; off < track.length; off++) {
+      const rate = rates[off];
+      if (rate > 0 && track[off] / rate < SAFETY_WOS) return off;
+    }
+    return -1;
+  }
+
+  const cycles = [];
+  let cursor = 0;
+  while (cycles.length < 6) {
+    const breachOff = nextBreach(cursor);
+    if (breachOff === -1) break;
+
+    const dueNow    = breachOff <= leadWeeks;
+    const arriveOff = Math.min(dueNow ? leadWeeks : breachOff, rates.length - 1);
+    const placeOff  = Math.max(0, arriveOff - leadWeeks);
+    const status    = !dueNow ? 'upcoming' : (breachOff < leadWeeks ? 'critical' : 'reminder');
+
+    const rateAtArrival = rates[arriveOff] || 0;
+    // Physical stock can't actually go negative — clamp to 0 for sizing so we
+    // don't over-order to "catch up" on demand that was simply lost, not backlogged.
+    const invAtArrival = Math.max(0, track[arriveOff]);
+    const qty = Math.max(0, Math.round(ORDER_TARGET_WOS * rateAtArrival - invAtArrival));
+    const masterCases = p.master > 0 ? Math.ceil(qty / p.master) : 0;
+    const roundedQty  = masterCases * (p.master || 1);
+
+    // Already-committed firm receipts can resolve a breach on their own before
+    // any *new* order would even help — nothing to suggest here, so skip past
+    // this dip (without reporting a confusing "critical, 0 units" alert) and
+    // keep scanning for a breach that actually needs action.
+    if (roundedQty <= 0) { cursor = breachOff + 1; continue; }
+
+    const placeDate  = new Date(); placeDate.setDate(placeDate.getDate() + placeOff * 7);
+    const arriveDate = new Date(); arriveDate.setDate(arriveDate.getDate() + LEAD_DAYS + placeOff * 7);
+
+    cycles.push({
+      status,
+      stockoutWeekIdx: curIdx + breachOff,
+      stockoutWeek: weeks[curIdx + breachOff] ? weeks[curIdx + breachOff].fw : null,
+      placeDate:  placeDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
+      arriveDate: arriveDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
+      qty: roundedQty,
+      masterCases,
+      gapWeeks: status === 'critical' ? Math.round((leadWeeks - breachOff) * 10) / 10 : 0
+    });
+
+    for (let off = arriveOff; off < track.length; off++) track[off] += roundedQty;
+    cursor = arriveOff + 1;
+  }
+
+  return cycles;
+}
+
 // Rule-based feedback processor
 function processDenyFeedback(reason) {
   const r = reason.toLowerCase();
@@ -8564,6 +8605,21 @@ function renderForecastPage() {
 
   container.innerHTML = '';
   const skusToShow = Object.keys(state).filter(sku => products.find(p => p.sku === sku));
+
+  // Compute each SKU's reorder schedule once, then sort most-urgent-first:
+  // critical (biggest gap) > reminder (soonest breach) > upcoming (soonest breach) > healthy.
+  const fcSchedules = {};
+  const statusRank = { critical: 0, reminder: 1, upcoming: 2 };
+  skusToShow.forEach(sku => { fcSchedules[sku] = computeReorderSchedule(sku); });
+  skusToShow.sort((a, b) => {
+    const ca = fcSchedules[a][0], cb = fcSchedules[b][0];
+    const ra = ca ? statusRank[ca.status] : 3;
+    const rb = cb ? statusRank[cb.status] : 3;
+    if (ra !== rb) return ra - rb;
+    if (ra === 0) return (cb.gapWeeks || 0) - (ca.gapWeeks || 0); // bigger gap first
+    if (ra === 3) return 0; // both healthy — order doesn't matter
+    return (ca.stockoutWeekIdx || 0) - (cb.stockoutWeekIdx || 0); // sooner breach first
+  });
 
   skusToShow.forEach(sku => {
     const p = products.find(x => x.sku === sku);
@@ -8886,8 +8942,44 @@ function renderForecastPage() {
       ${reorderHTML}
       ${denyHTML}
     `;
+
+    // Collapsed summary row — the default view. Clicking it reveals the full
+    // card (built above, unchanged) right underneath.
+    const cycle = fcSchedules[sku][0];
+    const rowMeta = !cycle
+      ? { label: 'Healthy — no reorder needed in range', color: 'rgba(120,220,150,1)' }
+      : cycle.status === 'critical'
+        ? { label: `⚠ Critical — ${cycle.gapWeeks}wk below floor`, color: 'rgba(255,110,110,1)' }
+        : cycle.status === 'reminder'
+          ? { label: '● Order now', color: 'rgba(255,180,80,1)' }
+          : { label: `Upcoming — ~${cycle.stockoutWeek}`, color: 'rgba(150,180,255,1)' };
+    const row = document.createElement('div');
+    row.className = 'fc-list-row';
+    row.id = 'fc-row-' + sku;
+    row.onclick = () => toggleFcCard(sku);
+    row.innerHTML = `
+      <div class="fc-row-sku">
+        <div class="fc-row-model">${p.model} &nbsp;·&nbsp; ${sku}${agentBadge}</div>
+        <div class="fc-row-desc">${p.desc}</div>
+      </div>
+      <div class="fc-row-qty">${cycle ? cycle.qty.toLocaleString() + ' units' : '—'}</div>
+      <div class="fc-row-date">${cycle ? cycle.arriveDate : '—'}</div>
+      <div class="fc-row-status" style="color:${rowMeta.color}">${rowMeta.label}</div>
+      <div class="fc-row-chevron">▾</div>
+    `;
+    card.style.display = 'none';
+    container.appendChild(row);
     container.appendChild(card);
   });
+}
+
+function toggleFcCard(sku) {
+  const card = document.getElementById('fc-card-' + sku);
+  const row  = document.getElementById('fc-row-' + sku);
+  if (!card) return;
+  const isOpen = card.style.display !== 'none';
+  card.style.display = isOpen ? 'none' : '';
+  if (row) row.classList.toggle('open', !isOpen);
 }
 
 // ── POS History sync to Supabase (one-time on first login) ───────────────────
