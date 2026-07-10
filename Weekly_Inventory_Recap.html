@@ -417,11 +417,11 @@
   .fc-row-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:5px; }
   .fc-row-model { font-size:11px; font-weight:600; color:var(--text-3); letter-spacing:.3px; }
   .fc-row-desc { font-size:12px; font-weight:700; color:var(--text-1); }
-  .fc-row-cycles { display:grid; grid-template-columns:14px 1fr 78px 96px; gap:2px 8px; align-items:center; }
+  .fc-row-cycles { display:grid; grid-template-columns:14px repeat(4, auto); gap:2px 8px; align-items:center; justify-content:start; }
   .fc-row-cycle-n { font-size:9px; color:var(--text-3); }
-  .fc-row-cycle-info { font-size:10px; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .fc-row-cycle-qty { font-size:10px; color:var(--text-1); font-weight:600; text-align:right; }
-  .fc-row-cycle-status { font-size:9.5px; font-weight:600; text-align:right; white-space:nowrap; }
+  .fc-row-cycle-place, .fc-row-cycle-lands { font-size:10px; color:var(--text-2); white-space:nowrap; }
+  .fc-row-cycle-qty { font-size:10px; color:var(--text-1); font-weight:600; white-space:nowrap; }
+  .fc-row-cycle-status { font-size:9.5px; font-weight:600; white-space:nowrap; }
   .fc-row-healthy { font-size:11px; color:rgba(120,220,150,1); }
 
   .fc-card { background:var(--glass-bg); backdrop-filter:blur(28px) saturate(1.7); -webkit-backdrop-filter:blur(28px) saturate(1.7); border:1px solid var(--glass-border); box-shadow:var(--glass-shadow); border-radius:16px; margin-bottom:12px; overflow:hidden; position:relative; padding-bottom:38px; }
@@ -8345,8 +8345,13 @@ function computeReorderSchedule(sku) {
     const effectOff = Math.min(enterOff + 1, track.length - 1); // week Ending INV actually reflects the new stock
     const status = !dueNow ? 'upcoming' : (effectOff > breachOff ? 'critical' : 'reminder');
 
-    const targetDemand = demandOverWindow(effectOff, ORDER_TARGET_WOS);
-    const qty = Math.max(0, Math.round(targetDemand - track[effectOff]));
+    // Sized from enterOff, not effectOff: the ledger formula nets the new
+    // qty against enterOff's OWN rate before it ever shows up in Ending
+    // INV (endInv[enterOff+1] = track[enterOff] + qty - rates[enterOff]),
+    // so enterOff's demand has to be included in the window or the order
+    // arrives already a week short of the target.
+    const targetDemand = demandOverWindow(enterOff, ORDER_TARGET_WOS);
+    const qty = Math.max(0, Math.round(targetDemand - track[enterOff]));
     const masterCases = p.master > 0 ? Math.ceil(qty / p.master) : 0;
     const roundedQty  = masterCases * (p.master || 1);
 
@@ -8382,10 +8387,14 @@ function computeReorderSchedule(sku) {
       gapWeeks: status === 'critical' ? Math.round((effectOff - breachOff) * 10) / 10 : 0
     });
 
-    // Rebase the trajectory from effectOff forward using the newly delivered
-    // stock, continuing with the same one-week-lag recurrence used to build
-    // the baseline above.
-    track[effectOff] = track[effectOff] + roundedQty;
+    // Rebase the trajectory from effectOff forward, running the new qty
+    // through the SAME ledger formula as the baseline (netted against
+    // enterOff's own rate) rather than just adding it on top of the
+    // already-computed baseline value — otherwise the qty escapes being
+    // taxed by enterOff's demand and every cycle after the first quietly
+    // overshoots by one week's worth of rate.
+    const enterWi = curIdx + enterOff;
+    track[effectOff] = Math.max(0, track[enterOff] + (s.firmReceipts[enterWi] || 0) + (s.reorders[enterWi] || 0) + roundedQty - rates[enterOff]);
     for (let off = effectOff + 1; off < track.length; off++) {
       const prevWi = curIdx + off - 1;
       track[off] = Math.max(0, track[off-1] + (s.firmReceipts[prevWi] || 0) + (s.reorders[prevWi] || 0) - rates[off-1]);
@@ -8984,7 +8993,8 @@ function renderForecastPage() {
           : { label: 'Upcoming', color: 'rgba(150,180,255,1)' };
       return `
         <div class="fc-row-cycle-n">#${i+1}</div>
-        <div class="fc-row-cycle-info">Place <strong>${c.placeDate}</strong> &middot; lands <strong>${c.arriveDate}</strong> (${c.arriveWeek})</div>
+        <div class="fc-row-cycle-place">Place <strong>${c.placeDate}</strong></div>
+        <div class="fc-row-cycle-lands">lands <strong>${c.arriveDate}</strong> (${c.arriveWeek})</div>
         <div class="fc-row-cycle-qty">${c.qty.toLocaleString()} each</div>
         <div class="fc-row-cycle-status" style="color:${meta.color}">${meta.label}</div>`;
     }).join('');
