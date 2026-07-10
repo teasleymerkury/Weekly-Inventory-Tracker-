@@ -407,20 +407,22 @@
   .period-custom span { font-size:11px; color:var(--text-2); }
 
   .fc-list-row {
-    display:flex; align-items:center; gap:14px; cursor:pointer;
+    cursor:pointer;
     background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.6); -webkit-backdrop-filter:blur(20px) saturate(1.6);
-    border:1px solid var(--glass-border); border-radius:12px; padding:10px 16px; margin-bottom:6px;
+    border:1px solid var(--glass-border); border-radius:10px; padding:8px 12px; margin-bottom:6px;
     transition:background 0.15s;
   }
   .fc-list-row:hover { background:rgba(255,255,255,0.10); }
   .fc-list-row.open { border-color:rgba(255,255,255,0.45); margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0; }
-  .fc-row-sku { flex:1.4; min-width:0; }
-  .fc-row-model { font-size:10px; font-weight:600; color:var(--text-3); letter-spacing:.5px; text-transform:uppercase; }
-  .fc-row-desc { font-size:13px; font-weight:700; color:var(--text-1); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .fc-row-qty, .fc-row-date { flex:0.8; min-width:90px; font-size:12.5px; color:var(--text-2); text-align:right; }
-  .fc-row-status { flex:1.1; min-width:150px; font-size:12px; font-weight:600; text-align:right; }
-  .fc-row-chevron { flex:0 0 16px; font-size:11px; color:var(--text-3); text-align:center; transition:transform 0.2s; }
-  .fc-list-row.open .fc-row-chevron { transform:rotate(180deg); }
+  .fc-row-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:5px; }
+  .fc-row-model { font-size:11px; font-weight:600; color:var(--text-3); letter-spacing:.3px; }
+  .fc-row-desc { font-size:12px; font-weight:700; color:var(--text-1); }
+  .fc-row-cycles { display:grid; grid-template-columns:14px 1fr 78px 96px; gap:2px 8px; align-items:center; }
+  .fc-row-cycle-n { font-size:9px; color:var(--text-3); }
+  .fc-row-cycle-info { font-size:10px; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fc-row-cycle-qty { font-size:10px; color:var(--text-1); font-weight:600; text-align:right; }
+  .fc-row-cycle-status { font-size:9.5px; font-weight:600; text-align:right; white-space:nowrap; }
+  .fc-row-healthy { font-size:11px; color:rgba(120,220,150,1); }
 
   .fc-card { background:var(--glass-bg); backdrop-filter:blur(28px) saturate(1.7); -webkit-backdrop-filter:blur(28px) saturate(1.7); border:1px solid var(--glass-border); box-shadow:var(--glass-shadow); border-radius:16px; margin-bottom:12px; overflow:hidden; position:relative; padding-bottom:38px; }
   .fc-card::before { content:''; position:absolute; top:0; left:8%; width:84%; height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,.50) 25%,rgba(255,255,255,.82) 50%,rgba(255,255,255,.50) 75%,transparent); pointer-events:none; z-index:3; }
@@ -8971,31 +8973,21 @@ function renderForecastPage() {
       </div>`;
     }
 
-    // Full chained reorder schedule (up to 2 quarters out) — the collapsed
-    // list row only ever shows the first/most-urgent cycle; this shows all of them.
+    // Full chained reorder schedule (up to 2 quarters out) — every cycle
+    // renders as one compact line directly in the collapsed row itself.
     const skuSchedule = fcSchedules[sku] || [];
-    let scheduleHTML = '';
-    if (skuSchedule.length > 0) {
-      const rowsHtml = skuSchedule.map((c, i) => {
-        const meta = c.status === 'critical'
-          ? { label: `⚠ Critical — ${c.gapWeeks}wk below floor`, color: 'rgba(255,110,110,1)' }
-          : c.status === 'reminder'
-            ? { label: '● Order now', color: 'rgba(255,180,80,1)' }
-            : { label: 'Upcoming', color: 'rgba(150,180,255,1)' };
-        return `
-        <div style="display:flex;align-items:center;gap:12px;padding:6px 0;${i>0?'border-top:1px solid rgba(255,255,255,.08);':''}">
-          <div style="font-size:11px;color:var(--text-3);min-width:18px;">#${i+1}</div>
-          <div style="flex:1;font-size:12.5px;color:var(--text-1);">Place by <strong>${c.placeDate}</strong> · lands <strong>${c.arriveDate}</strong> (${c.arriveWeek})</div>
-          <div style="font-size:12.5px;color:var(--text-1);font-weight:600;">${c.qty.toLocaleString()} units</div>
-          <div style="font-size:11.5px;font-weight:600;color:${meta.color};min-width:150px;text-align:right;">${meta.label}</div>
-        </div>`;
-      }).join('');
-      scheduleHTML = `
-      <div class="fc-schedule-box" style="margin:0 0 6px;padding:10px 16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:12px;">
-        <div style="font-size:11px;font-weight:700;color:var(--text-3);letter-spacing:.4px;text-transform:uppercase;margin-bottom:4px;">📅 Reorder Schedule (next 2 quarters)</div>
-        ${rowsHtml}
-      </div>`;
-    }
+    const cyclesRowsHtml = skuSchedule.map((c, i) => {
+      const meta = c.status === 'critical'
+        ? { label: `Critical · ${c.gapWeeks}wk`, color: 'rgba(255,140,140,1)' }
+        : c.status === 'reminder'
+          ? { label: 'Order now', color: 'rgba(255,180,80,1)' }
+          : { label: 'Upcoming', color: 'rgba(150,180,255,1)' };
+      return `
+        <div class="fc-row-cycle-n">#${i+1}</div>
+        <div class="fc-row-cycle-info">Place <strong>${c.placeDate}</strong> &middot; lands <strong>${c.arriveDate}</strong> (${c.arriveWeek})</div>
+        <div class="fc-row-cycle-qty">${c.qty.toLocaleString()} each</div>
+        <div class="fc-row-cycle-status" style="color:${meta.color}">${meta.label}</div>`;
+    }).join('');
 
     card.innerHTML = `
       <div class="fc-card-head">
@@ -9016,39 +9008,25 @@ function renderForecastPage() {
       ${denyHTML}
     `;
 
-    // Collapsed summary row — the default view. Clicking it reveals the full
-    // card (built above, unchanged) right underneath.
-    const cycle = fcSchedules[sku][0];
-    const rowMeta = !cycle
-      ? { label: 'Healthy — no reorder needed in range', color: 'rgba(120,220,150,1)' }
-      : cycle.status === 'critical'
-        ? { label: `⚠ Critical — ${cycle.gapWeeks}wk below floor`, color: 'rgba(255,110,110,1)' }
-        : cycle.status === 'reminder'
-          ? { label: '● Order now', color: 'rgba(255,180,80,1)' }
-          : { label: `Upcoming — ~${cycle.stockoutWeek}`, color: 'rgba(150,180,255,1)' };
+    // Collapsed summary row — the default view. All chained reorder cycles
+    // render directly in this one compact box; clicking it still reveals
+    // the full AI Forecast Analysis card (built above) underneath.
     const row = document.createElement('div');
     row.className = 'fc-list-row';
     row.id = 'fc-row-' + sku;
     row.onclick = () => toggleFcCard(sku);
     row.innerHTML = `
-      <div class="fc-row-sku">
-        <div class="fc-row-model">${p.model} &nbsp;·&nbsp; ${sku}${agentBadge}</div>
-        <div class="fc-row-desc">${p.desc}</div>
+      <div class="fc-row-head">
+        <span class="fc-row-model">${p.model} &nbsp;·&nbsp; ${sku}</span>
+        <span class="fc-row-desc">${p.desc}</span>
+        ${agentBadge}
       </div>
-      <div class="fc-row-qty">${cycle ? cycle.qty.toLocaleString() + ' units' : '—'}</div>
-      <div class="fc-row-date">${cycle ? `${cycle.arriveDate} <span style="color:var(--text-3);font-size:10.5px;">(${cycle.arriveWeek})</span>` : '—'}</div>
-      <div class="fc-row-status" style="color:${rowMeta.color}">${rowMeta.label}</div>
-      <div class="fc-row-chevron">▾</div>
+      ${cyclesRowsHtml
+        ? `<div class="fc-row-cycles">${cyclesRowsHtml}</div>`
+        : `<div class="fc-row-healthy">Healthy — no reorder needed in range</div>`}
     `;
     card.style.display = 'none';
     container.appendChild(row);
-    // Always visible (no click needed) — the row above only shows the
-    // single most-urgent cycle; this shows the full chained plan.
-    if (scheduleHTML) {
-      const scheduleEl = document.createElement('div');
-      scheduleEl.innerHTML = scheduleHTML;
-      container.appendChild(scheduleEl.firstElementChild);
-    }
     container.appendChild(card);
   });
 }
