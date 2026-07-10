@@ -7904,7 +7904,7 @@ document.getElementById('loginUser').addEventListener('keydown', function(e) {
 
 const LEAD_DAYS = 80; // 50 production + 30 ocean
 const SAFETY_WOS = 4; // flag risk when projected WOS < 4 weeks
-const ORDER_TARGET_WOS = 16;    // restock target once a chained reorder cycle lands
+const ORDER_TARGET_WOS = 10;    // restock ceiling once a chained reorder cycle lands — don't order so much WOS exceeds this
 const REORDER_CHAIN_WEEKS = 26; // don't project chained reorder cycles further than 2 quarters out
 
 // Fiscal quarter → FW range mapping
@@ -8366,7 +8366,20 @@ function computeReorderSchedule(sku) {
       gapWeeks: status === 'critical' ? Math.round((leadWeeks - breachOff) * 10) / 10 : 0
     });
 
-    for (let off = arriveOff; off < track.length; off++) track[off] += roundedQty;
+    // Rebase the trajectory from arriveOff forward using the newly delivered
+    // stock. Physical inventory can't go negative — a shortfall before now
+    // was lost sales, not a debt that carries forward — so simulation resumes
+    // from the realistic (clamped) balance plus this delivery, rather than
+    // shifting the old, possibly deeply-negative running total by a flat qty
+    // (which was silently leaving future weeks just as negative as before,
+    // triggering another "breach" almost immediately regardless of qty size).
+    let running = invAtArrival + roundedQty;
+    track[arriveOff] = running;
+    for (let off = arriveOff + 1; off < track.length; off++) {
+      const wi = curIdx + off;
+      running = running + (s.firmReceipts[wi] || 0) + (s.reorders[wi] || 0) - rates[off];
+      track[off] = running;
+    }
     cursor = arriveOff + 1;
   }
 
