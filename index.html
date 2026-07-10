@@ -8359,14 +8359,20 @@ function computeReorderSchedule(sku) {
     // the surrounding week-dated UI. enterWeek is the week to type this qty
     // into the Reorder cell — its effect on Ending INV lands the week after,
     // same lag every Reorder/Firm Receipt entry already has in this app.
+    // placeOff===0 means "act now" — show today's real date, not this
+    // fiscal week's Monday start date (which reads as already past once
+    // today is later in the same week).
     const placeWeek = weeks[curIdx + placeOff];
     const enterWeek = weeks[curIdx + enterOff];
+    const placeDateStr = placeOff === 0
+      ? new Date().toLocaleDateString('en-US', { month:'numeric', day:'numeric', year:'numeric' })
+      : (placeWeek ? placeWeek.dt : null);
 
     cycles.push({
       status,
       stockoutWeekIdx: curIdx + breachOff,
       stockoutWeek: weeks[curIdx + breachOff] ? weeks[curIdx + breachOff].fw : null,
-      placeDate:  placeWeek ? placeWeek.dt : null,
+      placeDate:  placeDateStr,
       arriveDate: enterWeek ? enterWeek.dt : null,
       arriveWeek: enterWeek ? enterWeek.fw : null,
       qty: roundedQty,
@@ -8985,7 +8991,7 @@ function renderForecastPage() {
         </div>`;
       }).join('');
       scheduleHTML = `
-      <div class="fc-schedule-box" style="margin:0 18px 12px;padding:10px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:10px;">
+      <div class="fc-schedule-box" style="margin:0 0 6px;padding:10px 16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:12px;">
         <div style="font-size:11px;font-weight:700;color:var(--text-3);letter-spacing:.4px;text-transform:uppercase;margin-bottom:4px;">📅 Reorder Schedule (next 2 quarters)</div>
         ${rowsHtml}
       </div>`;
@@ -9002,7 +9008,6 @@ function renderForecastPage() {
       </div>
       <div class="fc-rates-row">${chips}</div>
       <div class="fc-explanation">${explanation}</div>
-      ${scheduleHTML}
       ${projSCHTML}
       <div class="fc-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${actionBtns}</div>
       ${histBtn}
@@ -9037,6 +9042,13 @@ function renderForecastPage() {
     `;
     card.style.display = 'none';
     container.appendChild(row);
+    // Always visible (no click needed) — the row above only shows the
+    // single most-urgent cycle; this shows the full chained plan.
+    if (scheduleHTML) {
+      const scheduleEl = document.createElement('div');
+      scheduleEl.innerHTML = scheduleHTML;
+      container.appendChild(scheduleEl.firstElementChild);
+    }
     container.appendChild(card);
   });
 }
