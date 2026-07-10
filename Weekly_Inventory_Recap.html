@@ -8292,16 +8292,16 @@ function computeReorderSchedule(sku) {
   const rates = [];
   for (let i = curIdx; i <= rateCapIdx; i++) rates.push(resolveDemandRate(sku, i, fcRatesByIdx, agentWeeklyRates));
 
-  // Baseline projection using only what's already committed — left un-clamped
-  // at 0 so "how far below the floor" stays measurable if a cycle is ignored.
-  // Scoped to capIdx (not the longer rateCapIdx) — cycles are only chained
-  // within the reporting window.
-  let inv = s.onHandMerkury || 0;
-  const track = [];
-  for (let off = 0; off <= capIdx - curIdx; off++) {
-    const wi = curIdx + off;
-    inv = inv + (s.firmReceipts[wi] || 0) + (s.reorders[wi] || 0) - rates[off];
-    track.push(inv);
+  // Baseline projection using only what's already committed. Mirrors
+  // calcRows()'s exact convention: a reorder/firm-receipt entered for week
+  // (i-1) shows up in week i's Ending INV, and WOS at week i divides that
+  // same week's ending inventory by week i's own rate. track[k] = Ending
+  // INV at week curIdx+k (track[0] = today's real on-hand, matching
+  // calcRows' endInv[curIdx] = onHandMerkury exactly).
+  const track = [s.onHandMerkury || 0];
+  for (let k = 1; k <= capIdx - curIdx; k++) {
+    const prevWi = curIdx + k - 1;
+    track.push(Math.max(0, track[k-1] + (s.firmReceipts[prevWi] || 0) + (s.reorders[prevWi] || 0) - rates[k-1]));
   }
 
   // Sum of each individual week's own resolved rate over the target window —
@@ -8329,16 +8329,22 @@ function computeReorderSchedule(sku) {
     const breachOff = nextBreach(cursor);
     if (breachOff === -1) break;
 
-    const dueNow    = breachOff <= leadWeeks;
-    const arriveOff = Math.min(dueNow ? leadWeeks : breachOff, track.length - 1);
-    const placeOff  = Math.max(0, arriveOff - leadWeeks);
-    const status    = !dueNow ? 'upcoming' : (breachOff < leadWeeks ? 'critical' : 'reminder');
+    // Entering a reorder at week (breachOff-1) is the latest that still
+    // shows up in Ending INV exactly at the breach (one-week ledger lag,
+    // matching calcRows). If that week is already earlier than the soonest
+    // we could realistically place+receive an order (today + lead time),
+    // we're overdue — enter it at the earliest possible week instead and
+    // accept whatever gap remains.
+    const idealEnterOff    = breachOff - 1;
+    const earliestEnterOff = leadWeeks;
+    const dueNow  = idealEnterOff <= earliestEnterOff;
+    const enterOff  = dueNow ? earliestEnterOff : idealEnterOff;
+    const placeOff  = Math.max(0, enterOff - leadWeeks);
+    const effectOff = Math.min(enterOff + 1, track.length - 1); // week Ending INV actually reflects the new stock
+    const status = !dueNow ? 'upcoming' : (effectOff > breachOff ? 'critical' : 'reminder');
 
-    // Physical stock can't actually go negative — clamp to 0 for sizing so we
-    // don't over-order to "catch up" on demand that was simply lost, not backlogged.
-    const invAtArrival = Math.max(0, track[arriveOff]);
-    const targetDemand = demandOverWindow(arriveOff, ORDER_TARGET_WOS);
-    const qty = Math.max(0, Math.round(targetDemand - invAtArrival));
+    const targetDemand = demandOverWindow(effectOff, ORDER_TARGET_WOS);
+    const qty = Math.max(0, Math.round(targetDemand - track[effectOff]));
     const masterCases = p.master > 0 ? Math.ceil(qty / p.master) : 0;
     const roundedQty  = masterCases * (p.master || 1);
 
@@ -8350,37 +8356,33 @@ function computeReorderSchedule(sku) {
 
     // Use the actual fiscal week dates (same grid the rest of the page shows)
     // rather than raw calendar-day math, so this never drifts a day or two off
-    // the surrounding week-dated UI.
-    const placeWeek  = weeks[curIdx + placeOff];
-    const arriveWeek = weeks[curIdx + arriveOff];
+    // the surrounding week-dated UI. enterWeek is the week to type this qty
+    // into the Reorder cell — its effect on Ending INV lands the week after,
+    // same lag every Reorder/Firm Receipt entry already has in this app.
+    const placeWeek = weeks[curIdx + placeOff];
+    const enterWeek = weeks[curIdx + enterOff];
 
     cycles.push({
       status,
       stockoutWeekIdx: curIdx + breachOff,
       stockoutWeek: weeks[curIdx + breachOff] ? weeks[curIdx + breachOff].fw : null,
-      placeDate:  placeWeek  ? placeWeek.dt  : null,
-      arriveDate: arriveWeek ? arriveWeek.dt : null,
-      arriveWeek: arriveWeek ? arriveWeek.fw : null,
+      placeDate:  placeWeek ? placeWeek.dt : null,
+      arriveDate: enterWeek ? enterWeek.dt : null,
+      arriveWeek: enterWeek ? enterWeek.fw : null,
       qty: roundedQty,
       masterCases,
-      gapWeeks: status === 'critical' ? Math.round((leadWeeks - breachOff) * 10) / 10 : 0
+      gapWeeks: status === 'critical' ? Math.round((effectOff - breachOff) * 10) / 10 : 0
     });
 
-    // Rebase the trajectory from arriveOff forward using the newly delivered
-    // stock. Physical inventory can't go negative — a shortfall before now
-    // was lost sales, not a debt that carries forward — so simulation resumes
-    // from the realistic (clamped) balance plus this delivery, rather than
-    // shifting the old, possibly deeply-negative running total by a flat qty
-    // (which was silently leaving future weeks just as negative as before,
-    // triggering another "breach" almost immediately regardless of qty size).
-    let running = invAtArrival + roundedQty;
-    track[arriveOff] = running;
-    for (let off = arriveOff + 1; off < track.length; off++) {
-      const wi = curIdx + off;
-      running = running + (s.firmReceipts[wi] || 0) + (s.reorders[wi] || 0) - rates[off];
-      track[off] = running;
+    // Rebase the trajectory from effectOff forward using the newly delivered
+    // stock, continuing with the same one-week-lag recurrence used to build
+    // the baseline above.
+    track[effectOff] = track[effectOff] + roundedQty;
+    for (let off = effectOff + 1; off < track.length; off++) {
+      const prevWi = curIdx + off - 1;
+      track[off] = Math.max(0, track[off-1] + (s.firmReceipts[prevWi] || 0) + (s.reorders[prevWi] || 0) - rates[off-1]);
     }
-    cursor = arriveOff + 1;
+    cursor = effectOff + 1;
   }
 
   return cycles;
@@ -8963,6 +8965,32 @@ function renderForecastPage() {
       </div>`;
     }
 
+    // Full chained reorder schedule (up to 2 quarters out) — the collapsed
+    // list row only ever shows the first/most-urgent cycle; this shows all of them.
+    const skuSchedule = fcSchedules[sku] || [];
+    let scheduleHTML = '';
+    if (skuSchedule.length > 0) {
+      const rowsHtml = skuSchedule.map((c, i) => {
+        const meta = c.status === 'critical'
+          ? { label: `⚠ Critical — ${c.gapWeeks}wk below floor`, color: 'rgba(255,110,110,1)' }
+          : c.status === 'reminder'
+            ? { label: '● Order now', color: 'rgba(255,180,80,1)' }
+            : { label: 'Upcoming', color: 'rgba(150,180,255,1)' };
+        return `
+        <div style="display:flex;align-items:center;gap:12px;padding:6px 0;${i>0?'border-top:1px solid rgba(255,255,255,.08);':''}">
+          <div style="font-size:11px;color:var(--text-3);min-width:18px;">#${i+1}</div>
+          <div style="flex:1;font-size:12.5px;color:var(--text-1);">Place by <strong>${c.placeDate}</strong> · lands <strong>${c.arriveDate}</strong> (${c.arriveWeek})</div>
+          <div style="font-size:12.5px;color:var(--text-1);font-weight:600;">${c.qty.toLocaleString()} units</div>
+          <div style="font-size:11.5px;font-weight:600;color:${meta.color};min-width:150px;text-align:right;">${meta.label}</div>
+        </div>`;
+      }).join('');
+      scheduleHTML = `
+      <div class="fc-schedule-box" style="margin:0 18px 12px;padding:10px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:10px;">
+        <div style="font-size:11px;font-weight:700;color:var(--text-3);letter-spacing:.4px;text-transform:uppercase;margin-bottom:4px;">📅 Reorder Schedule (next 2 quarters)</div>
+        ${rowsHtml}
+      </div>`;
+    }
+
     card.innerHTML = `
       <div class="fc-card-head">
         <div class="fc-sku-info">
@@ -8974,6 +9002,7 @@ function renderForecastPage() {
       </div>
       <div class="fc-rates-row">${chips}</div>
       <div class="fc-explanation">${explanation}</div>
+      ${scheduleHTML}
       ${projSCHTML}
       <div class="fc-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${actionBtns}</div>
       ${histBtn}
