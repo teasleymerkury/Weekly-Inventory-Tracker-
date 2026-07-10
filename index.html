@@ -8277,23 +8277,42 @@ function computeReorderSchedule(sku) {
   if (capIdx <= curIdx) return [];
   const leadWeeks = Math.round(LEAD_DAYS / 7);
 
+  // Rates are looked up ORDER_TARGET_WOS weeks past the chain cap too — sizing
+  // a cycle that arrives late in the window still needs a full target window
+  // of real per-week rates ahead of it (see rateCapIdx use below), even though
+  // cycles themselves are only searched for within capIdx.
+  const rateCapIdx = Math.min(capIdx + ORDER_TARGET_WOS, weeks.length - 1);
+
   const agentSug = agentSuggestions && agentSuggestions.skus && agentSuggestions.skus[sku];
   const agentWeeklyRates = agentSug && agentSug.weeklyRates;
-  const fc = computeFcRates(sku, curIdx, capIdx);
+  const fc = computeFcRates(sku, curIdx, rateCapIdx);
   const fcRatesByIdx = {};
   fc.rates.forEach((r, off) => { fcRatesByIdx[curIdx + off] = r; });
 
   const rates = [];
-  for (let i = curIdx; i <= capIdx; i++) rates.push(resolveDemandRate(sku, i, fcRatesByIdx, agentWeeklyRates));
+  for (let i = curIdx; i <= rateCapIdx; i++) rates.push(resolveDemandRate(sku, i, fcRatesByIdx, agentWeeklyRates));
 
   // Baseline projection using only what's already committed — left un-clamped
   // at 0 so "how far below the floor" stays measurable if a cycle is ignored.
+  // Scoped to capIdx (not the longer rateCapIdx) — cycles are only chained
+  // within the reporting window.
   let inv = s.onHandMerkury || 0;
   const track = [];
-  for (let off = 0; off < rates.length; off++) {
+  for (let off = 0; off <= capIdx - curIdx; off++) {
     const wi = curIdx + off;
     inv = inv + (s.firmReceipts[wi] || 0) + (s.reorders[wi] || 0) - rates[off];
     track.push(inv);
+  }
+
+  // Sum of each individual week's own resolved rate over the target window —
+  // not a single snapshot rate assumed to hold for the whole window. A short
+  // burst (e.g. SUOF only covering a few near-term weeks) should size the
+  // order for what actually happens after it arrives, not extrapolate the
+  // burst across the full 16 weeks.
+  function demandOverWindow(fromOff, weeksCount) {
+    let total = 0;
+    for (let off = fromOff; off < Math.min(fromOff + weeksCount, rates.length); off++) total += (rates[off] || 0);
+    return total;
   }
 
   function nextBreach(fromOff) {
@@ -8311,15 +8330,15 @@ function computeReorderSchedule(sku) {
     if (breachOff === -1) break;
 
     const dueNow    = breachOff <= leadWeeks;
-    const arriveOff = Math.min(dueNow ? leadWeeks : breachOff, rates.length - 1);
+    const arriveOff = Math.min(dueNow ? leadWeeks : breachOff, track.length - 1);
     const placeOff  = Math.max(0, arriveOff - leadWeeks);
     const status    = !dueNow ? 'upcoming' : (breachOff < leadWeeks ? 'critical' : 'reminder');
 
-    const rateAtArrival = rates[arriveOff] || 0;
     // Physical stock can't actually go negative — clamp to 0 for sizing so we
     // don't over-order to "catch up" on demand that was simply lost, not backlogged.
     const invAtArrival = Math.max(0, track[arriveOff]);
-    const qty = Math.max(0, Math.round(ORDER_TARGET_WOS * rateAtArrival - invAtArrival));
+    const targetDemand = demandOverWindow(arriveOff, ORDER_TARGET_WOS);
+    const qty = Math.max(0, Math.round(targetDemand - invAtArrival));
     const masterCases = p.master > 0 ? Math.ceil(qty / p.master) : 0;
     const roundedQty  = masterCases * (p.master || 1);
 
