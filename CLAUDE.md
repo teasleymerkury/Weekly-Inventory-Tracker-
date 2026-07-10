@@ -90,6 +90,18 @@ The chip detail popup (double-click a forecast chip) calls `showFcChipDetail` (~
 
 `POS_HISTORY` (~line 1791) is the per-SKU per-FW historical store count + units object used by `computeFcRates` for the LY anchor and store-matching logic.
 
+### Reorder Schedule Engine
+
+`computeReorderSchedule(sku)` (Sales & Reorder Forecast page) replaces flat lump-sum reorder sizing with chained, order-up-to-level cycles. Tunable constants (defined near `computeReorderSuggestion`): `SAFETY_WOS = 4` (floor — never go below this), `ORDER_TARGET_WOS = 10` (ceiling — a delivery should never push WOS above this), `LEAD_DAYS = 80`, `REORDER_CHAIN_WEEKS = 26` (cap chaining at 2 quarters out). These came from explicit user requirements, not arbitrary tuning — don't change without re-confirming the standard still holds.
+
+**Demand rate per week** (`resolveDemandRate`): manual override → SUOF → AI agent's per-week rate → M3 forecast → raw state. This deliberately mirrors `calcRows()`'s own `liveSR` fallback chain (manual → SUOF → 0) for near-term weeks, then extends further out with agent/M3 since SUOF typically only covers ~13 weeks and the regular grid has no fallback beyond that — the two are expected to diverge for far-future weeks precisely because the reorder engine needs to see further than SUOF reaches.
+
+**Critical gotcha — one-week ledger lag:** `calcRows()` computes `endInv[i] = endInv[i-1] + reorders[i-1] + firmReceipts[i-1] - liveSR[i-1]` — a reorder entered for week `i-1` doesn't show its effect until week `i`, and gets netted against week `i-1`'s *own* rate before it ever appears in Ending INV. `computeReorderSchedule` mirrors this exactly (`enterOff` = week to type the qty into the Reorder cell, `effectOff = enterOff + 1` = week Ending INV reflects it). Two real bugs came from getting this wrong: (1) sizing a cycle's target-window sum starting at `effectOff` instead of `enterOff` under-sizes every order by one week's worth of rate, because the ledger silently taxes the new qty against `enterOff`'s rate; (2) rebasing the trajectory after each cycle must re-run the same netting formula (`track[enterOff] + qty - rate[enterOff]`), not flatly add `qty` on top of the old baseline. Verify any future change here against the actual `calcRows()` output (or the engine's own internal `track`/`rates`, exposed via a temporary `window._debugSchedule` capture at the end of the function) — this logic has burned the "looks right in isolation, breaks on the real ledger" trap twice already.
+
+Each cycle's status: `critical` (floor breach already closer than lead time allows — some time below the floor is unavoidable, `gapWeeks` shows how much), `reminder` (ordering today lands exactly on time), `upcoming` (informational, chained further out).
+
+The Forecast page's collapsed list row renders every chained cycle directly (not just the first) as compact grid lines: `# | Place date | Lands date (FW) | qty "each" | status`, uniform spacing between columns. Clicking the row still expands the full AI Forecast Analysis card underneath, unchanged.
+
 ## Development Notes
 
 - No build step. Edit the HTML files directly and refresh the browser.
