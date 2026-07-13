@@ -153,6 +153,33 @@
     font-family:inherit; }
   .kpi-sub-item input:focus { color:#fff; }
 
+  /* ── suds.lab market row (collapsed/expanded per-market header) ── */
+  .mkt-section { margin-bottom: 8px; }
+  .mkt-section:last-child { margin-bottom: 0; }
+  .mkt-row {
+    display: flex; align-items: stretch; background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; overflow: hidden;
+    cursor: pointer; margin-bottom: 6px;
+  }
+  .mkt-row:hover { background: rgba(255,255,255,0.09); }
+  .mkt-name-cell {
+    flex: 0 0 118px; display: flex; align-items: center; padding: 6px 12px;
+    background: rgba(255,255,255,0.08); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.4px; color: #8fd9b4; text-transform: uppercase;
+  }
+  .mkt-kpi-cell {
+    flex: 0 0 108px; padding: 4px 12px; display: flex; flex-direction: column; justify-content: center;
+    border-left: 1px solid rgba(255,255,255,0.10);
+  }
+  .mkt-kpi-cell .k { font-size: 9px; color: rgba(255,255,255,0.55); text-transform: uppercase; letter-spacing: 0.4px; }
+  .mkt-kpi-cell .v { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.96); }
+  .mkt-kpi-cell.onhand { background: rgba(120,160,255,0.14); }
+  .mkt-toggle-cell {
+    flex: 0 0 32px; margin-left: auto; display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.55); font-size: 10px; border-left: 1px solid rgba(255,255,255,0.10);
+  }
+  .mkt-spacer { flex: 1; background: rgba(255,255,255,0.03); }
+
   /* ── Data grid ── */
   .scroll-wrap { overflow-x: auto; }
   table.grid { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
@@ -1563,6 +1590,11 @@
           </div>
         </div>
         <div class="filter-sep"></div>
+        <span class="filter-lbl">Retailer</span>
+        <select class="fw-select" id="sudslabRetailerFilter" onchange="applySudslabFilters()">
+          <option value="">All</option>
+        </select>
+        <div class="filter-sep"></div>
         <span class="filter-lbl">Range</span>
         <select class="fw-select" id="sudslabFwFrom" onchange="applySudslabFilters()"></select>
         <span style="font-size:11px;color:var(--text-2);">to</span>
@@ -2607,65 +2639,90 @@ function buildProduct(p) {
 }
 
 // ── suds.lab: calc + render (independent of buildProduct/calcRows above) ──────
-function calcSudsLabRows(p) {
-  const s = sudslabState[p.sku];
-  const curIdx = getCurrentWeekIdx();
-  const totalOnHand = (s.onHandSanPedro||0) + (s.onHandTollEcomm||0) + (s.onHandCanada||0) + (s.onHandStar||0) + (s.onHandUltra||0);
-  const customFRArrays = Object.values(s.customFR || {});
-  const totalFR = weeks.map((_, i) => (s.firmReceiptsSanPedro[i]||0) + (s.firmReceiptsTollEcomm[i]||0) + (s.firmReceiptsCanada[i]||0)
-    + customFRArrays.reduce((sum, arr) => sum + (arr[i] || 0), 0));
-  const hasHistoricalData = s.salesRates.slice(0, curIdx).some(v => v > 0) || totalFR.slice(0, curIdx).some(v => v > 0);
-  const trackStart = hasHistoricalData ? 0 : curIdx;
-  const endInv = new Array(weeks.length).fill(0);
-  endInv[curIdx] = totalOnHand;
-  for (let i = curIdx + 1; i < weeks.length; i++) {
-    endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1]||0) + totalFR[i-1] - (s.salesRates[i-1]||0));
-  }
-  for (let i = curIdx - 1; i >= trackStart; i--) {
-    endInv[i] = endInv[i+1] - (s.reorders[i]||0) - totalFR[i] + (s.salesRates[i]||0);
-  }
-  return { endInv, totalFR, curIdx, totalOnHand };
+// US and CA are tracked as fully independent markets: separate on-hand, reorder,
+// firm receipt and sales rate ledgers, each with their own Ending INV projection.
+function sudslabCustomFRTotal(s, market, i) {
+  return (sudslabCustomWarehouses[market] || []).reduce((sum, wh) => sum + ((s.customFR[wh.id] || [])[i] || 0), 0);
+}
+function sudslabCustomSRTotal(s, market, i) {
+  return (sudslabRetailers[market] || []).reduce((sum, r) => sum + ((s.customSR[r.id] || [])[i] || 0), 0);
 }
 
-function buildSudsLabProduct(p) {
+function calcSudsLabMarketRows(p, market) {
   const s = sudslabState[p.sku];
-  const rows = calcSudsLabRows(p);
+  const curIdx = getCurrentWeekIdx();
+  const onHand = market === 'us'
+    ? (s.onHandSanPedro||0) + (s.onHandTollEcomm||0) + (s.onHandStar||0) + (s.onHandUltra||0)
+    : (s.onHandCanada||0);
+  const reorders = market === 'us' ? s.reordersUS : s.reordersCA;
+  const FR = weeks.map((_, i) => market === 'us'
+    ? (s.firmReceiptsSanPedro[i]||0) + (s.firmReceiptsTollEcomm[i]||0) + sudslabCustomFRTotal(s, 'us', i)
+    : (s.firmReceiptsCanada[i]||0) + sudslabCustomFRTotal(s, 'ca', i));
+  const SR = weeks.map((_, i) => sudslabCustomSRTotal(s, market, i));
+  const hasHistoricalData = SR.slice(0, curIdx).some(v => v > 0) || FR.slice(0, curIdx).some(v => v > 0);
+  const trackStart = hasHistoricalData ? 0 : curIdx;
+  const endInv = new Array(weeks.length).fill(0);
+  endInv[curIdx] = onHand;
+  for (let i = curIdx + 1; i < weeks.length; i++) {
+    endInv[i] = Math.max(0, endInv[i-1] + (reorders[i-1]||0) + FR[i-1] - SR[i-1]);
+  }
+  for (let i = curIdx - 1; i >= trackStart; i--) {
+    endInv[i] = endInv[i+1] - (reorders[i]||0) - FR[i] + SR[i];
+  }
+  return { endInv, FR, SR, reorders, curIdx, onHand };
+}
 
-  const wrap = document.createElement('div');
-  wrap.className = 'product-block';
-  wrap.id = 'sudslab-block-' + p.sku;
+const SUDSLAB_MARKET_CFG = {
+  us: {
+    label: 'US Market',
+    reorderKey: 'reorderUS',
+    warehouses: [
+      { label: 'San Pedro',         valueAt: (s, i) => s.firmReceiptsSanPedro[i] || 0 },
+      { label: 'Toll E-Comm',       valueAt: (s, i) => s.firmReceiptsTollEcomm[i] || 0 },
+      { label: 'Star Distribution', valueAt: () => 0 },
+      { label: 'Ultra-Look',        valueAt: () => 0 }
+    ],
+    kpis: [
+      { label: 'San Pedro',         valueAt: s => s.onHandSanPedro || 0 },
+      { label: 'Toll E-Comm',       valueAt: s => s.onHandTollEcomm || 0 },
+      { label: 'Star Distribution', valueAt: s => s.onHandStar || 0 },
+      { label: 'Ultra-Look',        valueAt: s => s.onHandUltra || 0 }
+    ]
+  },
+  ca: {
+    label: 'CA Market',
+    reorderKey: 'reorderCA',
+    warehouses: [
+      { label: 'Vertex West', valueAt: (s, i) => s.firmReceiptsCanada[i] || 0 }
+    ],
+    kpis: [
+      { label: 'Vertex West', valueAt: s => s.onHandCanada || 0 }
+    ]
+  }
+};
 
-  wrap.innerHTML = `
-    <div class="product-header-compact">
-      <div class="drag-handle" title="Grab and Drag"><svg width="12" height="16" viewBox="0 0 12 16" fill="#ffffff"><circle cx="3.5" cy="2.5" r="2.2"/><circle cx="8.5" cy="2.5" r="2.2"/><circle cx="3.5" cy="8"   r="2.2"/><circle cx="8.5" cy="8"   r="2.2"/><circle cx="3.5" cy="13.5" r="2.2"/><circle cx="8.5" cy="13.5" r="2.2"/></svg></div>
-      <div class="phc-info">
-        <span class="phc-id">${p.sku}</span>
-        <span class="phc-sep">·</span>
-        <span class="phc-name">${p.desc || ''}</span>
-        <span class="phc-sep">·</span>
-        <span class="phc-pill">Inner: ${p.inner || '—'}</span>
-        <span class="phc-pill">Master: ${p.master || '—'}</span>
-      </div>
-      <div class="product-header-btns">
-        <button class="delete-btn" onclick="deleteSudsLabProduct('${p.sku}')" title="Remove this item permanently">&#128465; Delete</button>
-      </div>
-    </div>
-    <div class="product-body" id="sudslab-body-${p.sku}">
-    <div class="kpi-strip">
-      <div class="kpi-item" style="flex:1.4;min-width:120px;">
-        <div class="k">On Hand (suds.lab)</div>
-        <div class="v" id="sudslab-kpi-onhand-${p.sku}">${rows.totalOnHand.toLocaleString()}</div>
-      </div>
-      <div class="kpi-item" style="flex:0.7;min-width:90px;"><div class="k">San Pedro</div><div class="v">${(s.onHandSanPedro||0).toLocaleString()}</div></div>
-      <div class="kpi-item" style="flex:0.7;min-width:90px;"><div class="k">Toll E-Comm</div><div class="v">${(s.onHandTollEcomm||0).toLocaleString()}</div></div>
-      <div class="kpi-item" style="flex:0.7;min-width:90px;"><div class="k">Vertex West (CA)</div><div class="v">${(s.onHandCanada||0).toLocaleString()}</div></div>
-      <div class="kpi-item" style="flex:0.7;min-width:90px;"><div class="k">Star Distribution</div><div class="v">${(s.onHandStar||0).toLocaleString()}</div></div>
-      <div class="kpi-item" style="flex:0.7;min-width:90px;"><div class="k">Ultra-Look</div><div class="v">${(s.onHandUltra||0).toLocaleString()}</div></div>
-    </div>
+function buildSudsLabMarketRow(p, s, rows, market) {
+  const cfg = SUDSLAB_MARKET_CFG[market];
+  const row = document.createElement('div');
+  row.className = 'mkt-row';
+  row.onclick = () => toggleSudsLabMarket(p.sku, market);
+  row.innerHTML = `
+    <div class="mkt-name-cell">${cfg.label}</div>
+    <div class="mkt-kpi-cell onhand"><div class="k">On Hand</div><div class="v" id="sudslab-kpi-${market}-onhand-${p.sku}">${rows.onHand.toLocaleString()}</div></div>
+    ${cfg.kpis.map(k => `<div class="mkt-kpi-cell"><div class="k">${k.label}</div><div class="v">${(k.valueAt(s)).toLocaleString()}</div></div>`).join('')}
+    <div class="mkt-spacer"></div>
+    <div class="mkt-toggle-cell" id="sudslab-mkt-toggle-${market}-${p.sku}">&#9660;</div>
   `;
+  return row;
+}
 
+function buildSudsLabMarketTable(p, s, rows, market) {
+  const cfg = SUDSLAB_MARKET_CFG[market];
   const scrollWrap = document.createElement('div');
-  scrollWrap.className = 'scroll-wrap';
+  scrollWrap.className = 'scroll-wrap mkt-table-wrap';
+  scrollWrap.id = `sudslab-mkt-table-${market}-${p.sku}`;
+  scrollWrap.style.display = 'none'; // markets start collapsed on every render/login
+
   const table = document.createElement('table');
   table.className = 'grid';
 
@@ -2689,47 +2746,12 @@ function buildSudsLabProduct(p) {
 
   const tbody = document.createElement('tbody');
 
-  function addGroupTotalRow(groupKey, label, totalAt) {
-    const tr = document.createElement('tr');
-    tr.className = 'fr-group-header';
-    tr.id = `sudslab-fr-group-${groupKey}-${p.sku}`;
-    const tdLabel = document.createElement('td');
-    tdLabel.className = 'row-lbl fr-group-header-lbl';
-    tdLabel.innerHTML = `${label}`
-      + `<span class="fr-ctrl-group">`
-      + `<button class="fr-ctrl-btn" title="Expand" onclick="expandSudsLabFRGroup('${p.sku}','${groupKey}')"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" fill="none" style="pointer-events:none;display:block"><line x1="1" y1="9" x2="9" y2="1"/><polyline points="5,1 9,1 9,5"/><line x1="1" y1="9" x2="5" y2="9"/><polyline points="1,5 1,9 5,9"/></svg></button>`
-      + `<button class="fr-ctrl-btn" title="Collapse to total" onclick="shrinkSudsLabFRGroup('${p.sku}','${groupKey}')"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" fill="none" style="pointer-events:none;display:block"><line x1="4" y1="6" x2="1" y2="9"/><polyline points="4,9 4,6 1,6"/><line x1="6" y1="4" x2="9" y2="1"/><polyline points="6,1 6,4 9,4"/></svg></button>`
-      + `<button class="fr-ctrl-btn add-btn" title="Add warehouse" onclick="addSudsLabWarehouse('${groupKey}')">&#43;</button>`
-      + `</span>`;
-    tr.appendChild(tdLabel);
-    weeks.forEach((w, i) => {
-      const td = document.createElement('td');
-      const isPast = i < rows.curIdx;
-      const isCur  = i === rows.curIdx;
-      const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (isCur ? 'col-cur' : ''));
-      td.id = `sudslab-cell-${p.sku}-frgroup-${groupKey}-${i}`;
-      td.textContent = fmt(totalAt(i));
-      td.className = colCls || '';
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  }
-
-  function addDataRow(key, label, opts) {
+  function addPlainRow(key, label, opts) {
     opts = opts || {};
     const tr = document.createElement('tr');
-    if (opts.indent) tr.className = 'fr-sub-row';
-    if (opts.groupKey) {
-      tr.classList.add(`fr-group-sub-${opts.groupKey}`);
-      tr.style.display = 'none'; // groups start collapsed on every render/login
-    }
     const tdLabel = document.createElement('td');
-    tdLabel.className = 'row-lbl' + (opts.isEnding ? ' ending' : '') + (opts.indent ? ' fr-sub-lbl' : '');
-    if (opts.custom) {
-      tdLabel.innerHTML = `${label}<span class="fr-del-wh" title="Remove warehouse" onclick="removeSudsLabWarehouse('${opts.groupKey}','${opts.whId}')">&times;</span>`;
-    } else {
-      tdLabel.textContent = label;
-    }
+    tdLabel.className = 'row-lbl' + (opts.isEnding ? ' ending' : '');
+    tdLabel.textContent = label;
     tr.appendChild(tdLabel);
 
     weeks.forEach((w, i) => {
@@ -2755,7 +2777,7 @@ function buildSudsLabProduct(p) {
         }
         td.appendChild(inp);
       } else {
-        td.id = `sudslab-cell-${p.sku}-${key}-${i}`;
+        td.id = `sudslab-cell-${p.sku}-${market}-${key}-${i}`;
         const v = opts.valueAt(i);
         td.textContent = fmt(v);
         const isStockout = opts.isEnding && v === 0 && !isPast;
@@ -2766,35 +2788,140 @@ function buildSudsLabProduct(p) {
     tbody.appendChild(tr);
   }
 
-  function customWhTotal(groupKey, i) {
-    return (sudslabCustomWarehouses[groupKey] || []).reduce((sum, wh) => sum + ((s.customFR[wh.id] || [])[i] || 0), 0);
+  // Shared expand/collapse group row — used for both Firm Receipt (no add
+  // button, warehouses are fixed) and Sales rate (add button to add a retailer).
+  function addGroupTotalRow(groupKey, label, totalAt, addOpts) {
+    const tr = document.createElement('tr');
+    tr.className = 'fr-group-header';
+    tr.id = `sudslab-group-${groupKey}-${p.sku}`;
+    const tdLabel = document.createElement('td');
+    tdLabel.className = 'row-lbl fr-group-header-lbl';
+    let ctrl = `<span class="fr-ctrl-group">`
+      + `<button class="fr-ctrl-btn" title="Expand" onclick="expandSudsLabGroup('${p.sku}','${groupKey}')"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" fill="none" style="pointer-events:none;display:block"><line x1="1" y1="9" x2="9" y2="1"/><polyline points="5,1 9,1 9,5"/><line x1="1" y1="9" x2="5" y2="9"/><polyline points="1,5 1,9 5,9"/></svg></button>`
+      + `<button class="fr-ctrl-btn" title="Collapse to total" onclick="shrinkSudsLabGroup('${p.sku}','${groupKey}')"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" fill="none" style="pointer-events:none;display:block"><line x1="4" y1="6" x2="1" y2="9"/><polyline points="4,9 4,6 1,6"/><line x1="6" y1="4" x2="9" y2="1"/><polyline points="6,1 6,4 9,4"/></svg></button>`;
+    if (addOpts) ctrl += `<button class="fr-ctrl-btn add-btn" title="${addOpts.title}" onclick="${addOpts.onclick}">&#43;</button>`;
+    ctrl += `</span>`;
+    tdLabel.innerHTML = `${label}${ctrl}`;
+    tr.appendChild(tdLabel);
+    weeks.forEach((w, i) => {
+      const td = document.createElement('td');
+      const isPast = i < rows.curIdx;
+      const isCur  = i === rows.curIdx;
+      const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (isCur ? 'col-cur' : ''));
+      td.id = `sudslab-cell-${p.sku}-group-${groupKey}-${i}`;
+      td.textContent = fmt(totalAt(i));
+      td.className = colCls || '';
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
   }
 
-  addDataRow('endInv', 'Ending INV', { isEnding: true, valueAt: i => rows.endInv[i] });
-  addDataRow('reorder', 'Reorder', { editable: true, valueAt: i => s.reorders[i] || 0 });
+  function addGroupSubRow(groupKey, label, opts) {
+    opts = opts || {};
+    const tr = document.createElement('tr');
+    tr.className = `fr-sub-row fr-group-sub-${groupKey}`;
+    tr.style.display = 'none'; // groups start collapsed on every render/login
+    const tdLabel = document.createElement('td');
+    tdLabel.className = 'row-lbl fr-sub-lbl';
+    if (opts.custom) {
+      tdLabel.innerHTML = `${label}<span class="fr-del-wh" title="Remove" onclick="${opts.removeFn}('${market}','${opts.itemId}')">&times;</span>`;
+    } else {
+      tdLabel.textContent = label;
+    }
+    tr.appendChild(tdLabel);
+    weeks.forEach((w, i) => {
+      const td = document.createElement('td');
+      const isPast = i < rows.curIdx;
+      const isCur  = i === rows.curIdx;
+      const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (isCur ? 'col-cur' : ''));
+      if (opts.editable) {
+        td.className = 'editable editable-row' + (colCls ? ' ' + colCls : '');
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.inputMode = 'numeric';
+        inp.value = fmtInput(opts.valueAt(i));
+        inp.dataset.sku = p.sku;
+        inp.dataset.row = opts.key;
+        inp.dataset.idx = i;
+        if (isPast) { inp.readOnly = true; inp.title = 'Past week — read only'; }
+        else {
+          inp.addEventListener('input', function() { handleSudsLabChange(this); });
+          inp.addEventListener('change', function() { handleSudsLabChange(this); });
+          inp.addEventListener('focus', function() { this.value = this.value.replace(/,/g, ''); this.select(); });
+          inp.addEventListener('blur', function() { this.value = fmtInput(parseFloat(this.value.replace(/,/g,''))||0); });
+        }
+        td.appendChild(inp);
+      } else {
+        const v = opts.valueAt(i);
+        td.textContent = fmt(v);
+        td.className = colCls || '';
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
 
-  addGroupTotalRow('us', 'Firm Receipt — US', i => (s.firmReceiptsSanPedro[i] || 0) + (s.firmReceiptsTollEcomm[i] || 0) + customWhTotal('us', i));
-  addDataRow('firmReceiptsSanPedro', 'San Pedro', { indent: true, groupKey: 'us', valueAt: i => s.firmReceiptsSanPedro[i] || 0 });
-  addDataRow('firmReceiptsTollEcomm', 'Toll E-Comm', { indent: true, groupKey: 'us', valueAt: i => s.firmReceiptsTollEcomm[i] || 0 });
-  addDataRow('onHandStarRow', 'Star Distribution', { indent: true, groupKey: 'us', valueAt: () => 0 });
-  addDataRow('onHandUltraRow', 'Ultra-Look', { indent: true, groupKey: 'us', valueAt: () => 0 });
-  (sudslabCustomWarehouses.us || []).forEach(wh => {
-    addDataRow(`customFR_${wh.id}`, wh.name, { indent: true, groupKey: 'us', editable: true, custom: true, whId: wh.id, valueAt: i => (s.customFR[wh.id] || [])[i] || 0 });
+  addPlainRow('endInv', 'Ending INV', { isEnding: true, valueAt: i => rows.endInv[i] });
+  addPlainRow(cfg.reorderKey, 'Reorder', { editable: true, valueAt: i => rows.reorders[i] || 0 });
+
+  addGroupTotalRow(`fr-${market}`, 'Firm Receipt', i => rows.FR[i]);
+  cfg.warehouses.forEach(wh => {
+    addGroupSubRow(`fr-${market}`, wh.label, { valueAt: i => wh.valueAt(s, i) });
+  });
+  (sudslabCustomWarehouses[market] || []).forEach(wh => {
+    addGroupSubRow(`fr-${market}`, wh.name, { editable: true, custom: true, itemId: wh.id, removeFn: 'removeSudsLabWarehouse', key: `customFR_${wh.id}`, valueAt: i => (s.customFR[wh.id] || [])[i] || 0 });
   });
 
-  addGroupTotalRow('ca', 'Firm Receipt — CA', i => (s.firmReceiptsCanada[i] || 0) + customWhTotal('ca', i));
-  addDataRow('firmReceiptsCanada', 'Vertex West (Canada)', { indent: true, groupKey: 'ca', valueAt: i => s.firmReceiptsCanada[i] || 0 });
-  (sudslabCustomWarehouses.ca || []).forEach(wh => {
-    addDataRow(`customFR_${wh.id}`, wh.name, { indent: true, groupKey: 'ca', editable: true, custom: true, whId: wh.id, valueAt: i => (s.customFR[wh.id] || [])[i] || 0 });
+  addGroupTotalRow(`sr-${market}`, 'Sales rate', i => rows.SR[i], { title: 'Add retailer', onclick: `addSudsLabRetailer('${market}')` });
+  (sudslabRetailers[market] || []).forEach(r => {
+    addGroupSubRow(`sr-${market}`, r.name, { editable: true, custom: true, itemId: r.id, removeFn: 'removeSudsLabRetailer', key: `customSR_${r.id}`, valueAt: i => (s.customSR[r.id] || [])[i] || 0 });
   });
 
-  addDataRow('salesRate', 'Sales rate', { editable: true, valueAt: i => s.salesRates[i] || 0 });
-  addDataRow('sudslabSalesOrder', 'Suds.lab Sales Orders', { valueAt: i => (s.sudslabSalesOrders || [])[i] || 0 });
+  if (market === 'us') {
+    addPlainRow('sudslabSalesOrder', 'Sales Orders', { valueAt: i => (s.sudslabSalesOrders || [])[i] || 0 });
+  }
 
   table.appendChild(tbody);
   scrollWrap.appendChild(table);
+  return scrollWrap;
+}
+
+function buildSudsLabProduct(p) {
+  const s = sudslabState[p.sku];
+  const rowsUS = calcSudsLabMarketRows(p, 'us');
+  const rowsCA = calcSudsLabMarketRows(p, 'ca');
+
+  const wrap = document.createElement('div');
+  wrap.className = 'product-block';
+  wrap.id = 'sudslab-block-' + p.sku;
+
+  wrap.innerHTML = `
+    <div class="product-header-compact">
+      <div class="drag-handle" title="Grab and Drag"><svg width="12" height="16" viewBox="0 0 12 16" fill="#ffffff"><circle cx="3.5" cy="2.5" r="2.2"/><circle cx="8.5" cy="2.5" r="2.2"/><circle cx="3.5" cy="8"   r="2.2"/><circle cx="8.5" cy="8"   r="2.2"/><circle cx="3.5" cy="13.5" r="2.2"/><circle cx="8.5" cy="13.5" r="2.2"/></svg></div>
+      <div class="phc-info">
+        <span class="phc-id">${p.sku}</span>
+        <span class="phc-sep">·</span>
+        <span class="phc-name">${p.desc || ''}</span>
+        <span class="phc-sep">·</span>
+        <span class="phc-pill">Inner: ${p.inner || '—'}</span>
+        <span class="phc-pill">Master: ${p.master || '—'}</span>
+      </div>
+      <div class="product-header-btns">
+        <button class="delete-btn" onclick="deleteSudsLabProduct('${p.sku}')" title="Remove this item permanently">&#128465; Delete</button>
+      </div>
+    </div>
+    <div class="product-body" id="sudslab-body-${p.sku}"></div>
+  `;
+
   const bodyDiv = wrap.querySelector('.product-body');
-  bodyDiv.appendChild(scrollWrap);
+  [['us', rowsUS], ['ca', rowsCA]].forEach(([market, rows]) => {
+    const section = document.createElement('div');
+    section.className = 'mkt-section';
+    section.appendChild(buildSudsLabMarketRow(p, s, rows, market));
+    section.appendChild(buildSudsLabMarketTable(p, s, rows, market));
+    bodyDiv.appendChild(section);
+  });
+
   return wrap;
 }
 
@@ -2827,15 +2954,85 @@ function renderSudsLabProducts() {
   });
 }
 
-function expandSudsLabFRGroup(sku, groupKey) {
+function expandSudsLabGroup(sku, groupKey) {
   const block = document.getElementById('sudslab-block-' + sku);
   if (!block) return;
   block.querySelectorAll(`tr.fr-group-sub-${groupKey}`).forEach(r => r.style.display = '');
 }
-function shrinkSudsLabFRGroup(sku, groupKey) {
+function shrinkSudsLabGroup(sku, groupKey) {
   const block = document.getElementById('sudslab-block-' + sku);
   if (!block) return;
   block.querySelectorAll(`tr.fr-group-sub-${groupKey}`).forEach(r => r.style.display = 'none');
+}
+
+// Collapses/expands one market's whole weekly table (Ending INV/Reorder/Firm
+// Receipt/Sales rate/Sales Orders) — independent per market so a card can show
+// e.g. US expanded and CA collapsed at the same time.
+function toggleSudsLabMarket(sku, market) {
+  const tableWrap = document.getElementById(`sudslab-mkt-table-${market}-${sku}`);
+  const toggle = document.getElementById(`sudslab-mkt-toggle-${market}-${sku}`);
+  if (!tableWrap) return;
+  const isHidden = tableWrap.style.display === 'none';
+  tableWrap.style.display = isHidden ? '' : 'none';
+  if (toggle) toggle.innerHTML = isHidden ? '&#9650;' : '&#9660;';
+}
+
+// ── suds.lab: manually-added retailers (Sales rate breakdown) ────────────────
+// Account-wide list (not per-SKU) persisted via the generic app_cache table —
+// avoids a schema migration on sudslab_sku_meta/sudslab_sku_weekly.
+function addSudsLabRetailer(market) {
+  const name = prompt(`New ${market === 'us' ? 'US' : 'Canada'} retailer name:`);
+  if (!name || !name.trim()) return;
+  const id = 'rt_' + Date.now();
+  if (!sudslabRetailers[market]) sudslabRetailers[market] = [];
+  sudslabRetailers[market].push({ id, name: name.trim() });
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    if (!s.customSR) s.customSR = {};
+    if (!s.customSR[id]) s.customSR[id] = new Array(weeks.length).fill(0);
+  });
+  renderSudsLabProducts();
+  buildSudslabFilterDropdown();
+  buildSudslabRetailerFilterDropdown();
+  applySudslabFilters();
+  scrollAllSudsLabToCurrentWeek();
+  if (!isTestMode) saveSudsLabRetailers();
+}
+
+function removeSudsLabRetailer(market, retailerId) {
+  const r = (sudslabRetailers[market] || []).find(x => x.id === retailerId);
+  if (!r) return;
+  if (!confirm(`Remove retailer "${r.name}"?\nThis will delete its sales rate data for every SKU.`)) return;
+  sudslabRetailers[market] = sudslabRetailers[market].filter(x => x.id !== retailerId);
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    if (s.customSR) delete s.customSR[retailerId];
+  });
+  renderSudsLabProducts();
+  buildSudslabFilterDropdown();
+  buildSudslabRetailerFilterDropdown();
+  applySudslabFilters();
+  scrollAllSudsLabToCurrentWeek();
+  if (!isTestMode) { saveSudsLabRetailers(); saveSudsLabCustomSR(); }
+}
+
+async function saveSudsLabRetailers() {
+  if (isTestMode || !sbClient) return;
+  try {
+    await sbClient.from('app_cache').upsert({ key: 'sudslab_retailers', data: sudslabRetailers }, { onConflict: 'key' });
+  } catch(e) { console.warn('saveSudsLabRetailers failed:', e.message); }
+}
+
+async function saveSudsLabCustomSR() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const blob = {};
+    sudslabProducts.forEach(p => {
+      const s = sudslabState[p.sku];
+      if (s && s.customSR && Object.keys(s.customSR).length) blob[p.sku] = s.customSR;
+    });
+    await sbClient.from('app_cache').upsert({ key: 'sudslab_custom_sr', data: blob }, { onConflict: 'key' });
+  } catch(e) { console.warn('saveSudsLabCustomSR failed:', e.message); }
 }
 
 // ── suds.lab: manually-added warehouses (future shipping sources) ────────────
@@ -2893,35 +3090,29 @@ async function saveSudsLabCustomFR() {
   } catch(e) { console.warn('saveSudsLabCustomFR failed:', e.message); }
 }
 
-function updateSudsLabGroupTotalCell(sku, groupKey, idx) {
-  const s = sudslabState[sku];
-  if (!s) return;
-  const cell = document.getElementById(`sudslab-cell-${sku}-frgroup-${groupKey}-${idx}`);
-  if (!cell) return;
-  const customTotal = (sudslabCustomWarehouses[groupKey] || []).reduce((sum, wh) => sum + ((s.customFR[wh.id] || [])[idx] || 0), 0);
-  const base = groupKey === 'us'
-    ? (s.firmReceiptsSanPedro[idx] || 0) + (s.firmReceiptsTollEcomm[idx] || 0)
-    : (s.firmReceiptsCanada[idx] || 0);
-  cell.textContent = fmt(base + customTotal);
-}
-
+// Recomputes both markets' full ledgers and refreshes every cell that can
+// change as a result — Ending INV, Firm Receipt total, Sales rate total.
+// Reorder/customFR/customSR edits all funnel through this single recompute.
 function updateSudsLabCalcs(sku) {
   const p = sudslabProducts.find(x => x.sku === sku);
   if (!p) return;
-  const rows = calcSudsLabRows(p);
-  const s = sudslabState[sku];
-  weeks.forEach((w, i) => {
-    const isPast = i < rows.curIdx;
-    const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (i === rows.curIdx ? 'col-cur' : ''));
-    const ei = document.getElementById(`sudslab-cell-${sku}-endInv-${i}`);
-    if (ei) {
-      ei.textContent = fmt(rows.endInv[i]);
-      const stockout = rows.endInv[i] === 0 && !isPast ? 'neg' : '';
-      setColClass(ei, (stockout + ' ' + colCls).trim());
-    }
+  ['us', 'ca'].forEach(market => {
+    const rows = calcSudsLabMarketRows(p, market);
+    weeks.forEach((w, i) => {
+      const isPast = i < rows.curIdx;
+      const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (i === rows.curIdx ? 'col-cur' : ''));
+      const ei = document.getElementById(`sudslab-cell-${sku}-${market}-endInv-${i}`);
+      if (ei) {
+        ei.textContent = fmt(rows.endInv[i]);
+        const stockout = rows.endInv[i] === 0 && !isPast ? 'neg' : '';
+        setColClass(ei, (stockout + ' ' + colCls).trim());
+      }
+      const fr = document.getElementById(`sudslab-cell-${sku}-group-fr-${market}-${i}`);
+      if (fr) fr.textContent = fmt(rows.FR[i]);
+      const sr = document.getElementById(`sudslab-cell-${sku}-group-sr-${market}-${i}`);
+      if (sr) sr.textContent = fmt(rows.SR[i]);
+    });
   });
-  const kpiOnHand = document.getElementById(`sudslab-kpi-onhand-${sku}`);
-  if (kpiOnHand) kpiOnHand.textContent = rows.totalOnHand.toLocaleString();
 }
 
 function handleSudsLabChange(input) {
@@ -2931,26 +3122,31 @@ function handleSudsLabChange(input) {
   if (idx < getCurrentWeekIdx()) return;
   const val = parseFloat(input.value.replace(/,/g, '')) || 0;
   const s = sudslabState[sku];
-  let customWhId = null, customGroupKey = null;
-  if (row === 'reorder') s.reorders[idx] = val;
-  if (row === 'salesRate') s.salesRates[idx] = val;
+  let customWhId = null, customRetailerId = null;
+  if (row === 'reorderUS') s.reordersUS[idx] = val;
+  if (row === 'reorderCA') s.reordersCA[idx] = val;
   if (row.startsWith('customFR_')) {
     customWhId = row.slice('customFR_'.length);
     if (!s.customFR[customWhId]) s.customFR[customWhId] = new Array(weeks.length).fill(0);
     s.customFR[customWhId][idx] = val;
-    customGroupKey = (sudslabCustomWarehouses.us || []).some(w => w.id === customWhId) ? 'us' : 'ca';
+  }
+  if (row.startsWith('customSR_')) {
+    customRetailerId = row.slice('customSR_'.length);
+    if (!s.customSR[customRetailerId]) s.customSR[customRetailerId] = new Array(weeks.length).fill(0);
+    s.customSR[customRetailerId][idx] = val;
   }
   updateSudsLabCalcs(sku);
-  if (customGroupKey) updateSudsLabGroupTotalCell(sku, customGroupKey, idx);
   if (!isTestMode && sbClient) {
     (async () => {
       try {
         if (customWhId) {
           await saveSudsLabCustomFR();
+        } else if (customRetailerId) {
+          await saveSudsLabCustomSR();
         } else {
           const payload = { sku, week_idx: idx };
-          if (row === 'reorder') payload.reorder_qty = val;
-          if (row === 'salesRate') payload.sales_rate = val;
+          if (row === 'reorderUS') payload.reorder_qty_us = val;
+          if (row === 'reorderCA') payload.reorder_qty_ca = val;
           await sbClient.from('sudslab_sku_weekly').upsert(payload, { onConflict: 'sku,week_idx' });
         }
       } catch(e) { console.warn('sudslab weekly sync failed:', e.message); }
@@ -3010,12 +3206,12 @@ async function saveSudsLabState() {
       const s = sudslabState[p.sku];
       weeks.forEach((w, i) => {
         const fr1 = s.firmReceiptsSanPedro[i] || 0, fr2 = s.firmReceiptsTollEcomm[i] || 0, fr3 = s.firmReceiptsCanada[i] || 0;
-        const sr = s.salesRates[i] || 0, ro = s.reorders[i] || 0, so = (s.sudslabSalesOrders || [])[i] || 0;
-        if (fr1 || fr2 || fr3 || sr || ro || so) {
+        const roUS = s.reordersUS[i] || 0, roCA = s.reordersCA[i] || 0, so = (s.sudslabSalesOrders || [])[i] || 0;
+        if (fr1 || fr2 || fr3 || roUS || roCA || so) {
           weeklyRows.push({
             sku: p.sku, week_idx: i,
             firm_receipt_san_pedro: fr1, firm_receipt_toll_ecomm: fr2, firm_receipt_canada: fr3,
-            sales_rate: sr, reorder_qty: ro, sudslab_sales_order: so
+            reorder_qty_us: roUS, reorder_qty_ca: roCA, sudslab_sales_order: so
           });
         }
       });
@@ -3035,7 +3231,7 @@ async function loadSudsLabFromSupabase() {
     const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }] = await Promise.all([
       sbClient.from('sudslab_sku_meta').select('*'),
       _fetchAllSudsLabWeekly(),
-      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr'])
+      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr'])
     ]);
     if (metaErr) throw metaErr;
     if (weeklyErr) throw weeklyErr;
@@ -3061,8 +3257,8 @@ async function loadSudsLabFromSupabase() {
       s.firmReceiptsSanPedro[row.week_idx]  = row.firm_receipt_san_pedro  || 0;
       s.firmReceiptsTollEcomm[row.week_idx] = row.firm_receipt_toll_ecomm || 0;
       s.firmReceiptsCanada[row.week_idx]    = row.firm_receipt_canada    || 0;
-      s.salesRates[row.week_idx]            = row.sales_rate             || 0;
-      s.reorders[row.week_idx]              = row.reorder_qty            || 0;
+      s.reordersUS[row.week_idx]            = row.reorder_qty_us         || 0;
+      s.reordersCA[row.week_idx]            = row.reorder_qty_ca         || 0;
       s.sudslabSalesOrders[row.week_idx]    = row.sudslab_sales_order    || 0;
     });
 
@@ -3074,9 +3270,18 @@ async function loadSudsLabFromSupabase() {
         if (sudslabState[sku]) sudslabState[sku].customFR = frRow.data[sku] || {};
       });
     }
+    const retRow = (cacheRows || []).find(r => r.key === 'sudslab_retailers');
+    if (retRow && retRow.data) sudslabRetailers = { us: retRow.data.us || [], ca: retRow.data.ca || [] };
+    const srRow = (cacheRows || []).find(r => r.key === 'sudslab_custom_sr');
+    if (srRow && srRow.data) {
+      Object.keys(srRow.data).forEach(sku => {
+        if (sudslabState[sku]) sudslabState[sku].customSR = srRow.data[sku] || {};
+      });
+    }
 
     _sudslabLoaded = true;
     renderSudsLabProducts();
+    buildSudslabRetailerFilterDropdown();
     initSudslabFilterBar();
   } catch (e) {
     console.warn('loadSudsLabFromSupabase failed:', e.message);
@@ -3503,10 +3708,11 @@ function _sudslabEmptyState() {
     firmReceiptsSanPedro: new Array(weeks.length).fill(0),
     firmReceiptsTollEcomm: new Array(weeks.length).fill(0),
     firmReceiptsCanada: new Array(weeks.length).fill(0),
-    salesRates: new Array(weeks.length).fill(0),
-    reorders: new Array(weeks.length).fill(0),
+    reordersUS: new Array(weeks.length).fill(0),
+    reordersCA: new Array(weeks.length).fill(0),
     sudslabSalesOrders: new Array(weeks.length).fill(0),
     customFR: {},
+    customSR: {},
     hidden: false
   };
 }
@@ -4130,6 +4336,8 @@ let _sudslabLoadPromise = null; // in-flight loadSudsLabFromSupabase() promise, 
 let sudslabProducts = []; // grows via auto-create as new SL- SKUs are seen in imports
 let sudslabState = {};    // keyed by SL- sku
 let sudslabCustomWarehouses = { us: [], ca: [] }; // manually-added shipping sources: { id, name }[]
+let sudslabRetailers = { us: [], ca: [] }; // manually-added retailers for Sales rate breakdown: { id, name }[]
+let sudslabFilterRetailerId = null; // null = all retailers
 
 // Test logins are restricted to a single account — hide the other account's
 // switcher button entirely, and for the suds.lab test login, jump straight in.
@@ -6972,8 +7180,20 @@ function initSudslabFilterBar() {
   from.value = Math.max(0, curIdx - 1);
   to.value   = Math.min(27, weeks.length - 1);
   buildSudslabFilterDropdown();
+  buildSudslabRetailerFilterDropdown();
   applySudslabFilters();
   scrollAllSudsLabToCurrentWeek();
+}
+
+function buildSudslabRetailerFilterDropdown() {
+  const sel = document.getElementById('sudslabRetailerFilter');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">All</option>';
+  ['us', 'ca'].forEach(market => {
+    (sudslabRetailers[market] || []).forEach(r => sel.appendChild(new Option(r.name, r.id)));
+  });
+  sel.value = [...sel.options].some(o => o.value === prev) ? prev : '';
 }
 
 function buildSudslabFilterDropdown() {
@@ -7042,14 +7262,20 @@ document.addEventListener('click', function(e) {
 function applySudslabFilters() {
   const fromEl = document.getElementById('sudslabFwFrom');
   const toEl   = document.getElementById('sudslabFwTo');
+  const retailerEl = document.getElementById('sudslabRetailerFilter');
   if (!fromEl || !toEl) return;
   const fromIdx = parseInt(fromEl.value);
   const toIdx   = parseInt(toEl.value);
+  const retailerId = retailerEl ? retailerEl.value : '';
 
   sudslabProducts.forEach(p => {
     const block = document.getElementById('sudslab-block-' + p.sku);
     if (!block) return;
-    const visible = sudslabFilterSelected === null || sudslabFilterSelected.has(p.sku);
+    let visible = sudslabFilterSelected === null || sudslabFilterSelected.has(p.sku);
+    if (visible && retailerId) {
+      const s = sudslabState[p.sku];
+      visible = !!(s && s.customSR && s.customSR[retailerId] && s.customSR[retailerId].some(v => v > 0));
+    }
     block.style.display = visible ? '' : 'none';
 
     block.querySelectorAll('table.grid thead tr th, table.grid tbody tr td').forEach(cell => {
