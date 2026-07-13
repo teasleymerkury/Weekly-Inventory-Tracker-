@@ -1528,7 +1528,13 @@
     </div>
   </div>
 
-  <!-- suds.lab Reorder Modal — qty + destination warehouse, reference only -->
+
+</div>
+</div>
+
+  <!-- suds.lab Reorder Modal — qty + destination warehouse, reference only.
+       Lives outside every page-section so it stays visible no matter which
+       page is active (a page-section's display:none would otherwise hide it). -->
   <div class="modal-overlay" id="sudslabReorderModal">
     <div class="modal-box" style="width:360px;">
       <h2 id="sudslabReorderModalTitle">Reorder</h2>
@@ -1552,8 +1558,6 @@
     </div>
   </div>
 
-</div>
-</div>
     <!-- Page: suds.lab Weekly Recap -->
     <div class="page-section" id="page-sudslab-recap">
       <div class="page-wrap">
@@ -2685,8 +2689,10 @@ function sudslabCustomFRTotal(s, market, i) {
   return (sudslabCustomWarehouses[market] || []).reduce((sum, wh) => sum + ((s.customFR[wh.id] || [])[i] || 0), 0);
 }
 function sudslabCustomSRTotal(s, market, i) {
-  // No retailers yet — Sales rate falls back to a directly-typed manual value.
-  if (!(sudslabRetailers[market] || []).length) return (s.srManual && s.srManual[market] || [])[i] || 0;
+  // A directly-typed value always wins for that week (manual override), same
+  // as On Hand — otherwise it's the sum of that market's retailer rows.
+  const manual = s.srManual && s.srManual[market] && s.srManual[market][i];
+  if (manual != null) return manual;
   return (sudslabRetailers[market] || []).reduce((sum, r) => sum + ((s.customSR[r.id] || [])[i] || 0), 0);
 }
 
@@ -2844,7 +2850,7 @@ function buildSudsLabMarketTable(p, s, rows, market) {
           tag.id = `sudslab-reorder-whtag-${p.sku}-${market}-${i}`;
           tag.textContent = whRef ? _sudslabWhAbbr(whRef) : '';
           tag.title = whRef || '';
-          if (whRef) tag.style.display = ''; else tag.style.display = 'none';
+          tag.style.display = whRef ? '' : 'none';
           td.appendChild(tag);
         }
         td.appendChild(inp);
@@ -2933,6 +2939,47 @@ function buildSudsLabMarketTable(p, s, rows, market) {
     tbody.appendChild(tr);
   }
 
+  // Sales rate total is always directly editable (like On Hand) — typing a
+  // value overrides that week; otherwise it shows the sum of retailer rows.
+  function addSRTotalRow(groupKey, totalAt) {
+    const tr = document.createElement('tr');
+    tr.className = 'fr-group-header';
+    tr.id = `sudslab-group-${groupKey}-${p.sku}`;
+    const tdLabel = document.createElement('td');
+    tdLabel.className = 'row-lbl fr-group-header-lbl';
+    tdLabel.innerHTML = `Sales rate`
+      + `<span class="fr-ctrl-group">`
+      + `<button class="fr-ctrl-btn" title="Expand" onclick="expandSudsLabGroup('${p.sku}','${groupKey}')"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" fill="none" style="pointer-events:none;display:block"><line x1="1" y1="9" x2="9" y2="1"/><polyline points="5,1 9,1 9,5"/><line x1="1" y1="9" x2="5" y2="9"/><polyline points="1,5 1,9 5,9"/></svg></button>`
+      + `<button class="fr-ctrl-btn" title="Collapse to total" onclick="shrinkSudsLabGroup('${p.sku}','${groupKey}')"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" fill="none" style="pointer-events:none;display:block"><line x1="4" y1="6" x2="1" y2="9"/><polyline points="4,9 4,6 1,6"/><line x1="6" y1="4" x2="9" y2="1"/><polyline points="6,1 6,4 9,4"/></svg></button>`
+      + `<button class="fr-ctrl-btn add-btn" title="Add retailer" onclick="addSudsLabRetailer('${market}')">&#43;</button>`
+      + `</span>`;
+    tr.appendChild(tdLabel);
+    weeks.forEach((w, i) => {
+      const td = document.createElement('td');
+      const isPast = i < rows.curIdx;
+      const isCur  = i === rows.curIdx;
+      const colCls = (i < rows.curIdx - 1) ? 'col-past col-old-past' : (isPast ? 'col-past' : (isCur ? 'col-cur' : ''));
+      td.className = 'editable editable-row' + (colCls ? ' ' + colCls : '');
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.inputMode = 'numeric';
+      inp.value = fmtInput(totalAt(i));
+      inp.dataset.sku = p.sku;
+      inp.dataset.row = `srManual_${market}`;
+      inp.dataset.idx = i;
+      if (isPast) { inp.readOnly = true; inp.title = 'Past week — read only'; }
+      else {
+        inp.addEventListener('input', function() { handleSudsLabChange(this); });
+        inp.addEventListener('change', function() { handleSudsLabChange(this); });
+        inp.addEventListener('focus', function() { this.value = this.value.replace(/,/g, ''); this.select(); });
+        inp.addEventListener('blur', function() { this.value = fmtInput(parseFloat(this.value.replace(/,/g,''))||0); });
+      }
+      td.appendChild(inp);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+
   addPlainRow('endInv', 'Ending INV', { isEnding: true, valueAt: i => rows.endInv[i] });
   addPlainRow(cfg.reorderKey, 'Reorder', { editable: true, whPicker: true, valueAt: i => rows.reorders[i] || 0 });
 
@@ -2944,16 +2991,10 @@ function buildSudsLabMarketTable(p, s, rows, market) {
     addGroupSubRow(`fr-${market}`, wh.name, { editable: true, custom: true, itemId: wh.id, removeFn: 'removeSudsLabWarehouse', key: `customFR_${wh.id}`, valueAt: i => (s.customFR[wh.id] || [])[i] || 0 });
   });
 
-  if ((sudslabRetailers[market] || []).length === 0) {
-    // No retailers yet — Sales rate stays directly editable as a single number.
-    const addBtn = `<span class="fr-ctrl-group"><button class="fr-ctrl-btn add-btn" title="Add retailer" onclick="addSudsLabRetailer('${market}')">&#43;</button></span>`;
-    addPlainRow(`srManual_${market}`, 'Sales rate', { editable: true, labelExtra: addBtn, valueAt: i => (s.srManual && s.srManual[market] || [])[i] || 0 });
-  } else {
-    addGroupTotalRow(`sr-${market}`, 'Sales rate', i => rows.SR[i], { title: 'Add retailer', onclick: `addSudsLabRetailer('${market}')` });
-    (sudslabRetailers[market] || []).forEach(r => {
-      addGroupSubRow(`sr-${market}`, r.name, { editable: true, custom: true, itemId: r.id, removeFn: 'removeSudsLabRetailer', key: `customSR_${r.id}`, valueAt: i => (s.customSR[r.id] || [])[i] || 0 });
-    });
-  }
+  addSRTotalRow(`sr-${market}`, i => rows.SR[i]);
+  (sudslabRetailers[market] || []).forEach(r => {
+    addGroupSubRow(`sr-${market}`, r.name, { editable: true, custom: true, itemId: r.id, removeFn: 'removeSudsLabRetailer', key: `customSR_${r.id}`, valueAt: i => (s.customSR[r.id] || [])[i] || 0 });
+  });
 
   if (market === 'us') {
     addPlainRow('sudslabSalesOrder', 'Sales Orders', { valueAt: i => (s.sudslabSalesOrders || [])[i] || 0 });
@@ -3121,7 +3162,7 @@ async function saveSudsLabSRManual() {
     const blob = {};
     sudslabProducts.forEach(p => {
       const s = sudslabState[p.sku];
-      if (s && s.srManual && ((s.srManual.us||[]).some(v=>v) || (s.srManual.ca||[]).some(v=>v))) blob[p.sku] = s.srManual;
+      if (s && s.srManual && ((s.srManual.us||[]).some(v=>v!=null) || (s.srManual.ca||[]).some(v=>v!=null))) blob[p.sku] = s.srManual;
     });
     await sbClient.from('app_cache').upsert({ key: 'sudslab_sr_manual', data: blob }, { onConflict: 'key' });
   } catch(e) { console.warn('saveSudsLabSRManual failed:', e.message); }
@@ -3203,8 +3244,11 @@ function updateSudsLabCalcs(sku) {
       }
       const fr = document.getElementById(`sudslab-cell-${sku}-group-fr-${market}-${i}`);
       if (fr) fr.textContent = fmt(rows.FR[i]);
-      const sr = document.getElementById(`sudslab-cell-${sku}-group-sr-${market}-${i}`);
-      if (sr) sr.textContent = fmt(rows.SR[i]);
+      // Sales rate total is an editable input (like On Hand) — refresh its
+      // displayed value from the computed/override total unless it's the
+      // field the user is actively typing in.
+      const srInput = document.querySelector(`input[data-sku="${sku}"][data-row="srManual_${market}"][data-idx="${i}"]`);
+      if (srInput && document.activeElement !== srInput) srInput.value = fmtInput(rows.SR[i]);
     });
   });
 }
@@ -3231,7 +3275,7 @@ function handleSudsLabChange(input) {
   }
   if (row.startsWith('srManual_')) {
     srManualMarket = row.slice('srManual_'.length);
-    if (!s.srManual[srManualMarket]) s.srManual[srManualMarket] = new Array(weeks.length).fill(0);
+    if (!s.srManual[srManualMarket]) s.srManual[srManualMarket] = new Array(weeks.length).fill(null);
     s.srManual[srManualMarket][idx] = val;
   }
   updateSudsLabCalcs(sku);
@@ -3510,8 +3554,8 @@ async function loadSudsLabFromSupabase() {
     if (srManualRow && srManualRow.data) {
       Object.keys(srManualRow.data).forEach(sku => {
         if (sudslabState[sku]) sudslabState[sku].srManual = {
-          us: srManualRow.data[sku].us || new Array(weeks.length).fill(0),
-          ca: srManualRow.data[sku].ca || new Array(weeks.length).fill(0)
+          us: srManualRow.data[sku].us || new Array(weeks.length).fill(null),
+          ca: srManualRow.data[sku].ca || new Array(weeks.length).fill(null)
         };
       });
     }
@@ -3968,7 +4012,7 @@ function _sudslabEmptyState() {
     sudslabSalesOrders: new Array(weeks.length).fill(0),
     customFR: {},
     customSR: {},
-    srManual: { us: new Array(weeks.length).fill(0), ca: new Array(weeks.length).fill(0) },
+    srManual: { us: new Array(weeks.length).fill(null), ca: new Array(weeks.length).fill(null) },
     reorderWhRef: { us: new Array(weeks.length).fill(null), ca: new Array(weeks.length).fill(null) },
     onHandManual: { us: null, ca: null },
     hidden: false
