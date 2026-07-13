@@ -934,7 +934,7 @@
   .fr-del-wh:hover { color:rgba(255,120,120,1); background:rgba(255,100,100,0.15); }
   tr.fr-sub-row td input {
     font-size:11px; color:rgba(255,255,255,0.80); background:transparent;
-    border:none; pointer-events:none; text-align:center; width:100%;
+    border:none; text-align:center; width:100%;
     padding: 0 !important; line-height:1.2;
   }
   tr.fr-sub-row td.col-past { opacity:0.55; }
@@ -2898,7 +2898,8 @@ function buildSudsLabMarketTable(p, s, rows, market) {
     const tdLabel = document.createElement('td');
     tdLabel.className = 'row-lbl fr-sub-lbl';
     if (opts.custom) {
-      tdLabel.innerHTML = `${label}<span class="fr-del-wh" title="Remove" onclick="${opts.removeFn}('${market}','${opts.itemId}')">&times;</span>`;
+      const removeOnClick = opts.removeOnClick || `${opts.removeFn}('${market}','${opts.itemId}')`;
+      tdLabel.innerHTML = `${label}<span class="fr-del-wh" title="Remove" onclick="${removeOnClick}">&times;</span>`;
     } else {
       tdLabel.textContent = label;
     }
@@ -2948,10 +2949,13 @@ function buildSudsLabMarketTable(p, s, rows, market) {
 
   // Sales rate total is always a computed sum of its retailer rows — only
   // the retailer sub-rows are editable, same relationship Firm Receipt has
-  // with its warehouse rows.
-  addGroupTotalRow(`sr-${market}`, 'Sales rate', i => rows.SR[i], { title: 'Add retailer', onclick: `addSudsLabRetailer('${market}')` });
-  (sudslabRetailers[market] || []).forEach(r => {
-    addGroupSubRow(`sr-${market}`, r.name, { editable: true, custom: true, itemId: r.id, removeFn: 'removeSudsLabRetailer', key: `customSR_${r.id}`, valueAt: i => (s.customSR[r.id] || [])[i] || 0 });
+  // with its warehouse rows. Retailers are per-SKU: not every SKU sells
+  // through every retailer, so only show the ones actually linked to THIS sku
+  // (linkage = s.customSR has an entry for that retailer id), even though the
+  // retailer names themselves are a shared, account-wide list.
+  addGroupTotalRow(`sr-${market}`, 'Sales rate', i => rows.SR[i], { title: 'Add retailer', onclick: `addSudsLabRetailer('${p.sku}','${market}')` });
+  (sudslabRetailers[market] || []).filter(r => s.customSR && s.customSR[r.id] !== undefined).forEach(r => {
+    addGroupSubRow(`sr-${market}`, r.name, { editable: true, custom: true, itemId: r.id, removeOnClick: `removeSudsLabRetailer('${p.sku}','${market}','${r.id}')`, key: `customSR_${r.id}`, valueAt: i => (s.customSR[r.id] || [])[i] || 0 });
   });
 
   if (market === 'us') {
@@ -3055,36 +3059,45 @@ function toggleSudsLabMarket(sku, market) {
 }
 
 // ── suds.lab: manually-added retailers (Sales rate breakdown) ────────────────
-// Account-wide list (not per-SKU) persisted via the generic app_cache table —
-// avoids a schema migration on sudslab_sku_meta/sudslab_sku_weekly.
-function addSudsLabRetailer(market) {
-  const name = prompt(`New ${market === 'us' ? 'US' : 'Canada'} retailer name:`);
+// Retailer names are a shared, account-wide catalog (persisted via app_cache,
+// avoiding a schema migration) — but which retailers apply to a given SKU is
+// per-SKU: not every SKU sells through every retailer. Linking a retailer to
+// a SKU only ever touches that one SKU's customSR, never the whole catalog.
+function addSudsLabRetailer(sku, market) {
+  const name = prompt(`Retailer name (${market === 'us' ? 'US' : 'Canada'}):`);
   if (!name || !name.trim()) return;
-  const id = 'rt_' + Date.now();
+  const trimmed = name.trim();
   if (!sudslabRetailers[market]) sudslabRetailers[market] = [];
-  sudslabRetailers[market].push({ id, name: name.trim() });
-  sudslabProducts.forEach(p => {
-    const s = sudslabState[p.sku];
-    if (!s.customSR) s.customSR = {};
-    if (!s.customSR[id]) s.customSR[id] = new Array(weeks.length).fill(0);
-  });
+  let retailer = sudslabRetailers[market].find(r => r.name.toLowerCase() === trimmed.toLowerCase());
+  if (!retailer) {
+    retailer = { id: 'rt_' + Date.now(), name: trimmed };
+    sudslabRetailers[market].push(retailer);
+  }
+  const s = sudslabState[sku];
+  if (!s.customSR) s.customSR = {};
+  if (!s.customSR[retailer.id]) s.customSR[retailer.id] = new Array(weeks.length).fill(0);
   renderSudsLabProducts();
   buildSudslabFilterDropdown();
   buildSudslabRetailerFilterDropdown();
   applySudslabFilters();
   scrollAllSudsLabToCurrentWeek();
-  if (!isTestMode) saveSudsLabRetailers();
+  if (!isTestMode) { saveSudsLabRetailers(); saveSudsLabCustomSR(); }
 }
 
-function removeSudsLabRetailer(market, retailerId) {
+function removeSudsLabRetailer(sku, market, retailerId) {
   const r = (sudslabRetailers[market] || []).find(x => x.id === retailerId);
   if (!r) return;
-  if (!confirm(`Remove retailer "${r.name}"?\nThis will delete its sales rate data for every SKU.`)) return;
-  sudslabRetailers[market] = sudslabRetailers[market].filter(x => x.id !== retailerId);
-  sudslabProducts.forEach(p => {
-    const s = sudslabState[p.sku];
-    if (s.customSR) delete s.customSR[retailerId];
+  const p = sudslabProducts.find(x => x.sku === sku);
+  if (!confirm(`Remove "${r.name}" from ${p ? (p.desc || sku) : sku}?`)) return;
+  const s = sudslabState[sku];
+  if (s.customSR) delete s.customSR[retailerId];
+  // If no other SKU still links this retailer, drop it from the shared
+  // catalog too so the retailer filter doesn't list dead entries.
+  const stillUsed = sudslabProducts.some(x => {
+    const st = sudslabState[x.sku];
+    return st && st.customSR && st.customSR[retailerId] !== undefined;
   });
+  if (!stillUsed) sudslabRetailers[market] = sudslabRetailers[market].filter(x => x.id !== retailerId);
   renderSudsLabProducts();
   buildSudslabFilterDropdown();
   buildSudslabRetailerFilterDropdown();
@@ -3500,10 +3513,35 @@ async function loadSudsLabFromSupabase() {
       });
     }
 
+    // One-time cleanup: an earlier bug auto-linked every retailer to every
+    // SKU (all zeros) instead of just the SKU it was added for. Strip those
+    // untouched (all-zero) links so retailers only show under SKUs that
+    // actually have data entered, then drop any retailer left with no SKU
+    // linking it at all.
+    let _retailerLinksCleaned = false;
+    ['us', 'ca'].forEach(market => {
+      (sudslabRetailers[market] || []).forEach(r => {
+        sudslabProducts.forEach(p => {
+          const s = sudslabState[p.sku];
+          if (s && s.customSR && s.customSR[r.id] && !s.customSR[r.id].some(v => v > 0)) {
+            delete s.customSR[r.id];
+            _retailerLinksCleaned = true;
+          }
+        });
+      });
+      sudslabRetailers[market] = (sudslabRetailers[market] || []).filter(r =>
+        sudslabProducts.some(p => {
+          const s = sudslabState[p.sku];
+          return s && s.customSR && s.customSR[r.id] !== undefined;
+        })
+      );
+    });
+
     _sudslabLoaded = true;
     renderSudsLabProducts();
     buildSudslabRetailerFilterDropdown();
     initSudslabFilterBar();
+    if (_retailerLinksCleaned && !isTestMode) { saveSudsLabRetailers(); saveSudsLabCustomSR(); }
   } catch (e) {
     console.warn('loadSudsLabFromSupabase failed:', e.message);
   }
