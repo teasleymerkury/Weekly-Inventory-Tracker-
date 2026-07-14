@@ -1762,6 +1762,24 @@
     <div class="sheets-tabs">
       <div class="sheets-tab active" id="sheetsTabReport" onclick="switchSheetsTab('report')">Build a Report</div>
       <div class="sheets-tab" id="sheetsTabFill" onclick="switchSheetsTab('fill')">Fill a Template</div>
+      <div class="sheets-tab" id="sheetsTabRecap" onclick="switchSheetsTab('recap')">Weekly Recap Export</div>
+    </div>
+
+    <div class="sheets-card" id="sheetsRecapPanel" style="display:none;">
+      <div class="sheets-card-title">Weekly Recap export</div>
+      <div class="sheets-section-label">Each account exports its own file, in its own real format — nothing mixed together</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;">
+        <div style="flex:1;min-width:260px;background:rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">Home Depot US</div>
+          <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;">Same layout as the D27L Weekly Inventory Recap sheet you send Jessica &amp; Barrett — Avg Weekly Sales, On Hand, and weekly Firm Receipt routed to the right Configuration/Case Pack row from your Inbound Detail tags.</div>
+          <button class="add-item-btn" onclick="exportHomeDepotTemplate()">&#128229; Export Home Depot Recap</button>
+        </div>
+        <div style="flex:1;min-width:260px;background:rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">suds.lab</div>
+          <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;">Two tabs (US / CA) — On Hand + warehouse breakdown, then Firm Receipt per week for every SKU.</div>
+          <button class="add-item-btn" onclick="exportSudsLabTemplate()">&#128229; Export suds.lab Recap</button>
+        </div>
+      </div>
     </div>
 
     <div class="sheets-card" id="sheetsReportPanel">
@@ -10486,6 +10504,180 @@ function exportReport() {
   XLSX.writeFile(wb, `Merkury_Report_${dateStr}.xlsx`);
 }
 
+// ── Weekly Recap Export — Home Depot ──────────────────────────────────────────
+// Mirrors the real "Weekly Inventory Recap_D27L Summary Report.xlsx" layout
+// (row 7 headers, row 8 week-start dates, 6 sections). The section/model/SKU/
+// Configuration/Case Pack structure is transcribed from that real file — like
+// `products`, it's a hardcoded catalog that needs a one-line addition whenever
+// Home Depot adds a new section/SKU/case-pack row to the real template.
+// A merged row can cover two models at once (model/sku are arrays) — e.g. the
+// "Squishy Mixed QP" row combining the Puppy and Bear night lights.
+const THD_D27L_ROWS = [
+  { section: 'Current Existing Items', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'Open Stock', casePack: '6/12' },
+  { section: 'Current Existing Items', model: ['LH-ML157-199'], sku: ['1012264235'], desc: '9 IN. MISTING MULTICOLOR INTEGRATED', config: 'Open Stock', casePack: '4/8' },
+  { section: 'Current Existing Items', model: ['LH-ML158-999'], sku: ['1012317129'], desc: '3.15 IN. COLOR CHANGING 3D FLOATING', config: 'Open Stock', casePack: '6/12' },
+  { section: 'Current Existing Items', model: ['LH-ML159-999'], sku: ['1012264238'], desc: '9 IN. MOTION INTEGRATED LED VOLCANO', config: 'Open Stock', casePack: '6/12' },
+  { section: 'Current Existing Items', model: ['LH-ML006-999'], sku: ['1009581108'], desc: 'MKY BLACK TOUCH LAMP (9.5")', config: 'Open Stock', casePack: '4/12' },
+  { section: 'Current Existing Items', model: ['LH-VN001-199'], sku: ['1009579740'], desc: 'MKY CURTAIN VINE LIGHTS WARM WHITE', config: 'Open Stock', casePack: '6/24' },
+  { section: 'Current Existing Items', model: ['LH-ML001-999'], sku: ['1009579741'], desc: 'MKY CRYSTAL TOUCH LIGHT', config: 'Open Stock', casePack: '6/12' },
+  { section: 'Current Existing Items', model: ['LH-PL003-999'], sku: ['1009579743'], desc: 'MKY GALAXY WAVE PROJECTOR', config: 'Open Stock', casePack: '4/12' },
+  { section: 'Current Existing Items', model: ['LH-PL001-999'], sku: ['1009579745'], desc: 'MKY PROJECTOR W/ ROTATING SLIDES', config: 'Open Stock', casePack: '6/12' },
+  { section: 'Current Existing Items', model: ['LH-ML002-999'], sku: ['1009579746'], desc: 'MKY JELLYFISH LAMP', config: 'Open Stock', casePack: '6/12' },
+  { section: 'Current Existing Items', model: ['LH-ML003-999'], sku: ['1009581107'], desc: 'MKY RGB BATTERY PUCK LIGHT', config: 'Open Stock', casePack: '6/24' },
+  { section: 'Current Existing Items', model: ['LH-ML160-999'], sku: ['1013936347'], desc: '2pk RGBIC LED Light Bars with Remote', config: 'Open Stock', casePack: '6/12' },
+  { section: 'Current Existing Items', model: ['LH-SL100-999'], sku: ['1013936351'], desc: '40ft Sound Reactive RGBIC Dot Lights', config: 'Open Stock', casePack: '6/24' },
+  { section: 'Current Existing Items', model: ['LH-ML161-999'], sku: ['1013936353'], desc: 'HD Lens Planetarium Projector', config: 'Open Stock', casePack: '6/12' },
+  { section: 'Current Existing Items', model: ['LH-ML162-101'], sku: ['1013960125'], desc: '10in Waterproof RGBW Frosted Lam', config: 'Open Stock', casePack: '6/12' },
+  { section: 'Current Existing Items', model: ['LH-ML163-999'], sku: ['1013960128'], desc: '7.1in RGB Mushroom Crystal Lamp', config: 'Open Stock', casePack: '4/12' },
+  { section: 'Skinny QP SKUs', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'QP', casePack: '1/24' },
+  { section: 'Skinny QP SKUs', model: ['LH-ML001-999'], sku: ['1009579741'], desc: 'MKY CRYSTAL TOUCH LIGHT', config: 'QP', casePack: '1/24' },
+  { section: 'Skinny QP SKUs', model: ['LH-ML002-999'], sku: ['1009579746'], desc: 'MKY JELLYFISH LAMP', config: 'QP', casePack: '1/24' },
+  { section: 'Skinny QP SKUs', model: ['LH-ML003-999'], sku: ['1009581107'], desc: 'MKY RGB BATTERY PUCK LIGHT', config: 'QP', casePack: '1/24' },
+  { section: 'Skinny QP SKUs', model: ['LH-SL100-999'], sku: ['1013936351'], desc: '40ft Sound Reactive RGBIC Dot Lights', config: 'QP', casePack: '1/24' },
+  { section: '2026 Q2 New item', model: ['LH-NL001-999'], sku: ['1015225746'], desc: 'Squishy Peach LED Night Light', config: 'Open Stock', casePack: '4/16' },
+  { section: '2026 Q2 New item', model: ['LH-NL002-999'], sku: ['1015225749'], desc: 'Squishy Puppy LED Night Light', config: 'Open Stock', casePack: '4/16' },
+  { section: '2026 Q2 New item', model: ['LH-NL003-999'], sku: ['1015225752'], desc: 'Squishy Bear LED Night Light', config: 'Open Stock', casePack: '4/16' },
+  { section: '2026 Q2 New item', model: ['LH-NL004-999'], sku: ['1015225755'], desc: 'Squishy Dino LED Night Light', config: 'Open Stock', casePack: '4/16' },
+  { section: '2026 Q2 New item', model: ['LH-NL005-101'], sku: ['1015225758'], desc: '2pk Ribbed Plug-In Night Lights - Black', config: 'Open Stock', casePack: '4/16' },
+  { section: '2026 Q2 New item', model: ['LH-NL005-199'], sku: ['1015225762'], desc: '2pk Ribbed Plug-In Night Lights - White', config: 'Open Stock', casePack: '4/16' },
+  { section: '2026 Q2 New item', model: ['LH-NL006-101'], sku: ['1015225767'], desc: '2pk Cube Plug-In Night Lights - Black', config: 'Open Stock', casePack: '4/16' },
+  { section: '2026 Q3 New item', model: ['LH-CW121-701'], sku: ['1015511910'], desc: 'Pleated Glass Candle Warmer - Amber', config: 'QP', casePack: '1/24' },
+  { section: '2026 Q3 New item', model: ['LH-NL002-999', 'LH-NL003-999'], sku: ['1015225749', '1015225752'], desc: 'Squishy Mixed QP - Puppy x 24pcs & Bear x 24pcs', config: 'QP', casePack: '1/48' },
+  { section: '2026 Holiday Special Buy SKU', model: ['LH-NL008-999'], sku: ['1015815197'], desc: 'RGBIC Sleep Assist Lamp and Clock', config: 'QP', casePack: '1/48' },
+  { section: '2026 Holiday Special Buy SKU', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'QP', casePack: '1/48' },
+  { section: '2026 Holiday Special Buy SKU', model: ['LH-CW121-701'], sku: ['1015511910'], desc: 'Pleated Glass Candle Warmer - Amber', config: 'QP', casePack: '1/24' },
+  { section: 'Q4 Mars Cart', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'Open Stock', casePack: '1/20' },
+  { section: 'Q4 Mars Cart', model: ['LH-ML002-999'], sku: ['1009579746'], desc: 'MKY JELLYFISH LAMP', config: 'Open Stock', casePack: '1/20' },
+  { section: 'Q4 Mars Cart', model: ['LH-ML157-199'], sku: ['1012264235'], desc: '9 IN. MISTING MULTICOLOR INTEGRATED', config: 'Open Stock', casePack: '1/12' }
+];
+
+// "HW" is a case-pack/configuration variant tag on the same base SKU (e.g.
+// LH-PL023-999HW is still LH-PL023-999), not a distinct model.
+function _d27lNormalizeModel(m) { return String(m || '').toLowerCase().replace(/hw$/i, '').trim(); }
+function _d27lConfigBucket(config) { return /qp/i.test(config || '') ? 'qp' : 'open stock'; }
+
+function exportHomeDepotTemplate() {
+  const curIdx = getCurrentWeekIdx();
+  const numWeeks = 28;
+  const weekIdxs = [];
+  for (let i = 0; i < numWeeks && curIdx + i < weeks.length; i++) weekIdxs.push(curIdx + i);
+
+  const aoa = [];
+  aoa.push(['Weekly Inventory Update']);
+  aoa.push(['Please return to Jessica & Barrett by EOD Thursday']);
+  aoa.push([]);
+  aoa.push([]);
+  aoa.push([]);
+  aoa.push([]);
+  aoa.push([
+    'Model Number', 'SKU #', 'SKU Description', 'Configuration', 'Case Pack',
+    'Avg Weekly Sales', 'Current On Hands (Merkury)', 'Current On Hands (THD)', 'Current WOS On Hand',
+    ...weekIdxs.map(i => weeks[i].fw), 'Noted'
+  ]);
+  aoa.push(['', '', '', '', '', '', '', '', '', ...weekIdxs.map(i => weeks[i].dt), '']);
+
+  // Pre-compute each SKU's case-pack-tagged weekly firm receipt groups once.
+  const cpBySku = {};
+  const allSkus = new Set();
+  THD_D27L_ROWS.forEach(row => row.sku.forEach(s => allSkus.add(s)));
+  allSkus.forEach(sku => { cpBySku[sku] = computeCpWeeklyQtys(sku); });
+
+  let lastSection = null;
+  THD_D27L_ROWS.forEach(row => {
+    if (row.section !== lastSection) {
+      aoa.push([row.section]);
+      lastSection = row.section;
+    }
+    const primarySku = row.sku[0];
+    const s = state[primarySku] || {};
+    const avgWeeklySales = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].avgWeeklySalesVD) || 0), 0);
+    const onHandMerkury  = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].onHandMerkury) || 0), 0);
+    const onHandTHD      = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].onHandTHD) || 0), 0);
+    const wosOnHand = avgWeeklySales > 0 ? Math.round((onHandMerkury / avgWeeklySales) * 10) / 10 : '';
+
+    const bucket = _d27lConfigBucket(row.config);
+    const modelsNorm = row.model.map(_d27lNormalizeModel);
+    const weeklyQty = new Array(weekIdxs.length).fill(0);
+
+    row.sku.forEach(sku => {
+      const groups = cpBySku[sku] || {};
+      const candidates = Object.values(groups).filter(g =>
+        modelsNorm.includes(_d27lNormalizeModel(g.model)) &&
+        _d27lConfigBucket(g.caseConf) === bucket &&
+        g.cp === row.casePack
+      );
+      let chosen = candidates;
+      if (candidates.length > 1) {
+        const bySection = candidates.filter(g => g.projDesc === row.section);
+        if (bySection.length) chosen = bySection;
+        else {
+          const notSpecial = candidates.filter(g => !/holiday|mars cart/i.test(g.projDesc || ''));
+          chosen = notSpecial.length ? notSpecial : candidates;
+        }
+      }
+      chosen.forEach(g => {
+        weekIdxs.forEach((wi, col) => { weeklyQty[col] += (g.qtys[wi] || 0); });
+      });
+    });
+
+    aoa.push([
+      row.model.join('\n'), row.sku.join('\n'), row.desc, row.config, row.casePack,
+      avgWeeklySales, onHandMerkury, onHandTHD, wosOnHand,
+      ...weeklyQty, ''
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = aoa[6].map((_, i) => ({ wch: i < 3 ? 24 : (i < 9 ? 14 : 11) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Weekly Inventory Recap');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `Weekly_Inventory_Recap_HomeDepot_${dateStr}.xlsx`);
+}
+
+// ── Weekly Recap Export — suds.lab ────────────────────────────────────────────
+function exportSudsLabTemplate() {
+  const curIdx = getCurrentWeekIdx();
+  const numWeeks = 4;
+  const weekIdxs = [];
+  for (let i = 0; i < numWeeks && curIdx + i < weeks.length; i++) weekIdxs.push(curIdx + i);
+  const weekLabels = weekIdxs.map(i => weeks[i].fw);
+
+  function buildMarketSheet(market) {
+    const staticHdrs = market === 'us'
+      ? ['SKU', 'Description', 'On Hand (US)', 'San Pedro', 'Toll E-Comm', 'Star Distribution', 'Ultra-Look']
+      : ['SKU', 'Description', 'On Hand (CA)', 'Vertex West'];
+    const aoa = [];
+    aoa.push([`suds.lab - ${market.toUpperCase()} Market Weekly Detail`]);
+    aoa.push([]);
+    aoa.push([...staticHdrs, ...weekLabels.map(wl => `Firm Receipt ${wl}`)]);
+
+    sudslabProducts.forEach(p => {
+      const s = sudslabState[p.sku];
+      if (!s) return;
+      const fr = weekIdxs.map(i => market === 'us'
+        ? (s.firmReceiptsSanPedro[i] || 0) + (s.firmReceiptsTollEcomm[i] || 0) + sudslabCustomFRTotal(s, 'us', i)
+        : (s.firmReceiptsCanada[i] || 0) + sudslabCustomFRTotal(s, 'ca', i));
+      if (market === 'us') {
+        const onHand = (s.onHandSanPedro||0) + (s.onHandTollEcomm||0) + (s.onHandStar||0) + (s.onHandUltra||0);
+        aoa.push([p.sku, p.desc || '', onHand, s.onHandSanPedro||0, s.onHandTollEcomm||0, s.onHandStar||0, s.onHandUltra||0, ...fr]);
+      } else {
+        aoa.push([p.sku, p.desc || '', s.onHandCanada||0, s.onHandCanada||0, ...fr]);
+      }
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = staticHdrs.map((_, i) => ({ wch: i === 1 ? 30 : 14 })).concat(weekLabels.map(() => ({ wch: 12 })));
+    return ws;
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, buildMarketSheet('us'), 'suds.lab - US');
+  XLSX.utils.book_append_sheet(wb, buildMarketSheet('ca'), 'suds.lab - CA');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `Weekly_Inventory_Recap_SudsLab_${dateStr}.xlsx`);
+}
+
 function getSavedReportTemplates() {
   try { return JSON.parse(localStorage.getItem('merkury_report_templates') || '{}'); } catch(e) { return {}; }
 }
@@ -10539,8 +10731,10 @@ function loadReportTemplate(name) {
 function switchSheetsTab(tab) {
   document.getElementById('sheetsTabReport').classList.toggle('active', tab === 'report');
   document.getElementById('sheetsTabFill').classList.toggle('active', tab === 'fill');
+  document.getElementById('sheetsTabRecap').classList.toggle('active', tab === 'recap');
   document.getElementById('sheetsReportPanel').style.display = tab === 'report' ? '' : 'none';
   document.getElementById('sheetsFillPanel').style.display = tab === 'fill' ? '' : 'none';
+  document.getElementById('sheetsRecapPanel').style.display = tab === 'recap' ? '' : 'none';
 }
 
 // ── Sheets: fill a template ────────────────────────────────────────────────────
