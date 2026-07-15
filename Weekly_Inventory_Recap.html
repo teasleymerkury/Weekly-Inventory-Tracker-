@@ -9,7 +9,7 @@
 <meta http-equiv="Expires" content="0" />
 <title>Weekly Inventory Recap — Merkury Forecast</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1558,6 +1558,64 @@
     </div>
   </div>
 
+  <!-- Home Depot D27L export row manager — add/remove SKUs & sections from
+       the site instead of editing THD_D27L_ROWS/D27L_Template.xlsx by hand. -->
+  <div class="modal-overlay" id="d27lRowsModal">
+    <div class="modal-box" style="width:820px;max-width:92vw;max-height:82vh;overflow-y:auto;">
+      <h2>Manage Home Depot Recap Rows</h2>
+      <div class="modal-hint">Add, edit, or remove the SKUs/sections that appear in the Home Depot D27L export. Changes apply next time you export.</div>
+      <div id="d27lRowsTableWrap" style="margin-top:14px;"></div>
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.1);">
+        <div style="font-weight:700;font-size:12px;margin-bottom:8px;">Add a row</div>
+        <div class="modal-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="modal-field">
+            <label>Section</label>
+            <select id="d27lNewSection" onchange="onD27LNewSectionChange()"></select>
+          </div>
+          <div class="modal-field" id="d27lNewSectionCustomWrap" style="display:none;">
+            <label>New section name</label>
+            <input type="text" id="d27lNewSectionCustom" placeholder="e.g. 2027 Q1 New item" />
+          </div>
+        </div>
+        <div class="modal-grid" style="grid-template-columns:1fr 1fr;margin-top:10px;">
+          <div class="modal-field">
+            <label>Model # (comma-separate for a merged row)</label>
+            <input type="text" id="d27lNewModel" placeholder="LH-ML000-999" />
+          </div>
+          <div class="modal-field">
+            <label>SKU (comma-separate for a merged row)</label>
+            <input type="text" id="d27lNewSku" placeholder="1012345678" />
+          </div>
+        </div>
+        <div class="modal-grid full" style="margin-top:10px;">
+          <div class="modal-field">
+            <label>Description</label>
+            <input type="text" id="d27lNewDesc" placeholder="Product description" />
+          </div>
+        </div>
+        <div class="modal-grid" style="grid-template-columns:1fr 1fr;margin-top:10px;">
+          <div class="modal-field">
+            <label>Configuration</label>
+            <select id="d27lNewConfig">
+              <option value="Open Stock">Open Stock</option>
+              <option value="QP">QP</option>
+            </select>
+          </div>
+          <div class="modal-field">
+            <label>Case Pack</label>
+            <input type="text" id="d27lNewCasePack" placeholder="6/12" />
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="modal-submit" onclick="addD27LRow()">+ Add row</button>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top:14px;">
+        <button class="modal-cancel" onclick="closeD27LRowsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
     <!-- Page: suds.lab Weekly Recap -->
     <div class="page-section" id="page-sudslab-recap">
       <div class="page-wrap">
@@ -1756,12 +1814,11 @@
     <div class="inbound-tab-header">
       <div>
         <h1>Templates</h1>
-        <p>Build a custom export, or fill in someone else's template</p>
+        <p>Build a custom export, or export the Weekly Recap in its real format</p>
       </div>
     </div>
     <div class="sheets-tabs">
       <div class="sheets-tab active" id="sheetsTabReport" onclick="switchSheetsTab('report')">Build a Report</div>
-      <div class="sheets-tab" id="sheetsTabFill" onclick="switchSheetsTab('fill')">Fill a Template</div>
       <div class="sheets-tab" id="sheetsTabRecap" onclick="switchSheetsTab('recap')">Weekly Recap Export</div>
     </div>
 
@@ -1769,12 +1826,15 @@
       <div class="sheets-card-title">Weekly Recap export</div>
       <div class="sheets-section-label">Each account exports its own file, in its own real format — nothing mixed together</div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;">
-        <div style="flex:1;min-width:260px;background:rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;">
+        <div id="recapCardThd" style="flex:1;min-width:260px;background:rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;">
           <div style="font-weight:700;font-size:13px;margin-bottom:4px;">Home Depot US</div>
           <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;">Same layout as the D27L Weekly Inventory Recap sheet you send Jessica &amp; Barrett — Avg Weekly Sales, On Hand, and weekly Firm Receipt routed to the right Configuration/Case Pack row from your Inbound Detail tags.</div>
-          <button class="add-item-btn" onclick="exportHomeDepotTemplate()">&#128229; Export Home Depot Recap</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="add-item-btn" onclick="exportHomeDepotTemplate()">&#128229; Export Home Depot Recap</button>
+            <button class="add-item-btn" style="background:rgba(255,255,255,0.1);" onclick="openD27LRowsModal()">&#9881; Manage Rows</button>
+          </div>
         </div>
-        <div style="flex:1;min-width:260px;background:rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;">
+        <div id="recapCardSudslab" style="flex:1;min-width:260px;background:rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;">
           <div style="font-weight:700;font-size:13px;margin-bottom:4px;">suds.lab</div>
           <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;">Two tabs (US / CA) — On Hand + warehouse breakdown, then Firm Receipt per week for every SKU.</div>
           <button class="add-item-btn" onclick="exportSudsLabTemplate()">&#128229; Export suds.lab Recap</button>
@@ -1822,45 +1882,6 @@
       </div>
     </div>
 
-    <div class="sheets-card" id="sheetsFillPanel" style="display:none;">
-      <div class="sheets-card-title">Fill a template</div>
-      <div class="sheets-section-label">1. Upload the template file (.xlsx)</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
-        <input type="file" id="sheetsFillFileInput" accept=".xlsx" onchange="onSheetsFillFileChosen(event)" />
-        <span id="sheetsFillFileStatus" style="font-size:12px;color:var(--text-2);"></span>
-      </div>
-      <div id="sheetsFillMapSection" style="display:none;">
-        <div class="sheets-controls-row">
-          <div>
-            <div class="sheets-label">Sheet</div>
-            <select class="fw-select" id="sheetsFillSheetSelect" onchange="onSheetsFillSheetChange()"></select>
-          </div>
-          <div>
-            <div class="sheets-label">Header row</div>
-            <select class="fw-select" id="sheetsFillHeaderRow" onchange="onSheetsFillRowSettingChange()"></select>
-          </div>
-          <div>
-            <div class="sheets-label">Week dates in row below header?</div>
-            <select class="fw-select" id="sheetsFillDateRowToggle" onchange="onSheetsFillRowSettingChange()">
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </select>
-          </div>
-          <div>
-            <div class="sheets-label">First data row</div>
-            <select class="fw-select" id="sheetsFillDataStartRow" onchange="updateSheetsFillSummary()"></select>
-          </div>
-        </div>
-        <div class="sheets-section-label">2. Map each column, then fill &amp; download</div>
-        <div class="sheets-fill-preview-wrap">
-          <table class="sheets-fill-preview-table" id="sheetsFillPreviewTable"></table>
-        </div>
-        <div class="sheets-footer">
-          <span id="sheetsFillSummary" class="sheets-fill-summary-line"></span>
-          <button class="add-item-btn" onclick="populateAndDownloadTemplate()">&#11015;&#65039; Fill &amp; download</button>
-        </div>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -4637,14 +4658,32 @@ function switchAccount(name) {
   activeAccount = name;
   document.getElementById('acct-thd').classList.toggle('active', name === 'thd');
   document.getElementById('acct-sudslab').classList.toggle('active', name === 'sudslab');
-  ['nav-reorder', 'nav-inbound', 'nav-forecast', 'nav-sheets'].forEach(id => {
+  // Templates stays reachable for both accounts (Weekly Recap Export applies to
+  // either) — only the THD-specific pages hide for suds.lab.
+  ['nav-reorder', 'nav-inbound', 'nav-forecast'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = name === 'sudslab' ? 'none' : '';
   });
+  updateSheetsAccountVisibility();
   // Test-mode logins can still view real synced data (read-only) — same as the
   // existing THD test account, which loads real data but blocks writes via isTestMode.
   if (name === 'sudslab' && !_sudslabLoaded) _sudslabLoadPromise = loadSudsLabFromSupabase();
   showWeeklyRecap();
+}
+
+// "Build a Report" only understands THD's products/state, so it hides for
+// suds.lab (which lands straight on Weekly Recap Export instead). The two
+// Weekly Recap Export cards are filtered so each account only ever sees its
+// own export button, never the other account's.
+function updateSheetsAccountVisibility() {
+  const isSudslab = activeAccount === 'sudslab';
+  const reportTab = document.getElementById('sheetsTabReport');
+  if (reportTab) reportTab.style.display = isSudslab ? 'none' : '';
+  const thdCard = document.getElementById('recapCardThd');
+  const sudslabCard = document.getElementById('recapCardSudslab');
+  if (thdCard) thdCard.style.display = isSudslab ? 'none' : '';
+  if (sudslabCard) sudslabCard.style.display = isSudslab ? '' : 'none';
+  if (isSudslab && reportTab && reportTab.classList.contains('active')) switchSheetsTab('recap');
 }
 function showWeeklyRecap() {
   if (activeAccount === 'sudslab') {
@@ -5639,6 +5678,11 @@ function openAddItemModal() {
 function closeAddItemModal() {
   document.getElementById('addItemModal').classList.remove('open');
 }
+
+// Close the D27L row-manager modal when clicking its overlay background
+document.getElementById('d27lRowsModal').addEventListener('click', function(e) {
+  if (e.target === this) closeD27LRowsModal();
+});
 
 // Close modal when clicking overlay background
 document.getElementById('addItemModal').addEventListener('click', function(e) {
@@ -6934,7 +6978,7 @@ function subscribeRealtimeSync() {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }, { data: firmReceiptDetailRows }, { data: atsStatusRows }, { data: suofStatusRows }, { data: vdStatusRows }, { data: reportTemplatesRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }, { data: firmReceiptDetailRows }, { data: atsStatusRows }, { data: suofStatusRows }, { data: vdStatusRows }, { data: reportTemplatesRows }, { data: d27lRowsRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         fetchAllSkuWeekly(),
@@ -6954,7 +6998,8 @@ async function loadFromSupabase() {
         sbClient.from('app_cache').select('*').eq('key', 'ats_status_msg'),
         sbClient.from('app_cache').select('*').eq('key', 'suof_status_msg'),
         sbClient.from('app_cache').select('*').eq('key', 'vd_status_msg'),
-        sbClient.from('app_cache').select('*').eq('key', 'report_templates')
+        sbClient.from('app_cache').select('*').eq('key', 'report_templates'),
+        sbClient.from('app_cache').select('*').eq('key', 'd27l_rows')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -7010,6 +7055,15 @@ async function loadFromSupabase() {
       const map = reportTemplatesRows[0].data;
       if (map && typeof map === 'object') {
         try { localStorage.setItem('merkury_report_templates', JSON.stringify(map)); } catch(e) {}
+      }
+    }
+
+    // Restore the Home Depot D27L export row list (add/remove SKUs from the
+    // Templates page "Manage Rows" modal) from Supabase
+    if (d27lRowsRows && d27lRowsRows.length > 0) {
+      const rows = d27lRowsRows[0].data;
+      if (Array.isArray(rows) && rows.length > 0) {
+        try { localStorage.setItem(D27L_ROWS_KEY, JSON.stringify(rows)); } catch(e) {}
       }
     }
 
@@ -10373,6 +10427,7 @@ const SHEETS_COLUMNS = [
 
 let _sheetsInitialized = false;
 function initSheetsPage() {
+  updateSheetsAccountVisibility();
   if (_sheetsInitialized) { updateSheetsSummary(); return; }
   _sheetsInitialized = true;
 
@@ -10506,133 +10561,426 @@ function exportReport() {
 
 // ── Weekly Recap Export — Home Depot ──────────────────────────────────────────
 // Mirrors the real "Weekly Inventory Recap_D27L Summary Report.xlsx" layout
-// (row 7 headers, row 8 week-start dates, 6 sections). The section/model/SKU/
-// Configuration/Case Pack structure is transcribed from that real file — like
-// `products`, it's a hardcoded catalog that needs a one-line addition whenever
-// Home Depot adds a new section/SKU/case-pack row to the real template.
+// (row 7 headers, row 8 week-start dates, 6 sections). DEFAULT_D27L_ROWS is
+// the seed catalog transcribed from that real file the first time this ships
+// to a browser/account with no saved rows yet; after that, the live row list
+// (added/edited/removed from the "Manage Rows" UI on the Templates page) is
+// what actually drives the export — see getD27LRows()/setD27LRows() below.
 // A merged row can cover two models at once (model/sku are arrays) — e.g. the
 // "Squishy Mixed QP" row combining the Puppy and Bear night lights.
-const THD_D27L_ROWS = [
-  { section: 'Current Existing Items', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'Open Stock', casePack: '6/12' },
-  { section: 'Current Existing Items', model: ['LH-ML157-199'], sku: ['1012264235'], desc: '9 IN. MISTING MULTICOLOR INTEGRATED', config: 'Open Stock', casePack: '4/8' },
-  { section: 'Current Existing Items', model: ['LH-ML158-999'], sku: ['1012317129'], desc: '3.15 IN. COLOR CHANGING 3D FLOATING', config: 'Open Stock', casePack: '6/12' },
-  { section: 'Current Existing Items', model: ['LH-ML159-999'], sku: ['1012264238'], desc: '9 IN. MOTION INTEGRATED LED VOLCANO', config: 'Open Stock', casePack: '6/12' },
-  { section: 'Current Existing Items', model: ['LH-ML006-999'], sku: ['1009581108'], desc: 'MKY BLACK TOUCH LAMP (9.5")', config: 'Open Stock', casePack: '4/12' },
-  { section: 'Current Existing Items', model: ['LH-VN001-199'], sku: ['1009579740'], desc: 'MKY CURTAIN VINE LIGHTS WARM WHITE', config: 'Open Stock', casePack: '6/24' },
-  { section: 'Current Existing Items', model: ['LH-ML001-999'], sku: ['1009579741'], desc: 'MKY CRYSTAL TOUCH LIGHT', config: 'Open Stock', casePack: '6/12' },
-  { section: 'Current Existing Items', model: ['LH-PL003-999'], sku: ['1009579743'], desc: 'MKY GALAXY WAVE PROJECTOR', config: 'Open Stock', casePack: '4/12' },
-  { section: 'Current Existing Items', model: ['LH-PL001-999'], sku: ['1009579745'], desc: 'MKY PROJECTOR W/ ROTATING SLIDES', config: 'Open Stock', casePack: '6/12' },
-  { section: 'Current Existing Items', model: ['LH-ML002-999'], sku: ['1009579746'], desc: 'MKY JELLYFISH LAMP', config: 'Open Stock', casePack: '6/12' },
-  { section: 'Current Existing Items', model: ['LH-ML003-999'], sku: ['1009581107'], desc: 'MKY RGB BATTERY PUCK LIGHT', config: 'Open Stock', casePack: '6/24' },
-  { section: 'Current Existing Items', model: ['LH-ML160-999'], sku: ['1013936347'], desc: '2pk RGBIC LED Light Bars with Remote', config: 'Open Stock', casePack: '6/12' },
-  { section: 'Current Existing Items', model: ['LH-SL100-999'], sku: ['1013936351'], desc: '40ft Sound Reactive RGBIC Dot Lights', config: 'Open Stock', casePack: '6/24' },
-  { section: 'Current Existing Items', model: ['LH-ML161-999'], sku: ['1013936353'], desc: 'HD Lens Planetarium Projector', config: 'Open Stock', casePack: '6/12' },
-  { section: 'Current Existing Items', model: ['LH-ML162-101'], sku: ['1013960125'], desc: '10in Waterproof RGBW Frosted Lam', config: 'Open Stock', casePack: '6/12' },
-  { section: 'Current Existing Items', model: ['LH-ML163-999'], sku: ['1013960128'], desc: '7.1in RGB Mushroom Crystal Lamp', config: 'Open Stock', casePack: '4/12' },
-  { section: 'Skinny QP SKUs', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'QP', casePack: '1/24' },
-  { section: 'Skinny QP SKUs', model: ['LH-ML001-999'], sku: ['1009579741'], desc: 'MKY CRYSTAL TOUCH LIGHT', config: 'QP', casePack: '1/24' },
-  { section: 'Skinny QP SKUs', model: ['LH-ML002-999'], sku: ['1009579746'], desc: 'MKY JELLYFISH LAMP', config: 'QP', casePack: '1/24' },
-  { section: 'Skinny QP SKUs', model: ['LH-ML003-999'], sku: ['1009581107'], desc: 'MKY RGB BATTERY PUCK LIGHT', config: 'QP', casePack: '1/24' },
-  { section: 'Skinny QP SKUs', model: ['LH-SL100-999'], sku: ['1013936351'], desc: '40ft Sound Reactive RGBIC Dot Lights', config: 'QP', casePack: '1/24' },
-  { section: '2026 Q2 New item', model: ['LH-NL001-999'], sku: ['1015225746'], desc: 'Squishy Peach LED Night Light', config: 'Open Stock', casePack: '4/16' },
-  { section: '2026 Q2 New item', model: ['LH-NL002-999'], sku: ['1015225749'], desc: 'Squishy Puppy LED Night Light', config: 'Open Stock', casePack: '4/16' },
-  { section: '2026 Q2 New item', model: ['LH-NL003-999'], sku: ['1015225752'], desc: 'Squishy Bear LED Night Light', config: 'Open Stock', casePack: '4/16' },
-  { section: '2026 Q2 New item', model: ['LH-NL004-999'], sku: ['1015225755'], desc: 'Squishy Dino LED Night Light', config: 'Open Stock', casePack: '4/16' },
-  { section: '2026 Q2 New item', model: ['LH-NL005-101'], sku: ['1015225758'], desc: '2pk Ribbed Plug-In Night Lights - Black', config: 'Open Stock', casePack: '4/16' },
-  { section: '2026 Q2 New item', model: ['LH-NL005-199'], sku: ['1015225762'], desc: '2pk Ribbed Plug-In Night Lights - White', config: 'Open Stock', casePack: '4/16' },
-  { section: '2026 Q2 New item', model: ['LH-NL006-101'], sku: ['1015225767'], desc: '2pk Cube Plug-In Night Lights - Black', config: 'Open Stock', casePack: '4/16' },
-  { section: '2026 Q3 New item', model: ['LH-CW121-701'], sku: ['1015511910'], desc: 'Pleated Glass Candle Warmer - Amber', config: 'QP', casePack: '1/24' },
-  { section: '2026 Q3 New item', model: ['LH-NL002-999', 'LH-NL003-999'], sku: ['1015225749', '1015225752'], desc: 'Squishy Mixed QP - Puppy x 24pcs & Bear x 24pcs', config: 'QP', casePack: '1/48' },
-  { section: '2026 Holiday Special Buy SKU', model: ['LH-NL008-999'], sku: ['1015815197'], desc: 'RGBIC Sleep Assist Lamp and Clock', config: 'QP', casePack: '1/48' },
-  { section: '2026 Holiday Special Buy SKU', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'QP', casePack: '1/48' },
-  { section: '2026 Holiday Special Buy SKU', model: ['LH-CW121-701'], sku: ['1015511910'], desc: 'Pleated Glass Candle Warmer - Amber', config: 'QP', casePack: '1/24' },
-  { section: 'Q4 Mars Cart', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'Open Stock', casePack: '1/20' },
-  { section: 'Q4 Mars Cart', model: ['LH-ML002-999'], sku: ['1009579746'], desc: 'MKY JELLYFISH LAMP', config: 'Open Stock', casePack: '1/20' },
-  { section: 'Q4 Mars Cart', model: ['LH-ML157-199'], sku: ['1012264235'], desc: '9 IN. MISTING MULTICOLOR INTEGRATED', config: 'Open Stock', casePack: '1/12' }
+const DEFAULT_D27L_ROWS = [
+  { id: 1,  section: 'Current Existing Items', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'Open Stock', casePack: '6/12' },
+  { id: 2,  section: 'Current Existing Items', model: ['LH-ML157-199'], sku: ['1012264235'], desc: '9 IN. MISTING MULTICOLOR INTEGRATED', config: 'Open Stock', casePack: '4/8' },
+  { id: 3,  section: 'Current Existing Items', model: ['LH-ML158-999'], sku: ['1012317129'], desc: '3.15 IN. COLOR CHANGING 3D FLOATING', config: 'Open Stock', casePack: '6/12' },
+  { id: 4,  section: 'Current Existing Items', model: ['LH-ML159-999'], sku: ['1012264238'], desc: '9 IN. MOTION INTEGRATED LED VOLCANO', config: 'Open Stock', casePack: '6/12' },
+  { id: 5,  section: 'Current Existing Items', model: ['LH-ML006-999'], sku: ['1009581108'], desc: 'MKY BLACK TOUCH LAMP (9.5")', config: 'Open Stock', casePack: '4/12' },
+  { id: 6,  section: 'Current Existing Items', model: ['LH-VN001-199'], sku: ['1009579740'], desc: 'MKY CURTAIN VINE LIGHTS WARM WHITE', config: 'Open Stock', casePack: '6/24' },
+  { id: 7,  section: 'Current Existing Items', model: ['LH-ML001-999'], sku: ['1009579741'], desc: 'MKY CRYSTAL TOUCH LIGHT', config: 'Open Stock', casePack: '6/12' },
+  { id: 8,  section: 'Current Existing Items', model: ['LH-PL003-999'], sku: ['1009579743'], desc: 'MKY GALAXY WAVE PROJECTOR', config: 'Open Stock', casePack: '4/12' },
+  { id: 9,  section: 'Current Existing Items', model: ['LH-PL001-999'], sku: ['1009579745'], desc: 'MKY PROJECTOR W/ ROTATING SLIDES', config: 'Open Stock', casePack: '6/12' },
+  { id: 10, section: 'Current Existing Items', model: ['LH-ML002-999'], sku: ['1009579746'], desc: 'MKY JELLYFISH LAMP', config: 'Open Stock', casePack: '6/12' },
+  { id: 11, section: 'Current Existing Items', model: ['LH-ML003-999'], sku: ['1009581107'], desc: 'MKY RGB BATTERY PUCK LIGHT', config: 'Open Stock', casePack: '6/24' },
+  { id: 12, section: 'Current Existing Items', model: ['LH-ML160-999'], sku: ['1013936347'], desc: '2pk RGBIC LED Light Bars with Remote', config: 'Open Stock', casePack: '6/12' },
+  { id: 13, section: 'Current Existing Items', model: ['LH-SL100-999'], sku: ['1013936351'], desc: '40ft Sound Reactive RGBIC Dot Lights', config: 'Open Stock', casePack: '6/24' },
+  { id: 14, section: 'Current Existing Items', model: ['LH-ML161-999'], sku: ['1013936353'], desc: 'HD Lens Planetarium Projector', config: 'Open Stock', casePack: '6/12' },
+  { id: 15, section: 'Current Existing Items', model: ['LH-ML162-101'], sku: ['1013960125'], desc: '10in Waterproof RGBW Frosted Lam', config: 'Open Stock', casePack: '6/12' },
+  { id: 16, section: 'Current Existing Items', model: ['LH-ML163-999'], sku: ['1013960128'], desc: '7.1in RGB Mushroom Crystal Lamp', config: 'Open Stock', casePack: '4/12' },
+  { id: 17, section: 'Skinny QP SKUs', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'QP', casePack: '1/24' },
+  { id: 18, section: 'Skinny QP SKUs', model: ['LH-ML001-999'], sku: ['1009579741'], desc: 'MKY CRYSTAL TOUCH LIGHT', config: 'QP', casePack: '1/24' },
+  { id: 19, section: 'Skinny QP SKUs', model: ['LH-ML002-999'], sku: ['1009579746'], desc: 'MKY JELLYFISH LAMP', config: 'QP', casePack: '1/24' },
+  { id: 20, section: 'Skinny QP SKUs', model: ['LH-ML003-999'], sku: ['1009581107'], desc: 'MKY RGB BATTERY PUCK LIGHT', config: 'QP', casePack: '1/24' },
+  { id: 21, section: 'Skinny QP SKUs', model: ['LH-SL100-999'], sku: ['1013936351'], desc: '40ft Sound Reactive RGBIC Dot Lights', config: 'QP', casePack: '1/24' },
+  { id: 22, section: '2026 Q2 New item', model: ['LH-NL001-999'], sku: ['1015225746'], desc: 'Squishy Peach LED Night Light', config: 'Open Stock', casePack: '4/16' },
+  { id: 23, section: '2026 Q2 New item', model: ['LH-NL002-999'], sku: ['1015225749'], desc: 'Squishy Puppy LED Night Light', config: 'Open Stock', casePack: '4/16' },
+  { id: 24, section: '2026 Q2 New item', model: ['LH-NL003-999'], sku: ['1015225752'], desc: 'Squishy Bear LED Night Light', config: 'Open Stock', casePack: '4/16' },
+  { id: 25, section: '2026 Q2 New item', model: ['LH-NL004-999'], sku: ['1015225755'], desc: 'Squishy Dino LED Night Light', config: 'Open Stock', casePack: '4/16' },
+  { id: 26, section: '2026 Q2 New item', model: ['LH-NL005-101'], sku: ['1015225758'], desc: '2pk Ribbed Plug-In Night Lights - Black', config: 'Open Stock', casePack: '4/16' },
+  { id: 27, section: '2026 Q2 New item', model: ['LH-NL005-199'], sku: ['1015225762'], desc: '2pk Ribbed Plug-In Night Lights - White', config: 'Open Stock', casePack: '4/16' },
+  { id: 28, section: '2026 Q2 New item', model: ['LH-NL006-101'], sku: ['1015225767'], desc: '2pk Cube Plug-In Night Lights - Black', config: 'Open Stock', casePack: '4/16' },
+  { id: 29, section: '2026 Q3 New item', model: ['LH-CW121-701'], sku: ['1015511910'], desc: 'Pleated Glass Candle Warmer - Amber', config: 'QP', casePack: '1/24' },
+  { id: 30, section: '2026 Q3 New item', model: ['LH-NL002-999', 'LH-NL003-999'], sku: ['1015225749', '1015225752'], desc: 'Squishy Mixed QP - Puppy x 24pcs & Bear x 24pcs', config: 'QP', casePack: '1/48' },
+  { id: 31, section: '2026 Holiday Special Buy SKU', model: ['LH-NL008-999'], sku: ['1015815197'], desc: 'RGBIC Sleep Assist Lamp and Clock', config: 'QP', casePack: '1/48' },
+  { id: 32, section: '2026 Holiday Special Buy SKU', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'QP', casePack: '1/48' },
+  { id: 33, section: '2026 Holiday Special Buy SKU', model: ['LH-CW121-701'], sku: ['1015511910'], desc: 'Pleated Glass Candle Warmer - Amber', config: 'QP', casePack: '1/24' },
+  { id: 34, section: 'Q4 Mars Cart', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'Open Stock', casePack: '1/20' },
+  { id: 35, section: 'Q4 Mars Cart', model: ['LH-ML002-999'], sku: ['1009579746'], desc: 'MKY JELLYFISH LAMP', config: 'Open Stock', casePack: '1/20' },
+  { id: 36, section: 'Q4 Mars Cart', model: ['LH-ML157-199'], sku: ['1012264235'], desc: '9 IN. MISTING MULTICOLOR INTEGRATED', config: 'Open Stock', casePack: '1/12' }
 ];
+
+// Where each of the 6 original sections lives in the bundled D27L_Template.xlsx
+// (title row + first/last data row). This is the STYLE source for the dynamic
+// row builder below — it never changes even as live rows are added/removed,
+// since it just describes the shape of the real file we're copying formatting
+// from. If Home Depot changes the real template's layout, update this map (and
+// re-bundle D27L_Template.xlsx) — everything else adapts automatically.
+const D27L_SECTION_ANCHORS = {
+  'Current Existing Items':      { titleRow: 9,  firstDataRow: 10, lastDataRow: 25 },
+  'Skinny QP SKUs':               { titleRow: 26, firstDataRow: 27, lastDataRow: 31 },
+  '2026 Q2 New item':              { titleRow: 32, firstDataRow: 33, lastDataRow: 39 },
+  '2026 Q3 New item':              { titleRow: 40, firstDataRow: 41, lastDataRow: 42 },
+  '2026 Holiday Special Buy SKU': { titleRow: 43, firstDataRow: 44, lastDataRow: 46 },
+  'Q4 Mars Cart':                  { titleRow: 47, firstDataRow: 48, lastDataRow: 50 }
+};
+const D27L_SECTION_ORDER = Object.keys(D27L_SECTION_ANCHORS);
+const D27L_ROWS_KEY = 'merkury_d27l_rows';
 
 // "HW" is a case-pack/configuration variant tag on the same base SKU (e.g.
 // LH-PL023-999HW is still LH-PL023-999), not a distinct model.
 function _d27lNormalizeModel(m) { return String(m || '').toLowerCase().replace(/hw$/i, '').trim(); }
 function _d27lConfigBucket(config) { return /qp/i.test(config || '') ? 'qp' : 'open stock'; }
 
-function exportHomeDepotTemplate() {
+function getD27LRows() {
+  try {
+    const raw = localStorage.getItem(D27L_ROWS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    }
+  } catch(e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_D27L_ROWS));
+}
+
+function setD27LRows(rows) {
+  try { localStorage.setItem(D27L_ROWS_KEY, JSON.stringify(rows)); } catch(e) {}
+  if (!isTestMode && sbClient) {
+    sbClient.from('app_cache').upsert({ key: 'd27l_rows', data: rows }, { onConflict: 'key' })
+      .then(({ error }) => { if (error) console.warn('d27l_rows save failed:', error.message); });
+  }
+}
+
+function _d27lSectionOptions(rows) {
+  const sections = D27L_SECTION_ORDER.slice();
+  rows.forEach(r => { if (!sections.includes(r.section)) sections.push(r.section); });
+  return sections;
+}
+
+function openD27LRowsModal() {
+  renderD27LRowsModal();
+  document.getElementById('d27lRowsModal').classList.add('open');
+}
+function closeD27LRowsModal() {
+  document.getElementById('d27lRowsModal').classList.remove('open');
+}
+
+function renderD27LRowsModal() {
+  const rows = getD27LRows();
+  const sections = _d27lSectionOptions(rows);
+  const wrap = document.getElementById('d27lRowsTableWrap');
+  let html = '';
+  sections.forEach(section => {
+    const secRows = rows.filter(r => r.section === section);
+    if (!secRows.length) return;
+    html += `<div style="font-weight:700;font-size:12px;margin:14px 0 6px;color:var(--text-2);">${section}</div>`;
+    html += `<table style="width:100%;border-collapse:collapse;font-size:11px;">`;
+    html += `<tr style="text-align:left;color:var(--text-3);"><th style="padding:4px 6px;">Model</th><th style="padding:4px 6px;">SKU</th><th style="padding:4px 6px;">Description</th><th style="padding:4px 6px;">Config</th><th style="padding:4px 6px;">Case Pack</th><th></th></tr>`;
+    secRows.forEach(r => {
+      html += `<tr style="border-top:1px solid rgba(255,255,255,0.08);">
+        <td style="padding:4px 6px;">${r.model.join(', ')}</td>
+        <td style="padding:4px 6px;">${r.sku.join(', ')}</td>
+        <td style="padding:4px 6px;">${r.desc || ''}</td>
+        <td style="padding:4px 6px;">${r.config}</td>
+        <td style="padding:4px 6px;">${r.casePack || ''}</td>
+        <td style="padding:4px 6px;"><button class="modal-cancel" style="padding:3px 8px;font-size:10px;" onclick="removeD27LRow(${r.id})">Remove</button></td>
+      </tr>`;
+    });
+    html += `</table>`;
+  });
+  wrap.innerHTML = html || '<div style="color:var(--text-3);font-size:12px;">No rows yet — add one below.</div>';
+
+  const sel = document.getElementById('d27lNewSection');
+  sel.innerHTML = sections.map(s => `<option value="${s.replace(/"/g,'&quot;')}">${s}</option>`).join('') + '<option value="__new__">+ New section…</option>';
+  onD27LNewSectionChange();
+}
+
+function onD27LNewSectionChange() {
+  const sel = document.getElementById('d27lNewSection');
+  document.getElementById('d27lNewSectionCustomWrap').style.display = sel.value === '__new__' ? '' : 'none';
+}
+
+function addD27LRow() {
+  const sel = document.getElementById('d27lNewSection');
+  let section = sel.value;
+  if (section === '__new__') {
+    section = document.getElementById('d27lNewSectionCustom').value.trim();
+    if (!section) { alert('Enter a name for the new section.'); return; }
+  }
+  const modelRaw = document.getElementById('d27lNewModel').value.trim();
+  const skuRaw = document.getElementById('d27lNewSku').value.trim();
+  const desc = document.getElementById('d27lNewDesc').value.trim();
+  const config = document.getElementById('d27lNewConfig').value;
+  const casePack = document.getElementById('d27lNewCasePack').value.trim();
+  if (!modelRaw || !skuRaw) { alert('Model # and SKU are required.'); return; }
+  const model = modelRaw.split(',').map(s => s.trim()).filter(Boolean);
+  const sku = skuRaw.split(',').map(s => s.trim()).filter(Boolean);
+
+  const rows = getD27LRows();
+  const nextId = rows.reduce((max, r) => Math.max(max, r.id), 0) + 1;
+  rows.push({ id: nextId, section, model, sku, desc, config, casePack });
+  setD27LRows(rows);
+
+  ['d27lNewModel','d27lNewSku','d27lNewDesc','d27lNewCasePack'].forEach(id => { document.getElementById(id).value = ''; });
+  if (sel.value === '__new__') document.getElementById('d27lNewSectionCustom').value = '';
+  renderD27LRowsModal();
+}
+
+function removeD27LRow(id) {
+  const rows = getD27LRows().filter(r => r.id !== id);
+  setD27LRows(rows);
+  renderD27LRowsModal();
+}
+
+// Clones a row's full cell style (and height) into a brand-new blank row
+// inserted at `insertAt`, shifting everything at/after it down by one. Used
+// to grow a section beyond its original template row count while keeping the
+// real file's borders/fills/number-formats intact.
+function _d27lCloneCellStyle(ws, insertAt, styleSourceRow, maxCol) {
+  ws.spliceRows(insertAt, 0, []);
+  const newRow = ws.getRow(insertAt);
+  const srcRow = ws.getRow(styleSourceRow);
+  newRow.height = srcRow.height;
+  for (let c = 1; c <= maxCol; c++) {
+    newRow.getCell(c).style = JSON.parse(JSON.stringify(srcRow.getCell(c).style));
+  }
+  newRow.commit();
+}
+
+// Grows/shrinks every section of the worksheet to match the live row list,
+// preserving formatting, then returns each section's final row range so the
+// caller can write data into the right places. This is the piece that makes
+// row add/remove from the UI actually reshape the exported file instead of
+// just failing to fit inside a fixed 50-row template.
+function _d27lReshapeSheet(ws, rows, maxCol) {
+  const bySection = {};
+  const order = [];
+  rows.forEach(r => {
+    if (!bySection[r.section]) { bySection[r.section] = []; order.push(r.section); }
+    bySection[r.section].push(r);
+  });
+
+  const finalPositions = {};
+  let offset = 0;
+
+  D27L_SECTION_ORDER.forEach(section => {
+    const anchor = D27L_SECTION_ANCHORS[section];
+    const liveRows = bySection[section] || [];
+    const templateCount = anchor.lastDataRow - anchor.firstDataRow + 1;
+    const titleRow = anchor.titleRow + offset;
+    const firstDataRow = anchor.firstDataRow + offset;
+    const needCount = liveRows.length;
+
+    if (needCount === 0) {
+      // No live rows left in this section — remove its title + all data rows.
+      ws.spliceRows(titleRow, templateCount + 1);
+      offset -= (templateCount + 1);
+      finalPositions[section] = null;
+      return;
+    }
+
+    if (needCount > templateCount) {
+      const extra = needCount - templateCount;
+      const insertAt = firstDataRow + templateCount;
+      const styleSrc = anchor.lastDataRow + offset;
+      for (let i = 0; i < extra; i++) _d27lCloneCellStyle(ws, insertAt, styleSrc, maxCol);
+      offset += extra;
+    } else if (needCount < templateCount) {
+      const removeCount = templateCount - needCount;
+      const removeStart = firstDataRow + needCount;
+      for (let i = 0; i < removeCount; i++) ws.spliceRows(removeStart, 1);
+      offset -= removeCount;
+    }
+
+    finalPositions[section] = { titleRow, firstDataRow, lastDataRow: firstDataRow + needCount - 1, rows: liveRows };
+  });
+
+  // Brand-new sections (created via "+ New section…" in the UI) get appended
+  // after the last section that still has content, cloning the nearest known
+  // title/data row style as their starting point.
+  const newSectionNames = order.filter(s => !D27L_SECTION_ANCHORS[s]);
+  if (newSectionNames.length) {
+    let styleTitleRow = 9, styleDataRow = 10;
+    for (let i = D27L_SECTION_ORDER.length - 1; i >= 0; i--) {
+      const fp = finalPositions[D27L_SECTION_ORDER[i]];
+      if (fp) { styleTitleRow = fp.titleRow; styleDataRow = fp.lastDataRow; break; }
+    }
+    let endRow = 8;
+    D27L_SECTION_ORDER.forEach(s => { const fp = finalPositions[s]; if (fp) endRow = Math.max(endRow, fp.lastDataRow); });
+
+    newSectionNames.forEach(section => {
+      const liveRows = bySection[section];
+      const titleRow = endRow + 1;
+      _d27lCloneCellStyle(ws, titleRow, styleTitleRow, maxCol);
+      ws.getRow(titleRow).getCell(1).value = section;
+      const firstDataRow = titleRow + 1;
+      for (let i = 0; i < liveRows.length; i++) _d27lCloneCellStyle(ws, firstDataRow + i, styleDataRow, maxCol);
+      finalPositions[section] = { titleRow, firstDataRow, lastDataRow: firstDataRow + liveRows.length - 1, rows: liveRows };
+      endRow = finalPositions[section].lastDataRow;
+    });
+  }
+
+  return finalPositions;
+}
+
+// Uses the real D27L file (bundled as D27L_Template.xlsx) as a live template —
+// loaded with ExcelJS (which, unlike the SheetJS build used elsewhere, can
+// write into an existing styled workbook) so every color, bold header,
+// border, and highlight from the real file carries through untouched.
+// Section/row shape is reshaped to match the live row list (see
+// _d27lReshapeSheet), then every cell is written: Model/SKU/Description/
+// Configuration/Case Pack, Avg Weekly Sales / On Hand Merkury / On Hand THD,
+// the weekly Firm Receipt grid, and the WOS formula. WOS is rebuilt (not left
+// as-is) because the real file blends "Current Existing Items" + "Skinny QP
+// SKUs" on-hand for any model that appears in both — that pairing has to be
+// recomputed against the model's CURRENT row numbers, which move whenever
+// rows are added/removed.
+async function exportHomeDepotTemplate() {
   const curIdx = getCurrentWeekIdx();
   const numWeeks = 28;
   const weekIdxs = [];
   for (let i = 0; i < numWeeks && curIdx + i < weeks.length; i++) weekIdxs.push(curIdx + i);
+  const maxCol = 10 + numWeeks + 2; // a couple cols of headroom past the last week column
 
-  const aoa = [];
-  aoa.push(['Weekly Inventory Update']);
-  aoa.push(['Please return to Jessica & Barrett by EOD Thursday']);
-  aoa.push([]);
-  aoa.push([]);
-  aoa.push([]);
-  aoa.push([]);
-  aoa.push([
-    'Model Number', 'SKU #', 'SKU Description', 'Configuration', 'Case Pack',
-    'Avg Weekly Sales', 'Current On Hands (Merkury)', 'Current On Hands (THD)', 'Current WOS On Hand',
-    ...weekIdxs.map(i => weeks[i].fw), 'Noted'
-  ]);
-  aoa.push(['', '', '', '', '', '', '', '', '', ...weekIdxs.map(i => weeks[i].dt), '']);
+  let buf;
+  try {
+    const resp = await fetch('D27L_Template.xlsx');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    buf = await resp.arrayBuffer();
+  } catch (e) {
+    alert('Could not load D27L_Template.xlsx from the site — make sure that file is deployed alongside index.html.');
+    console.warn('Home Depot template fetch failed:', e.message);
+    return;
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buf);
+  const ws = workbook.getWorksheet('Weekly Inventory Recap');
+  if (!ws) { alert('D27L_Template.xlsx is missing the "Weekly Inventory Recap" sheet.'); return; }
+
+  // The real file's WOS column (I, the only formula column in the sheet —
+  // confirmed by inspecting the real file directly) was filled by Excel's
+  // fill-down, which stores it as a "shared formula" group (one master cell +
+  // clones referencing it by relative offset). Row insertion/removal below
+  // would leave clones pointing at a master that moved or disappeared, so
+  // clear it out before touching row layout — every WOS cell gets rewritten
+  // explicitly later anyway. This MUST be a blind write with no read of
+  // `.formula`/`.model` first: for a shared-formula clone, ExcelJS's formula
+  // translation getter hangs (not just throws) trying to resolve a relative
+  // reference against a master row that this clear hasn't reached yet.
+  for (let r = 1; r <= 160; r++) ws.getRow(r).getCell(9).value = null;
+
+  // The template's own row 2 carries a "return to Jessica & Barrett" note —
+  // not relevant once this is generated on demand from the site.
+  ws.getRow(2).getCell(1).value = '';
+
+  // Refresh the week header (row 7 = FW label, row 8 = date) for all 28
+  // columns so the export always reflects the current fiscal calendar.
+  weekIdxs.forEach((wi, col) => {
+    const c = 10 + col; // J = column 10
+    ws.getRow(7).getCell(c).value = weeks[wi].fw;
+    ws.getRow(8).getCell(c).value = new Date(weeks[wi].dt);
+  });
+
+  const rows = getD27LRows();
+  const finalPositions = _d27lReshapeSheet(ws, rows, maxCol);
 
   // Pre-compute each SKU's case-pack-tagged weekly firm receipt groups once.
   const cpBySku = {};
   const allSkus = new Set();
-  THD_D27L_ROWS.forEach(row => row.sku.forEach(s => allSkus.add(s)));
-  allSkus.forEach(sku => { cpBySku[sku] = computeCpWeeklyQtys(sku); });
+  rows.forEach(row => row.sku.forEach(s => allSkus.add(s)));
+  // Rows added via "Manage Rows" can reference a SKU that doesn't exist in
+  // `state` yet (not synced from ATS/SUOF/VD) — skip those rather than crash;
+  // they'll still export with zeroed Avg Weekly Sales/On Hand/Firm Receipt.
+  allSkus.forEach(sku => { if (state[sku]) cpBySku[sku] = computeCpWeeklyQtys(sku); });
 
-  let lastSection = null;
-  THD_D27L_ROWS.forEach(row => {
-    if (row.section !== lastSection) {
-      aoa.push([row.section]);
-      lastSection = row.section;
-    }
-    const primarySku = row.sku[0];
-    const s = state[primarySku] || {};
-    const avgWeeklySales = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].avgWeeklySalesVD) || 0), 0);
-    const onHandMerkury  = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].onHandMerkury) || 0), 0);
-    const onHandTHD      = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].onHandTHD) || 0), 0);
-    const wosOnHand = avgWeeklySales > 0 ? Math.round((onHandMerkury / avgWeeklySales) * 10) / 10 : '';
-
-    const bucket = _d27lConfigBucket(row.config);
-    const modelsNorm = row.model.map(_d27lNormalizeModel);
-    const weeklyQty = new Array(weekIdxs.length).fill(0);
-
-    row.sku.forEach(sku => {
-      const groups = cpBySku[sku] || {};
-      const candidates = Object.values(groups).filter(g =>
-        modelsNorm.includes(_d27lNormalizeModel(g.model)) &&
-        _d27lConfigBucket(g.caseConf) === bucket &&
-        g.cp === row.casePack
-      );
-      let chosen = candidates;
-      if (candidates.length > 1) {
-        const bySection = candidates.filter(g => g.projDesc === row.section);
-        if (bySection.length) chosen = bySection;
-        else {
-          const notSpecial = candidates.filter(g => !/holiday|mars cart/i.test(g.projDesc || ''));
-          chosen = notSpecial.length ? notSpecial : candidates;
-        }
-      }
-      chosen.forEach(g => {
-        weekIdxs.forEach((wi, col) => { weeklyQty[col] += (g.qtys[wi] || 0); });
-      });
-    });
-
-    aoa.push([
-      row.model.join('\n'), row.sku.join('\n'), row.desc, row.config, row.casePack,
-      avgWeeklySales, onHandMerkury, onHandTHD, wosOnHand,
-      ...weeklyQty, ''
-    ]);
+  // Build the model->{ceRow, qpRow} pairing map for the WOS blend rule,
+  // using each row's FINAL (post-reshape) row number.
+  const ceFp = finalPositions['Current Existing Items'];
+  const qpFp = finalPositions['Skinny QP SKUs'];
+  const pairMap = {};
+  if (ceFp) ceFp.rows.forEach((row, i) => {
+    if (row.model.length !== 1) return;
+    const key = _d27lNormalizeModel(row.model[0]);
+    pairMap[key] = pairMap[key] || {};
+    pairMap[key].ceRow = ceFp.firstDataRow + i;
+  });
+  if (qpFp) qpFp.rows.forEach((row, i) => {
+    if (row.model.length !== 1) return;
+    const key = _d27lNormalizeModel(row.model[0]);
+    pairMap[key] = pairMap[key] || {};
+    pairMap[key].qpRow = qpFp.firstDataRow + i;
   });
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = aoa[6].map((_, i) => ({ wch: i < 3 ? 24 : (i < 9 ? 14 : 11) }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Weekly Inventory Recap');
+  Object.keys(finalPositions).forEach(section => {
+    const fp = finalPositions[section];
+    if (!fp) return;
+
+    fp.rows.forEach((row, i) => {
+      const rowNum = fp.firstDataRow + i;
+      const r = ws.getRow(rowNum);
+
+      r.getCell(1).value = row.model.join('\n');
+      r.getCell(2).value = row.sku.join(' / ');
+      r.getCell(3).value = row.desc || '';
+      r.getCell(4).value = row.config;
+      r.getCell(5).value = row.casePack || '';
+
+      const avgWeeklySales = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].avgWeeklySalesVD) || 0), 0);
+      const onHandMerkury  = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].onHandMerkury) || 0), 0);
+      const onHandTHD      = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].onHandTHD) || 0), 0);
+      r.getCell(6).value = avgWeeklySales; // F — Avg Weekly Sales
+      r.getCell(7).value = onHandMerkury;  // G — Current On Hands (Merkury)
+      r.getCell(8).value = onHandTHD;      // H — Current On Hands (THD)
+
+      // WOS (I): blend with the paired Open Stock/Skinny QP row if this
+      // model appears in both of those two sections, else plain G/F.
+      let wosFormula = `G${rowNum}/F${rowNum}`;
+      if ((section === 'Current Existing Items' || section === 'Skinny QP SKUs') && row.model.length === 1) {
+        const pair = pairMap[_d27lNormalizeModel(row.model[0])];
+        if (pair && pair.ceRow && pair.qpRow) wosFormula = `(G${pair.ceRow}+G${pair.qpRow})/F${pair.ceRow}`;
+      }
+      r.getCell(9).value = { formula: wosFormula };
+
+      const bucket = _d27lConfigBucket(row.config);
+      const modelsNorm = row.model.map(_d27lNormalizeModel);
+      const weeklyQty = new Array(weekIdxs.length).fill(0);
+      row.sku.forEach(sku => {
+        const groups = cpBySku[sku] || {};
+        const candidates = Object.values(groups).filter(g =>
+          modelsNorm.includes(_d27lNormalizeModel(g.model)) &&
+          _d27lConfigBucket(g.caseConf) === bucket &&
+          g.cp === row.casePack
+        );
+        let chosen = candidates;
+        if (candidates.length > 1) {
+          const bySectionMatch = candidates.filter(g => g.projDesc === section);
+          if (bySectionMatch.length) chosen = bySectionMatch;
+          else {
+            const notSpecial = candidates.filter(g => !/holiday|mars cart/i.test(g.projDesc || ''));
+            chosen = notSpecial.length ? notSpecial : candidates;
+          }
+        }
+        chosen.forEach(g => {
+          weekIdxs.forEach((wi, col) => { weeklyQty[col] += (g.qtys[wi] || 0); });
+        });
+      });
+      weekIdxs.forEach((wi, col) => { r.getCell(10 + col).value = weeklyQty[col]; });
+    });
+  });
+
+  // Force Excel to recompute formulas (WOS, and any others) on open, since we
+  // only wrote raw values/formula strings, not cached results.
+  workbook.calcProperties.fullCalcOnLoad = true;
+
+  const outBuf = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
   const dateStr = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `Weekly_Inventory_Recap_HomeDepot_${dateStr}.xlsx`);
+  a.download = `Weekly_Inventory_Recap_HomeDepot_${dateStr}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 // ── Weekly Recap Export — suds.lab ────────────────────────────────────────────
@@ -10730,252 +11078,11 @@ function loadReportTemplate(name) {
 
 function switchSheetsTab(tab) {
   document.getElementById('sheetsTabReport').classList.toggle('active', tab === 'report');
-  document.getElementById('sheetsTabFill').classList.toggle('active', tab === 'fill');
   document.getElementById('sheetsTabRecap').classList.toggle('active', tab === 'recap');
   document.getElementById('sheetsReportPanel').style.display = tab === 'report' ? '' : 'none';
-  document.getElementById('sheetsFillPanel').style.display = tab === 'fill' ? '' : 'none';
   document.getElementById('sheetsRecapPanel').style.display = tab === 'recap' ? '' : 'none';
 }
 
-// ── Sheets: fill a template ────────────────────────────────────────────────────
-let _sheetsFillWorkbook = null;
-let _sheetsFillFileName = '';
-let _sheetsFillGrid = [];       // 2D array of raw cell values for the active sheet's used range
-let _sheetsFillStartRow = 1;    // 1-based sheet row number of grid[0]
-let _sheetsFillStartCol = 1;    // 1-based sheet column number of grid[0][0]
-let _sheetsFillWeekDates = null; // cached [{idx, date}] for weeks[]
-
-function _sheetsFillParsedWeeks() {
-  if (_sheetsFillWeekDates) return _sheetsFillWeekDates;
-  _sheetsFillWeekDates = weeks.map((w, i) => ({ idx: i, date: new Date(w.dt) }));
-  return _sheetsFillWeekDates;
-}
-
-function _excelSerialToDate(serial) {
-  return new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 86400000);
-}
-
-function _sheetsFillCellText(v) {
-  if (v === null || v === undefined) return '';
-  if (v instanceof Date) return v.toLocaleDateString();
-  if (typeof v === 'object') { try { return v.text(); } catch (e) { return ''; } }
-  return String(v);
-}
-
-function _sheetsFillCellDate(v) {
-  if (v instanceof Date) return v;
-  if (typeof v === 'number' && v > 20000 && v < 60000) return _excelSerialToDate(v);
-  if (typeof v === 'string') { const d = new Date(v); if (!isNaN(d)) return d; }
-  return null;
-}
-
-function _sheetsFillMatchWeek(date) {
-  if (!date) return getCurrentWeekIdx();
-  const parsed = _sheetsFillParsedWeeks();
-  let best = null, bestDiff = Infinity;
-  parsed.forEach(p => {
-    const diff = Math.abs(p.date.getTime() - date.getTime());
-    if (diff < bestDiff) { bestDiff = diff; best = p; }
-  });
-  const THREE_DAYS = 3 * 86400000;
-  return (best && bestDiff <= THREE_DAYS) ? best.idx : getCurrentWeekIdx();
-}
-
-function _sheetsFillGuessField(text) {
-  const t = (text || '').toLowerCase().replace(/\s+/g, ' ').trim();
-  if (!t) return '';
-  let best = '', bestLen = 0;
-  SHEETS_COLUMNS.forEach(col => {
-    (col.aliases || []).forEach(a => {
-      if (t.includes(a) && a.length > bestLen) { bestLen = a.length; best = col.key; }
-    });
-  });
-  return best;
-}
-
-async function onSheetsFillFileChosen(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  _sheetsFillFileName = file.name.replace(/\.xlsx$/i, '');
-  document.getElementById('sheetsFillFileStatus').textContent = 'Reading…';
-  try {
-    const buf = await file.arrayBuffer();
-    _sheetsFillWorkbook = await XlsxPopulate.fromDataAsync(buf);
-    const sheetSel = document.getElementById('sheetsFillSheetSelect');
-    sheetSel.innerHTML = _sheetsFillWorkbook.sheets().map((s, i) => `<option value="${i}">${s.name()}</option>`).join('');
-    document.getElementById('sheetsFillFileStatus').textContent = `Loaded ${file.name}`;
-    document.getElementById('sheetsFillMapSection').style.display = '';
-    loadSheetsFillSheet(0);
-  } catch (e) {
-    document.getElementById('sheetsFillFileStatus').textContent = 'Could not read that file — is it a valid .xlsx?';
-    console.warn('sheets fill load failed:', e.message);
-  }
-}
-
-function onSheetsFillSheetChange() {
-  loadSheetsFillSheet(parseInt(document.getElementById('sheetsFillSheetSelect').value) || 0);
-}
-
-function loadSheetsFillSheet(sheetIdx) {
-  const sheet = _sheetsFillWorkbook.sheets()[sheetIdx];
-  const used = sheet.usedRange();
-  _sheetsFillGrid = used.value();
-  _sheetsFillStartRow = used.startCell().rowNumber();
-  _sheetsFillStartCol = used.startCell().columnNumber();
-
-  const rowCount = _sheetsFillGrid.length;
-  const rowOpts = n => Array.from({ length: Math.min(n, rowCount) }, (_, i) =>
-    `<option value="${i}">Row ${_sheetsFillStartRow + i}</option>`).join('');
-
-  // Guess the header row: the row (within first 20) with the most non-empty text cells
-  let guessIdx = 0, guessCount = -1;
-  for (let i = 0; i < Math.min(20, rowCount); i++) {
-    const cnt = _sheetsFillGrid[i].filter(v => typeof v === 'string' && v.trim()).length;
-    if (cnt > guessCount) { guessCount = cnt; guessIdx = i; }
-  }
-
-  const headerSel = document.getElementById('sheetsFillHeaderRow');
-  headerSel.innerHTML = rowOpts(30);
-  headerSel.value = guessIdx;
-
-  // Guess whether the row right below the header is a per-column date row
-  const dateRowIdx = guessIdx + 1;
-  const dateRow = _sheetsFillGrid[dateRowIdx] || [];
-  const dateLikeCount = dateRow.filter(v => _sheetsFillCellDate(v)).length;
-  document.getElementById('sheetsFillDateRowToggle').value = dateLikeCount >= 2 ? 'yes' : 'no';
-
-  const dataStartGuess = dateLikeCount >= 2 ? guessIdx + 2 : guessIdx + 1;
-  const dataSel = document.getElementById('sheetsFillDataStartRow');
-  dataSel.innerHTML = rowOpts(rowCount);
-  dataSel.value = Math.min(dataStartGuess, rowCount - 1);
-
-  renderSheetsFillPreview();
-}
-
-function onSheetsFillRowSettingChange() {
-  renderSheetsFillPreview();
-}
-
-function renderSheetsFillPreview() {
-  const headerIdx = parseInt(document.getElementById('sheetsFillHeaderRow').value) || 0;
-  const useDateRow = document.getElementById('sheetsFillDateRowToggle').value === 'yes';
-  const dateRowIdx = headerIdx + 1;
-  const headerRow = _sheetsFillGrid[headerIdx] || [];
-  const dateRow = useDateRow ? (_sheetsFillGrid[dateRowIdx] || []) : [];
-  const colCount = Math.max(headerRow.length, dateRow.length, ..._sheetsFillGrid.slice(0, 15).map(r => r.length));
-
-  const sampleStartIdx = parseInt(document.getElementById('sheetsFillDataStartRow').value) || (headerIdx + 1);
-  const sampleRows = _sheetsFillGrid.slice(sampleStartIdx, sampleStartIdx + 6);
-
-  const colLetter = n => { let s = ''; n++; while (n > 0) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); } return s; };
-
-  let html = '<tr>' + Array.from({ length: colCount }, (_, c) => `<th class="colletter">${colLetter(_sheetsFillStartCol - 1 + c)}</th>`).join('') + '</tr>';
-
-  html += '<tr>';
-  for (let c = 0; c < colCount; c++) {
-    const labelText = _sheetsFillCellText(headerRow[c]);
-    const dateVal = useDateRow ? _sheetsFillCellDate(dateRow[c]) : null;
-    const effectiveText = labelText || (dateVal ? dateVal.toLocaleDateString() : '');
-    const fieldGuess = _sheetsFillGuessField(labelText);
-    const weekGuess = _sheetsFillMatchWeek(dateVal);
-
-    const fieldOpts = ['<option value="">— ignore —</option>'].concat(
-      SHEETS_COLUMNS.map(col => `<option value="${col.key}" ${col.key === fieldGuess ? 'selected' : ''}>${col.label}</option>`)
-    ).join('');
-
-    let cellHtml = `<span class="fill-header-text">${(effectiveText || '(blank)').replace(/</g, '&lt;')}</span>`;
-    cellHtml += `<select class="fill-col-field" data-col="${c}" onchange="onSheetsFillFieldSelectChange(this)">${fieldOpts}</select>`;
-
-    const isWeeklyGuess = fieldGuess && (SHEETS_COLUMNS.find(x => x.key === fieldGuess) || {}).type === 'weekly';
-    const showWeekSelect = isWeeklyGuess || (dateVal && !fieldGuess);
-    const weekOpts = weeks.map((w, i) => `<option value="${i}" ${i === weekGuess ? 'selected' : ''}>${w.fw}</option>`).join('');
-    cellHtml += `<select class="fill-col-week" data-col="${c}" style="${showWeekSelect ? '' : 'display:none;'}">${weekOpts}</select>`;
-
-    html += `<td class="fill-map-cell">${cellHtml}</td>`;
-  }
-  html += '</tr>';
-
-  sampleRows.forEach(row => {
-    html += '<tr>' + Array.from({ length: colCount }, (_, c) => `<td class="data-cell">${_sheetsFillCellText(row[c]).replace(/</g, '&lt;')}</td>`).join('') + '</tr>';
-  });
-
-  document.getElementById('sheetsFillPreviewTable').innerHTML = html;
-  updateSheetsFillSummary();
-}
-
-function onSheetsFillFieldSelectChange(sel) {
-  const col = sel.closest('td');
-  const weekSel = col.querySelector('.fill-col-week');
-  const fieldDef = SHEETS_COLUMNS.find(c => c.key === sel.value);
-  weekSel.style.display = (fieldDef && fieldDef.type === 'weekly') ? '' : 'none';
-  updateSheetsFillSummary();
-}
-
-function getSheetsFillMappings() {
-  const mappings = [];
-  document.querySelectorAll('#sheetsFillPreviewTable .fill-col-field').forEach(sel => {
-    if (!sel.value) return;
-    const col = parseInt(sel.dataset.col);
-    const fieldDef = SHEETS_COLUMNS.find(c => c.key === sel.value);
-    const weekSel = sel.closest('td').querySelector('.fill-col-week');
-    mappings.push({ col, key: sel.value, type: fieldDef.type, weekIdx: fieldDef.type === 'weekly' ? parseInt(weekSel.value) : null });
-  });
-  return mappings;
-}
-
-function updateSheetsFillSummary() {
-  const mappings = getSheetsFillMappings();
-  const keyMapped = mappings.some(m => m.key === 'sku' || m.key === 'model');
-  const el = document.getElementById('sheetsFillSummary');
-  el.textContent = `${mappings.length} column${mappings.length === 1 ? '' : 's'} mapped` + (keyMapped ? '' : ' — map SKU or Model so rows can be matched');
-}
-
-function populateAndDownloadTemplate() {
-  const mappings = getSheetsFillMappings();
-  if (mappings.length === 0) { alert('Map at least one column.'); return; }
-  const keyMapping = mappings.find(m => m.key === 'sku') || mappings.find(m => m.key === 'model');
-  if (!keyMapping) { alert('Map a column to SKU or Model so each row can be matched to a product.'); return; }
-
-  const dataStartIdx = parseInt(document.getElementById('sheetsFillDataStartRow').value) || 0;
-  const sheetIdx = parseInt(document.getElementById('sheetsFillSheetSelect').value) || 0;
-  const sheet = _sheetsFillWorkbook.sheets()[sheetIdx];
-
-  let filled = 0, skipped = 0;
-  for (let r = dataStartIdx; r < _sheetsFillGrid.length; r++) {
-    const row = _sheetsFillGrid[r];
-    const rawKey = row[keyMapping.col];
-    const keyVal = (rawKey === null || rawKey === undefined) ? '' : String(rawKey).trim();
-    if (!keyVal) { continue; }
-    const p = keyMapping.key === 'sku'
-      ? products.find(x => x.sku === keyVal)
-      : products.find(x => x.model.toLowerCase() === keyVal.toLowerCase());
-    if (!p) { skipped++; continue; }
-    const s = state[p.sku];
-    const rows = calcRows(p);
-    const sheetRowNum = _sheetsFillStartRow + r;
-
-    mappings.forEach(m => {
-      const sheetColNum = _sheetsFillStartCol + m.col;
-      const val = m.type === 'static' ? _sheetsStaticValue(p, s, m.key) : _sheetsWeeklyValue(s, rows, m.key, m.weekIdx);
-      sheet.cell(sheetRowNum, sheetColNum).value(val === '' ? null : val);
-    });
-    filled++;
-  }
-
-  document.getElementById('sheetsFillSummary').textContent =
-    `Filled ${filled} row${filled === 1 ? '' : 's'}${skipped ? `, skipped ${skipped} unmatched row${skipped === 1 ? '' : 's'}` : ''}`;
-
-  _sheetsFillWorkbook.outputAsync().then(blob => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${_sheetsFillFileName || 'template'}_filled.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  });
-}
 
 
 // ── Login modal ───────────────────────────────────────────────────────────────
