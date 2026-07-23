@@ -3510,7 +3510,7 @@ async function loadSudsLabFromSupabase() {
     const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }] = await Promise.all([
       sbClient.from('sudslab_sku_meta').select('*'),
       _fetchAllSudsLabWeekly(),
-      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr', 'sudslab_reorder_wh_ref', 'sudslab_onhand_manual', 'sudslab_sync_status'])
+      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr', 'sudslab_reorder_wh_ref', 'sudslab_onhand_manual', 'sudslab_sync_status', 'sudslab_retailer_cleanup_v1'])
     ]);
     if (metaErr) throw metaErr;
     if (weeklyErr) throw weeklyErr;
@@ -3581,24 +3581,42 @@ async function loadSudsLabFromSupabase() {
     // untouched (all-zero) links so retailers only show under SKUs that
     // actually have data entered, then drop any retailer left with no SKU
     // linking it at all.
+    //
+    // This MUST actually run only once, ever — gated by a persisted flag —
+    // not just "once per session" as the old comment assumed. It was running
+    // on every single loadSudsLabFromSupabase() call (every login/account
+    // switch), and a brand-new retailer legitimately added via the UI starts
+    // with all-zero sales rates until real numbers are typed in, which this
+    // cleanup can't tell apart from actual leftover cruft from the old bug —
+    // so it deleted freshly-added retailers (e.g. "Autozone") the very next
+    // time the page loaded, before anyone had a chance to enter real data.
+    const cleanupDoneRow = (cacheRows || []).find(r => r.key === 'sudslab_retailer_cleanup_v1');
+    const cleanupAlreadyDone = (cleanupDoneRow && cleanupDoneRow.data && cleanupDoneRow.data.done) || localStorage.getItem('sudslab_retailer_cleanup_v1') === '1';
     let _retailerLinksCleaned = false;
-    ['us', 'ca'].forEach(market => {
-      (sudslabRetailers[market] || []).forEach(r => {
-        sudslabProducts.forEach(p => {
-          const s = sudslabState[p.sku];
-          if (s && s.customSR && s.customSR[r.id] && !s.customSR[r.id].some(v => v > 0)) {
-            delete s.customSR[r.id];
-            _retailerLinksCleaned = true;
-          }
+    if (!cleanupAlreadyDone) {
+      ['us', 'ca'].forEach(market => {
+        (sudslabRetailers[market] || []).forEach(r => {
+          sudslabProducts.forEach(p => {
+            const s = sudslabState[p.sku];
+            if (s && s.customSR && s.customSR[r.id] && !s.customSR[r.id].some(v => v > 0)) {
+              delete s.customSR[r.id];
+              _retailerLinksCleaned = true;
+            }
+          });
         });
+        sudslabRetailers[market] = (sudslabRetailers[market] || []).filter(r =>
+          sudslabProducts.some(p => {
+            const s = sudslabState[p.sku];
+            return s && s.customSR && s.customSR[r.id] !== undefined;
+          })
+        );
       });
-      sudslabRetailers[market] = (sudslabRetailers[market] || []).filter(r =>
-        sudslabProducts.some(p => {
-          const s = sudslabState[p.sku];
-          return s && s.customSR && s.customSR[r.id] !== undefined;
-        })
-      );
-    });
+      try { localStorage.setItem('sudslab_retailer_cleanup_v1', '1'); } catch(e) {}
+      if (!isTestMode && sbClient) {
+        sbClient.from('app_cache').upsert({ key: 'sudslab_retailer_cleanup_v1', data: { done: true } }, { onConflict: 'key' })
+          .then(({ error }) => { if (error) console.warn('sudslab_retailer_cleanup_v1 save failed:', error.message); });
+      }
+    }
 
     // Restore the "✓ Connected — last synced..." badges — these previously
     // only ever lived in the DOM from the moment a sync finished, so a fresh
@@ -10634,8 +10652,11 @@ function exportReport() {
 // to a browser/account with no saved rows yet; after that, the live row list
 // (added/edited/removed from the "Manage Rows" UI on the Templates page) is
 // what actually drives the export — see getD27LRows()/setD27LRows() below.
-// A merged row can cover two models at once (model/sku are arrays) — e.g. the
-// "Squishy Mixed QP" row combining the Puppy and Bear night lights.
+// A merged row CAN cover two models at once (model/sku are arrays), for a
+// real combo pack made of two existing SKUs' units — but "Squishy Mixed QP"
+// turned out to be its own distinct product (LH-NL007-QPH) with its own
+// on-hand/sales data, not a repackaging of the Puppy (NL002) and Bear (NL003)
+// SKUs, so it's a normal single-model row below, not a merged one.
 const DEFAULT_D27L_ROWS = [
   { id: 1,  section: 'Current Existing Items', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'Open Stock', casePack: '6/12' },
   { id: 2,  section: 'Current Existing Items', model: ['LH-ML157-199'], sku: ['1012264235'], desc: '9 IN. MISTING MULTICOLOR INTEGRATED', config: 'Open Stock', casePack: '4/8' },
@@ -10666,7 +10687,7 @@ const DEFAULT_D27L_ROWS = [
   { id: 27, section: '2026 Q2 New item', model: ['LH-NL005-199'], sku: ['1015225762'], desc: '2pk Ribbed Plug-In Night Lights - White', config: 'Open Stock', casePack: '4/16' },
   { id: 28, section: '2026 Q2 New item', model: ['LH-NL006-101'], sku: ['1015225767'], desc: '2pk Cube Plug-In Night Lights - Black', config: 'Open Stock', casePack: '4/16' },
   { id: 29, section: '2026 Q3 New item', model: ['LH-CW121-701'], sku: ['1015511910'], desc: 'Pleated Glass Candle Warmer - Amber', config: 'QP', casePack: '1/24' },
-  { id: 30, section: '2026 Q3 New item', model: ['LH-NL002-999', 'LH-NL003-999'], sku: ['1015225749', '1015225752'], desc: 'Squishy Mixed QP - Puppy x 24pcs & Bear x 24pcs', config: 'QP', casePack: '1/48' },
+  { id: 30, section: '2026 Q3 New item', model: ['LH-NL007-QPH'], sku: ['LH-NL007-QPH'], desc: 'Squishy Nightlights- 48pc QP Display', config: 'QP', casePack: '1/48' },
   { id: 31, section: '2026 Holiday Special Buy SKU', model: ['LH-NL008-999'], sku: ['1015815197'], desc: 'RGBIC Sleep Assist Lamp and Clock', config: 'QP', casePack: '1/48' },
   { id: 32, section: '2026 Holiday Special Buy SKU', model: ['LH-PL023-999'], sku: ['1012270067'], desc: 'ASTRONAUT GALAXY NIGHTLIGHT', config: 'QP', casePack: '1/48' },
   { id: 33, section: '2026 Holiday Special Buy SKU', model: ['LH-CW121-701'], sku: ['1015511910'], desc: 'Pleated Glass Candle Warmer - Amber', config: 'QP', casePack: '1/24' },
@@ -10950,6 +10971,20 @@ async function exportHomeDepotTemplate() {
   const rows = getD27LRows();
   const finalPositions = _d27lReshapeSheet(ws, rows, maxCol);
 
+  // Detect rows that share the exact same model + configuration + case pack
+  // combo across DIFFERENT sections — e.g. LH-CW121-701 (QP, case pack 1/24)
+  // appears in both "2026 Q3 New item" and "2026 Holiday Special Buy SKU".
+  // Case pack alone can't tell those two rows apart, so for exactly this
+  // situation, a candidate shipment must also have a Project Description
+  // matching the row's own section. Rows with no such overlap keep matching
+  // by case pack alone — most ordinary "Current Existing Items"/"Skinny QP
+  // SKUs" restocks are never tagged with a Project Description at all (that
+  // field is only used for the named special projects), so requiring one
+  // everywhere would zero out real, correctly-matched shipments.
+  const _d27lShareKey = row => `${_d27lConfigBucket(row.config)}||${row.casePack}||${row.model.map(_d27lNormalizeModel).sort().join(',')}`;
+  const _d27lShareCounts = {};
+  rows.forEach(row => { const k = _d27lShareKey(row); _d27lShareCounts[k] = (_d27lShareCounts[k] || 0) + 1; });
+
   // Pre-compute each SKU's case-pack-tagged weekly firm receipt groups once.
   const cpBySku = {};
   const allSkus = new Set();
@@ -10991,8 +11026,17 @@ async function exportHomeDepotTemplate() {
       r.getCell(4).value = row.config;
       r.getCell(5).value = row.casePack || '';
 
+      const bucket = _d27lConfigBucket(row.config);
+      // On Hand (Merkury) is tracked per-configuration (state[sku].openStock
+      // + state[sku].skinnyQP always sum to the flat onHandMerkury total) —
+      // use the field matching THIS row's config so a SKU appearing in both
+      // an Open Stock row and a QP row doesn't show its ENTIRE on-hand total
+      // stamped identically onto both, as if the same units were separately
+      // available in each. THD's own on-hand has no equivalent per-config
+      // split in this app, so onHandTHD stays a flat per-SKU total.
+      const onHandMerkuryField = bucket === 'qp' ? 'skinnyQP' : 'openStock';
       const avgWeeklySales = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].avgWeeklySalesVD) || 0), 0);
-      const onHandMerkury  = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].onHandMerkury) || 0), 0);
+      const onHandMerkury  = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku][onHandMerkuryField]) || 0), 0);
       const onHandTHD      = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].onHandTHD) || 0), 0);
       r.getCell(6).value = avgWeeklySales; // F — Avg Weekly Sales
       r.getCell(7).value = onHandMerkury;  // G — Current On Hands (Merkury)
@@ -11007,15 +11051,16 @@ async function exportHomeDepotTemplate() {
       }
       r.getCell(9).value = { formula: wosFormula };
 
-      const bucket = _d27lConfigBucket(row.config);
       const modelsNorm = row.model.map(_d27lNormalizeModel);
+      const requiresProjDescMatch = _d27lShareCounts[_d27lShareKey(row)] > 1;
       const weeklyQty = new Array(weekIdxs.length).fill(0);
       row.sku.forEach(sku => {
         const groups = cpBySku[sku] || {};
         const candidates = Object.values(groups).filter(g =>
           modelsNorm.includes(_d27lNormalizeModel(g.model)) &&
           _d27lConfigBucket(g.caseConf) === bucket &&
-          g.cp === row.casePack
+          g.cp === row.casePack &&
+          (!requiresProjDescMatch || (g.projDesc || '') === section)
         );
         let chosen = candidates;
         if (candidates.length > 1) {
