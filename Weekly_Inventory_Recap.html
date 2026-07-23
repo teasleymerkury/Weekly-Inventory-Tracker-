@@ -3061,17 +3061,41 @@ function scrollSudsLabToCurrentWeek(sku) {
 // Must run AFTER applySudslabFilters() — hiding out-of-range week columns
 // reflows every column's offsetLeft, which would invalidate a scroll position
 // computed before the filter ran.
+//
+// Batches every product's layout READS (offsetWidth/offsetLeft) before any
+// scrollLeft WRITE. Calling scrollSudsLabToCurrentWeek(sku) — which reads
+// then immediately writes — in a per-product loop forces a synchronous
+// browser reflow on every single iteration (~87 products), which was the
+// biggest contributor to suds.lab feeling slow to open.
 function scrollAllSudsLabToCurrentWeek() {
-  sudslabProducts.forEach(p => scrollSudsLabToCurrentWeek(p.sku));
+  const targets = [];
+  sudslabProducts.forEach(p => {
+    const block = document.getElementById('sudslab-block-' + p.sku);
+    if (!block) return;
+    const scrollWrap = block.querySelector('.scroll-wrap');
+    const curTh = scrollWrap && scrollWrap.querySelector('thead th.col-cur');
+    if (!scrollWrap || !curTh) return;
+    const lblTh = scrollWrap.querySelector('thead th.row-lbl');
+    targets.push({ scrollWrap, left: curTh.offsetLeft, stickyWidth: lblTh ? lblTh.offsetWidth : 0 });
+  });
+  targets.forEach(({ scrollWrap, left, stickyWidth }) => {
+    scrollWrap.scrollLeft = Math.max(0, left - stickyWidth);
+  });
 }
 
 function renderSudsLabProducts() {
   const container = document.getElementById('sudslabProductsContainer');
   if (!container) return;
   container.innerHTML = '';
+  // Build every product block on a detached DocumentFragment first, then do
+  // ONE append to the live container — appending ~87 complex nested tables
+  // one at a time directly to a live container forces a browser reflow after
+  // each individual append, which is what made switching to suds.lab feel slow.
+  const frag = document.createDocumentFragment();
   sudslabProducts.forEach(p => {
-    container.appendChild(buildSudsLabProduct(p));
+    frag.appendChild(buildSudsLabProduct(p));
   });
+  container.appendChild(frag);
 }
 
 function expandSudsLabGroup(sku, groupKey) {
@@ -3486,7 +3510,7 @@ async function loadSudsLabFromSupabase() {
     const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }] = await Promise.all([
       sbClient.from('sudslab_sku_meta').select('*'),
       _fetchAllSudsLabWeekly(),
-      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr', 'sudslab_reorder_wh_ref', 'sudslab_onhand_manual'])
+      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr', 'sudslab_reorder_wh_ref', 'sudslab_onhand_manual', 'sudslab_sync_status'])
     ]);
     if (metaErr) throw metaErr;
     if (weeklyErr) throw weeklyErr;
@@ -3574,6 +3598,23 @@ async function loadSudsLabFromSupabase() {
           return s && s.customSR && s.customSR[r.id] !== undefined;
         })
       );
+    });
+
+    // Restore the "✓ Connected — last synced..." badges — these previously
+    // only ever lived in the DOM from the moment a sync finished, so a fresh
+    // login always showed "Not connected" even though the actual synced data
+    // (on-hand, firm receipts, above) loaded and persisted just fine.
+    const syncStatusRow = (cacheRows || []).find(r => r.key === 'sudslab_sync_status');
+    let savedStatus = (syncStatusRow && syncStatusRow.data) || null;
+    if (!savedStatus) {
+      try { savedStatus = JSON.parse(localStorage.getItem('sudslab_sync_status') || '{}'); } catch(e) { savedStatus = {}; }
+    }
+    Object.keys(SUDSLAB_STATUS_CONNECT_BTN).forEach(elId => {
+      const msg = savedStatus && savedStatus[elId];
+      if (!msg) return;
+      _sudslabSetStatus(elId, msg, 'connected');
+      const btn = document.getElementById(SUDSLAB_STATUS_CONNECT_BTN[elId]);
+      if (btn) btn.textContent = '📂 Change File';
     });
 
     _sudslabLoaded = true;
@@ -3987,6 +4028,19 @@ const SUDSLAB_GROUP_FR_FIELD     = { sanPedro: 'firmReceiptsSanPedro',  tollEcom
 const SUDSLAB_GROUP_SYNC_BTN     = { sanPedro: 'btnSudslabSanPedroSync', tollEcomm: 'btnSudslabTollEcommSync', canada: 'btnSudslabCanadaSync' };
 const SUDSLAB_GROUP_CONNECT_BTN  = { sanPedro: 'btnSudslabSanPedroConnect', tollEcomm: 'btnSudslabTollEcommConnect', canada: 'btnSudslabCanadaConnect' };
 const SUDSLAB_GROUP_FILE_KEY     = { sanPedro: 'sudslab_ats_sanPedro_file_name', tollEcomm: 'sudslab_ats_tollEcomm_file_name', canada: 'sudslab_ats_canada_file_name' };
+// Maps each status badge to its "Connect"/"Change File" button, so a restored
+// badge (see loadSudsLabFromSupabase) can also flip that button's label —
+// otherwise it would say "Connect" while the badge says "Connected".
+const SUDSLAB_STATUS_CONNECT_BTN = {
+  sudslabSanPedroStatus:  'btnSudslabSanPedroConnect',
+  sudslabTollEcommStatus: 'btnSudslabTollEcommConnect',
+  sudslabCanadaStatus:    'btnSudslabCanadaConnect',
+  sudslabStockStatus:     'btnSudslabStockConnect'
+};
+// Persisted so "last synced" survives a reload — previously this only ever
+// lived in the DOM, so a fresh login always showed "Not connected" even
+// though the underlying synced data (on-hand, firm receipts) was fine.
+let sudslabSyncStatusMsgs = {}; // { elId: msg }
 
 function connectSudsLabSanPedro()  { document.getElementById('inputSudslabSanPedro').click(); }
 function connectSudsLabTollEcomm() { document.getElementById('inputSudslabTollEcomm').click(); }
@@ -3998,6 +4052,14 @@ function _sudslabSetStatus(elId, msg, type) {
   if (!el) return;
   el.textContent = msg;
   el.className = 'sync-col-status' + (type ? ' ' + type : '');
+  if (type === 'connected') {
+    sudslabSyncStatusMsgs[elId] = msg;
+    try { localStorage.setItem('sudslab_sync_status', JSON.stringify(sudslabSyncStatusMsgs)); } catch(e) {}
+    if (!isTestMode && sbClient) {
+      sbClient.from('app_cache').upsert({ key: 'sudslab_sync_status', data: sudslabSyncStatusMsgs }, { onConflict: 'key' })
+        .then(({ error }) => { if (error) console.warn('sudslab sync status save failed:', error.message); });
+    }
+  }
 }
 
 function _sudslabEmptyState() {
