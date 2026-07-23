@@ -8965,14 +8965,21 @@ function computeReorderSchedule(sku) {
     const placeOff  = Math.max(0, enterOff - leadWeeks);
     const effectOff = Math.min(enterOff + 1, track.length - 1); // week Ending INV actually reflects the new stock
     const status = !dueNow ? 'upcoming' : (effectOff > breachOff ? 'critical' : 'reminder');
+    const enterWi = curIdx + enterOff;
 
     // Sized from enterOff, not effectOff: the ledger formula nets the new
     // qty against enterOff's OWN rate before it ever shows up in Ending
     // INV (endInv[enterOff+1] = track[enterOff] + qty - rates[enterOff]),
     // so enterOff's demand has to be included in the window or the order
-    // arrives already a week short of the target.
+    // arrives already a week short of the target. Also subtract whatever
+    // firm receipt/reorder is ALREADY entered for enterWi itself — that
+    // quantity lands its effect at the same effectOff a brand-new order
+    // placed today would, so counting targetDemand against track[enterOff]
+    // alone (which doesn't yet reflect enterWi's own receipt) double-orders
+    // on top of stock that's already inbound for that exact week.
     const targetDemand = demandOverWindow(enterOff, ORDER_TARGET_WOS);
-    const qty = Math.max(0, Math.round(targetDemand - track[enterOff]));
+    const alreadyIncoming = (s.firmReceipts[enterWi] || 0) + (s.reorders[enterWi] || 0);
+    const qty = Math.max(0, Math.round(targetDemand - track[enterOff] - alreadyIncoming));
     const masterCases = p.master > 0 ? Math.ceil(qty / p.master) : 0;
     const roundedQty  = masterCases * (p.master || 1);
 
@@ -9014,7 +9021,6 @@ function computeReorderSchedule(sku) {
     // already-computed baseline value — otherwise the qty escapes being
     // taxed by enterOff's demand and every cycle after the first quietly
     // overshoots by one week's worth of rate.
-    const enterWi = curIdx + enterOff;
     track[effectOff] = Math.max(0, track[enterOff] + (s.firmReceipts[enterWi] || 0) + (s.reorders[enterWi] || 0) + roundedQty - rates[enterOff]);
     for (let off = effectOff + 1; off < track.length; off++) {
       const prevWi = curIdx + off - 1;
