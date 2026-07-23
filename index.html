@@ -6012,7 +6012,20 @@ function computeCpWeeklyQtys(sku) {
   const p0 = products.find(x => x.sku === sku);
   const baseUp = p0 ? p0.model.toUpperCase().trim() : '';
 
-  if (!firmEntries || firmEntries.length === 0) {
+  // `firmEntries` being an array at all — even an EMPTY one — means this SKU
+  // has already been through a real ATS sync, and that sync is the current
+  // truth: it explicitly recomputes both firmReceiptEntries and the raw
+  // firmReceipts[] aggregate together (see syncFromATS), so an empty array
+  // here means "confirmed nothing currently incoming," not "we don't know."
+  // Falling back to a savedCpData snapshot in that case can resurrect a
+  // shipment that was removed/rescheduled in a later sync — and since the
+  // post-sync "pre-compute and store" step calls this function and writes
+  // back whatever it returns, a stale snapshot that gets resurrected here
+  // just gets re-saved as if it were fresh, permanently entrenching the
+  // ghost entry. Only fall back when this SKU has NEVER been synced at all
+  // (firmEntries missing entirely), where the snapshot is the best guess we
+  // have.
+  if (!firmEntries) {
     // Fall back to savedCpData snapshot (from last ATS sync) if available
     const saved = state[sku] && state[sku].savedCpData;
     if (saved && Object.keys(saved).length > 0) {
@@ -6032,6 +6045,21 @@ function computeCpWeeklyQtys(sku) {
       return result;
     }
     // No data — placeholders for additionalModels only
+    const result = {};
+    (state[sku].additionalModels || []).forEach(am => {
+      if (am.toUpperCase().trim() !== baseUp) {
+        result['__no_cp__||' + am.toLowerCase().trim()] = {
+          qtys: new Array(weeks.length).fill(0), cp: '', caseConf: '', model: am.toLowerCase().trim()
+        };
+      }
+    });
+    return result;
+  }
+  if (firmEntries.length === 0) {
+    // Confirmed by a real sync: nothing currently incoming for this SKU.
+    // Trust that instead of papering over it with a stale snapshot — still
+    // surface additionalModels placeholders for consistency with the other
+    // branches above.
     const result = {};
     (state[sku].additionalModels || []).forEach(am => {
       if (am.toUpperCase().trim() !== baseUp) {
@@ -10717,6 +10745,11 @@ const D27L_ROWS_KEY = 'merkury_d27l_rows';
 // LH-PL023-999HW is still LH-PL023-999), not a distinct model.
 function _d27lNormalizeModel(m) { return String(m || '').toLowerCase().replace(/hw$/i, '').trim(); }
 function _d27lConfigBucket(config) { return /qp/i.test(config || '') ? 'qp' : 'open stock'; }
+// Case packs are entered by hand in Inbound Detail and don't always keep the
+// "/" separator (e.g. "612" instead of "6/12") — strip everything but digits
+// so "6/12", "612", "6 / 12", and "6-12" all compare equal. Verified none of
+// the catalog's case packs collide once normalized this way.
+function _d27lNormalizeCasePack(cp) { return String(cp || '').replace(/[^0-9]/g, ''); }
 
 function getD27LRows() {
   try {
@@ -10981,7 +11014,7 @@ async function exportHomeDepotTemplate() {
   // SKUs" restocks are never tagged with a Project Description at all (that
   // field is only used for the named special projects), so requiring one
   // everywhere would zero out real, correctly-matched shipments.
-  const _d27lShareKey = row => `${_d27lConfigBucket(row.config)}||${row.casePack}||${row.model.map(_d27lNormalizeModel).sort().join(',')}`;
+  const _d27lShareKey = row => `${_d27lConfigBucket(row.config)}||${_d27lNormalizeCasePack(row.casePack)}||${row.model.map(_d27lNormalizeModel).sort().join(',')}`;
   const _d27lShareCounts = {};
   rows.forEach(row => { const k = _d27lShareKey(row); _d27lShareCounts[k] = (_d27lShareCounts[k] || 0) + 1; });
 
@@ -11059,7 +11092,7 @@ async function exportHomeDepotTemplate() {
         const candidates = Object.values(groups).filter(g =>
           modelsNorm.includes(_d27lNormalizeModel(g.model)) &&
           _d27lConfigBucket(g.caseConf) === bucket &&
-          g.cp === row.casePack &&
+          _d27lNormalizeCasePack(g.cp) === _d27lNormalizeCasePack(row.casePack) &&
           (!requiresProjDescMatch || (g.projDesc || '') === section)
         );
         let chosen = candidates;
