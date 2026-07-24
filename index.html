@@ -931,17 +931,23 @@
   tr.fr-group-header td.fr-group-header-lbl .fr-ctrl-group {
     display: flex; margin-left: 0; margin-top: 2px;
   }
-  tr.fr-sub-row td.fr-sub-lbl { padding-left: 22px !important; }
+  tr.fr-sub-row td.fr-sub-lbl { padding-left: 22px !important; overflow: hidden; }
   .fr-del-wh {
     display:inline-flex; align-items:center; justify-content:center;
-    width:12px; height:12px; margin-left:5px; border-radius:3px;
+    width:12px; height:12px; margin-left:5px; border-radius:3px; flex-shrink: 0;
     color:rgba(255,140,140,0.75); font-size:12px; line-height:1; cursor:pointer; vertical-align:middle;
   }
   .fr-del-wh:hover { color:rgba(255,120,120,1); background:rgba(255,100,100,0.15); }
+  /* Name, SKU#, and delete button all on one line — the label column is a
+     fixed 150px, so the name (flexible, truncates with an ellipsis) gives up
+     space first; the SKU input and delete button are fixed-size and never
+     shrink, so the SKU number itself is always fully visible. */
+  .fr-sub-lbl-top { display: flex; align-items: center; gap: 4px; overflow: hidden; }
+  .fr-sub-lbl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
   tr.fr-sub-row td.fr-sub-lbl input.sr-retailer-sku-input {
-    width: 56px !important; text-align: left !important; display: inline-block;
-    margin-left: 5px; padding: 1px 4px !important; border-radius: 3px;
-    background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85); font-size: 10.5px;
+    width: 46px; flex-shrink: 0; box-sizing: border-box; text-align: left !important; display: block;
+    padding: 1px 3px !important; border-radius: 3px;
+    background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85); font-size: 10px;
   }
   tr.fr-sub-row td.fr-sub-lbl input.sr-retailer-sku-input:focus { background: rgba(255,255,255,0.20); }
   tr.fr-sub-row td input {
@@ -2989,12 +2995,15 @@ function buildSudsLabMarketTable(p, s, rows, market) {
     if (opts.custom) {
       const removeOnClick = opts.removeOnClick || `${opts.removeFn}('${market}','${opts.itemId}')`;
       // Retailer sub-rows (not warehouse ones) also carry that retailer's OWN
-      // SKU/catalog number for this product — an inline editable cell right
-      // next to the name, e.g. "Autozone 1234".
+      // SKU/catalog number for this product, on the SAME line as the name —
+      // the label column is a fixed 150px, so the name truncates with an
+      // ellipsis if it's too long to fit alongside the SKU and delete button;
+      // the SKU number itself always stays fully visible (chosen over
+      // wrapping to a second line or hiding the SKU behind a hover/click).
       const skuInputHtml = opts.retailerSkuValue !== undefined
         ? `<input type="text" class="sr-retailer-sku-input" value="${(opts.retailerSkuValue || '').replace(/"/g,'&quot;')}" placeholder="SKU#" data-sku="${p.sku}" data-retailer-id="${opts.itemId}" onclick="event.stopPropagation()" onchange="handleSudsLabRetailerSkuChange(this)" />`
         : '';
-      tdLabel.innerHTML = `${label}${skuInputHtml}<span class="fr-del-wh" title="Remove" onclick="${removeOnClick}">&times;</span>`;
+      tdLabel.innerHTML = `<div class="fr-sub-lbl-top"><span class="fr-sub-lbl-name" title="${label.replace(/"/g,'&quot;')}">${label}</span>${skuInputHtml}<span class="fr-del-wh" title="Remove" onclick="${removeOnClick}">&times;</span></div>`;
     } else {
       tdLabel.textContent = label;
     }
