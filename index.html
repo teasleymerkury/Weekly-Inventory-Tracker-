@@ -1616,6 +1616,43 @@
     </div>
   </div>
 
+  <!-- suds.lab Add Item Modal — on submit, immediately searches whichever of
+       the four sync files (San Pedro/Toll E-Comm/Canada ATS, Star & Ultra
+       stock) are already loaded this session for a matching Material ID /
+       Product ID, instead of waiting for the next full sync. -->
+  <div class="modal-overlay" id="sudslabAddItemModal">
+    <div class="modal-box">
+      <h2>Add New Item</h2>
+      <div class="modal-hint">Searches whichever sync files are already connected this session for a matching Material ID / Product ID. Anything not found there is treated as out of stock (0), not an error.</div>
+      <div class="modal-grid full">
+        <div class="modal-field">
+          <label>Material ID / Product ID *</label>
+          <input type="text" id="sudslabAi-materialId" placeholder="SL-XXXX-XXX" onkeydown="if(event.key==='Enter')document.getElementById('sudslabAi-desc').focus();" />
+        </div>
+      </div>
+      <div class="modal-grid full" style="margin-top:10px;">
+        <div class="modal-field">
+          <label>Description</label>
+          <input type="text" id="sudslabAi-desc" placeholder="Auto-fills from a matched file if left blank" />
+        </div>
+      </div>
+      <div class="modal-grid" style="margin-top:10px;">
+        <div class="modal-field">
+          <label>Inner Pack</label>
+          <input type="number" id="sudslabAi-inner" placeholder="Auto-fills if left blank" min="1" />
+        </div>
+        <div class="modal-field">
+          <label>Master Pack</label>
+          <input type="number" id="sudslabAi-master" placeholder="Auto-fills if left blank" min="1" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-cancel" onclick="closeSudslabAddItemModal()">Cancel</button>
+        <button class="modal-submit" id="sudslabAiSubmitBtn" onclick="submitSudslabAddItem()">Add Item</button>
+      </div>
+    </div>
+  </div>
+
     <!-- Page: suds.lab Weekly Recap -->
     <div class="page-section" id="page-sudslab-recap">
       <div class="page-wrap">
@@ -1702,6 +1739,7 @@
         <span style="font-size:11px;color:var(--text-2);">to</span>
         <select class="fw-select" id="sudslabFwTo" onchange="applySudslabFilters()"></select>
         <div style="flex:1;"></div>
+        <button class="add-item-btn" onclick="openSudslabAddItemModal()" style="margin-right:4px;">&#43; Add Item</button>
       </div>
       <div id="sudslabProductsContainer"></div>
       </div>
@@ -4217,6 +4255,163 @@ function _sudslabFindAtsColumns(headerRow) {
   };
 }
 
+// Trim + uppercase — Material IDs/Product IDs get typed by hand and copy-
+// pasted from spreadsheets, so tolerate stray whitespace and case the same
+// way the rest of this app already does for SKUs, rather than requiring a
+// byte-exact match.
+function _sudslabNormalizeId(id) { return String(id || '').trim().toUpperCase(); }
+
+// Searches a single already-selected ATS file (San Pedro/Toll E-Comm/Canada)
+// for one specific Material ID — used by "Add Item" so a manually-added SKU
+// picks up on-hand/firm-receipt data immediately from whatever's already
+// loaded this session, instead of only filling in on the next full sync.
+async function _sudslabSearchAtsFileForId(file, targetId) {
+  if (!file) return { found: false };
+  const buffer = await file.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: 'array', raw: true });
+  const ws = _sudslabFindAtsSheet(wb);
+  if (!ws) return { found: false };
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  const { modelCol, descCol, nowCol, etaCol } = _sudslabFindAtsColumns(data[1]);
+  if (modelCol < 0) return { found: false };
+
+  const wsItemInfo = wb.Sheets['Item Info'] || wb.Sheets['Item info'] || wb.Sheets['item info'] || wb.Sheets['Case Pack'] || wb.Sheets['case pack'];
+  const itemInfoData = wsItemInfo ? XLSX.utils.sheet_to_json(wsItemInfo, { header: 1, defval: null, raw: true }) : null;
+
+  const target = _sudslabNormalizeId(targetId);
+  for (let ri = 2; ri < data.length; ri++) {
+    const row = data[ri];
+    if (!row || row[modelCol] == null) continue;
+    if (_sudslabNormalizeId(row[modelCol]) !== target) continue;
+
+    const info = _sudslabLookupItemInfo(itemInfoData, String(row[modelCol]).trim());
+    const desc = (info && info.desc) || (descCol >= 0 ? String(row[descCol] || '').trim() : '');
+    const nowVal = nowCol >= 0 ? row[nowCol] : null;
+    const onHand = (nowVal != null && !isNaN(nowVal)) ? Math.round(Number(nowVal)) : 0;
+    const firmReceipts = new Array(weeks.length).fill(0);
+    if (etaCol >= 0) {
+      parseEtaField(row[etaCol]).forEach(({ weekIdx, qty }) => { firmReceipts[weekIdx] = (firmReceipts[weekIdx] || 0) + qty; });
+    }
+    return { found: true, desc, inner: info && info.inner, master: info && info.master, onHand, firmReceipts };
+  }
+  return { found: false };
+}
+
+// Same idea for the Star & Ultra "ListofInventoryStock" file — matched by
+// Product ID instead of Material ID, on-hand only (this file never carries
+// firm receipts, per the existing sync's own convention).
+async function _sudslabSearchStockFileForId(file, targetId) {
+  if (!file) return { found: false };
+  const buffer = await file.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: 'array', raw: true });
+  const ws = wb.Sheets['_DATA_MASTER'] || wb.Sheets[wb.SheetNames[0]];
+  if (!ws) return { found: false };
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+
+  let hdrIdx = -1;
+  for (let i = 0; i < Math.min(15, data.length); i++) {
+    const row = data[i];
+    if (row && row.some(c => String(c || '').trim().toLowerCase() === 'product id')) { hdrIdx = i; break; }
+  }
+  if (hdrIdx < 0) return { found: false };
+  const { productCol, onHandCol, siteCol } = _sudslabFindStockColumns(data[hdrIdx]);
+  if (productCol < 0 || onHandCol < 0 || siteCol < 0) return { found: false };
+
+  const target = _sudslabNormalizeId(targetId);
+  let star = 0, ultra = 0, found = false;
+  for (let ri = hdrIdx + 1; ri < data.length; ri++) {
+    const row = data[ri];
+    if (!row || row[productCol] == null) continue;
+    if (_sudslabNormalizeId(row[productCol]) !== target) continue;
+    const site = String(row[siteCol] || '').trim();
+    if (site !== '200-310' && site !== '200-300') continue;
+    const onHand = Math.round(Number(row[onHandCol])) || 0;
+    if (site === '200-310') star = onHand; else ultra = onHand;
+    found = true;
+  }
+  return { found, star, ultra };
+}
+
+function openSudslabAddItemModal() {
+  ['sudslabAi-materialId', 'sudslabAi-desc', 'sudslabAi-inner', 'sudslabAi-master'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('sudslabAddItemModal').classList.add('open');
+  document.getElementById('sudslabAi-materialId').focus();
+}
+function closeSudslabAddItemModal() {
+  document.getElementById('sudslabAddItemModal').classList.remove('open');
+}
+
+async function submitSudslabAddItem() {
+  const materialIdRaw = document.getElementById('sudslabAi-materialId').value.trim();
+  if (!materialIdRaw) { alert('Enter a Material ID / Product ID.'); return; }
+  const materialId = _sudslabNormalizeId(materialIdRaw);
+  if (sudslabProducts.some(p => _sudslabNormalizeId(p.sku) === materialId)) {
+    alert('That SKU already exists.');
+    return;
+  }
+
+  const p = _sudslabEnsureProduct(materialId);
+  const s = sudslabState[materialId];
+
+  const descInput   = document.getElementById('sudslabAi-desc').value.trim();
+  const innerInput  = parseInt(document.getElementById('sudslabAi-inner').value) || null;
+  const masterInput = parseInt(document.getElementById('sudslabAi-master').value) || null;
+  if (descInput)   p.desc   = descInput;
+  if (innerInput)  p.inner  = innerInput;
+  if (masterInput) p.master = masterInput;
+
+  const btn = document.getElementById('sudslabAiSubmitBtn');
+  if (btn) { btn.textContent = 'Searching files…'; btn.disabled = true; }
+  try {
+    const [sp, te, ca, stock] = await Promise.all([
+      _sudslabSearchAtsFileForId(sudslabAtsFiles.sanPedro, materialId),
+      _sudslabSearchAtsFileForId(sudslabAtsFiles.tollEcomm, materialId),
+      _sudslabSearchAtsFileForId(sudslabAtsFiles.canada, materialId),
+      _sudslabSearchStockFileForId(sudslabStockFile, materialId)
+    ]);
+    if (sp.found) {
+      s.onHandSanPedro = sp.onHand;
+      s.firmReceiptsSanPedro = sp.firmReceipts;
+      if (!p.desc && sp.desc) p.desc = sp.desc;
+      if (!p.inner && sp.inner) p.inner = sp.inner;
+      if (!p.master && sp.master) p.master = sp.master;
+    }
+    if (te.found) {
+      s.onHandTollEcomm = te.onHand;
+      s.firmReceiptsTollEcomm = te.firmReceipts;
+      if (!p.desc && te.desc) p.desc = te.desc;
+      if (!p.inner && te.inner) p.inner = te.inner;
+      if (!p.master && te.master) p.master = te.master;
+    }
+    if (ca.found) {
+      s.onHandCanada = ca.onHand;
+      s.firmReceiptsCanada = ca.firmReceipts;
+      if (!p.desc && ca.desc) p.desc = ca.desc;
+      if (!p.inner && ca.inner) p.inner = ca.inner;
+      if (!p.master && ca.master) p.master = ca.master;
+    }
+    if (stock.found) {
+      s.onHandStar  = stock.star;
+      s.onHandUltra = stock.ultra;
+    }
+  } catch (e) {
+    console.warn('suds.lab add-item file search failed:', e.message);
+  } finally {
+    if (btn) { btn.textContent = 'Add Item'; btn.disabled = false; }
+  }
+
+  renderSudsLabProducts();
+  buildSudslabFilterDropdown();
+  buildSudslabRetailerFilterDropdown();
+  applySudslabFilters();
+  scrollAllSudsLabToCurrentWeek();
+  if (!isTestMode) saveSudsLabState();
+  closeSudslabAddItemModal();
+}
+
 // Guards against a race between the lazy background load triggered by
 // switchAccount('sudslab') and a sync/save that runs immediately after —
 // without this, the load's array reset can silently clobber a sync that
@@ -5762,6 +5957,11 @@ function closeAddItemModal() {
 // Close the D27L row-manager modal when clicking its overlay background
 document.getElementById('d27lRowsModal').addEventListener('click', function(e) {
   if (e.target === this) closeD27LRowsModal();
+});
+
+// Close the suds.lab Add Item modal when clicking its overlay background
+document.getElementById('sudslabAddItemModal').addEventListener('click', function(e) {
+  if (e.target === this) closeSudslabAddItemModal();
 });
 
 // Close modal when clicking overlay background
