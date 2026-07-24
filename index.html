@@ -3548,7 +3548,7 @@ async function loadSudsLabFromSupabase() {
     const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }] = await Promise.all([
       sbClient.from('sudslab_sku_meta').select('*'),
       _fetchAllSudsLabWeekly(),
-      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr', 'sudslab_reorder_wh_ref', 'sudslab_onhand_manual', 'sudslab_sync_status', 'sudslab_retailer_cleanup_v1'])
+      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr', 'sudslab_reorder_wh_ref', 'sudslab_onhand_manual', 'sudslab_sync_status', 'sudslab_retailer_cleanup_v1', 'sudslab_status_sanpedro', 'sudslab_status_tollecomm', 'sudslab_status_canada', 'sudslab_status_stock'])
     ]);
     if (metaErr) throw metaErr;
     if (weeklyErr) throw weeklyErr;
@@ -3660,13 +3660,21 @@ async function loadSudsLabFromSupabase() {
     // only ever lived in the DOM from the moment a sync finished, so a fresh
     // login always showed "Not connected" even though the actual synced data
     // (on-hand, firm receipts, above) loaded and persisted just fine.
-    const syncStatusRow = (cacheRows || []).find(r => r.key === 'sudslab_sync_status');
-    let savedStatus = (syncStatusRow && syncStatusRow.data) || null;
-    if (!savedStatus) {
-      try { savedStatus = JSON.parse(localStorage.getItem('sudslab_sync_status') || '{}'); } catch(e) { savedStatus = {}; }
+    // Each source has its own row (sudslab_status_*) — checked first since
+    // it can't be clobbered by another source's sync. The old shared
+    // sudslab_sync_status row (pre-dating that fix) is kept only as a
+    // fallback for whichever single source last happened to win that race,
+    // then localStorage as a last resort.
+    let legacySyncStatus = null;
+    const legacyRow = (cacheRows || []).find(r => r.key === 'sudslab_sync_status');
+    legacySyncStatus = (legacyRow && legacyRow.data) || null;
+    if (!legacySyncStatus) {
+      try { legacySyncStatus = JSON.parse(localStorage.getItem('sudslab_sync_status') || '{}'); } catch(e) { legacySyncStatus = {}; }
     }
     Object.keys(SUDSLAB_STATUS_CONNECT_BTN).forEach(elId => {
-      const msg = savedStatus && savedStatus[elId];
+      const cacheKey = SUDSLAB_STATUS_CACHE_KEY[elId];
+      const row = (cacheRows || []).find(r => r.key === cacheKey);
+      const msg = (row && row.data && row.data.msg) || (legacySyncStatus && legacySyncStatus[elId]);
       if (!msg) return;
       _sudslabSetStatus(elId, msg, 'connected');
       const btn = document.getElementById(SUDSLAB_STATUS_CONNECT_BTN[elId]);
@@ -4093,10 +4101,26 @@ const SUDSLAB_STATUS_CONNECT_BTN = {
   sudslabCanadaStatus:    'btnSudslabCanadaConnect',
   sudslabStockStatus:     'btnSudslabStockConnect'
 };
+// Each source gets its OWN app_cache row — deliberately NOT one shared row
+// holding all four. A shared row means every sync's upsert overwrites the
+// whole object; since the four syncs run as independent async operations,
+// whichever upsert's HTTP request happens to arrive at the server LAST wins,
+// regardless of which one actually finished last. A fast-but-early write
+// (captured before the other three had synced yet) can silently clobber a
+// slower-but-later write that had more complete data — confirmed this is
+// exactly what happened in production: all four syncs showed "Connected" at
+// the time, but only one survived a reload. Separate keys make that race
+// impossible, since each sync only ever touches its own row.
+const SUDSLAB_STATUS_CACHE_KEY = {
+  sudslabSanPedroStatus:  'sudslab_status_sanpedro',
+  sudslabTollEcommStatus: 'sudslab_status_tollecomm',
+  sudslabCanadaStatus:    'sudslab_status_canada',
+  sudslabStockStatus:     'sudslab_status_stock'
+};
 // Persisted so "last synced" survives a reload — previously this only ever
 // lived in the DOM, so a fresh login always showed "Not connected" even
 // though the underlying synced data (on-hand, firm receipts) was fine.
-let sudslabSyncStatusMsgs = {}; // { elId: msg }
+let sudslabSyncStatusMsgs = {}; // { elId: msg } — local convenience cache only
 
 function connectSudsLabSanPedro()  { document.getElementById('inputSudslabSanPedro').click(); }
 function connectSudsLabTollEcomm() { document.getElementById('inputSudslabTollEcomm').click(); }
@@ -4111,8 +4135,9 @@ function _sudslabSetStatus(elId, msg, type) {
   if (type === 'connected') {
     sudslabSyncStatusMsgs[elId] = msg;
     try { localStorage.setItem('sudslab_sync_status', JSON.stringify(sudslabSyncStatusMsgs)); } catch(e) {}
-    if (!isTestMode && sbClient) {
-      sbClient.from('app_cache').upsert({ key: 'sudslab_sync_status', data: sudslabSyncStatusMsgs }, { onConflict: 'key' })
+    const cacheKey = SUDSLAB_STATUS_CACHE_KEY[elId];
+    if (cacheKey && !isTestMode && sbClient) {
+      sbClient.from('app_cache').upsert({ key: cacheKey, data: { msg } }, { onConflict: 'key' })
         .then(({ error }) => { if (error) console.warn('sudslab sync status save failed:', error.message); });
     }
   }
