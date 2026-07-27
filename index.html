@@ -1757,6 +1757,7 @@
         <span style="font-size:11px;color:var(--text-2);">to</span>
         <select class="fw-select" id="sudslabFwTo" onchange="applySudslabFilters()"></select>
         <div style="flex:1;"></div>
+        <button class="add-item-btn" onclick="sortSudsLabProductsAlphabetically()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Sort all items alphabetically by SKU — one-time action, not automatic ongoing sorting">A-Z Sort</button>
         <button class="add-item-btn" onclick="openSudslabAddItemModal()" style="margin-right:4px;">&#43; Add Item</button>
       </div>
       <div id="sudslabProductsContainer"></div>
@@ -3163,6 +3164,23 @@ function renderSudsLabProducts() {
   container.appendChild(frag);
 }
 
+// One-time action, not an ongoing behavior — re-sorts the whole list by SKU
+// right now. New items landing in the right spot going forward is handled
+// separately by _sudslabEnsureProduct's alphabetical insert; this is for
+// fixing up whatever order the list is ALREADY in (e.g. left over from
+// before that existed, or from manual drag-and-drop). Persists the same way
+// drag-and-drop reordering already does (saveSudsLabState()) — this doesn't
+// introduce a new persistence mechanism, just reuses the existing one.
+function sortSudsLabProductsAlphabetically() {
+  sudslabProducts.sort((a, b) => a.sku.toUpperCase() < b.sku.toUpperCase() ? -1 : a.sku.toUpperCase() > b.sku.toUpperCase() ? 1 : 0);
+  renderSudsLabProducts();
+  buildSudslabFilterDropdown();
+  buildSudslabRetailerFilterDropdown();
+  applySudslabFilters();
+  scrollAllSudsLabToCurrentWeek();
+  if (!isTestMode) saveSudsLabState();
+}
+
 function expandSudsLabGroup(sku, groupKey) {
   const block = document.getElementById('sudslab-block-' + sku);
   if (!block) return;
@@ -3186,6 +3204,51 @@ function toggleSudsLabMarket(sku, market) {
   if (toggle) toggle.innerHTML = isHidden ? '&#9650;' : '&#9660;';
 }
 
+// Rebuilding a SINGLE product's block (instead of calling
+// renderSudsLabProducts(), which tears down and rebuilds all ~90 blocks) so
+// that adding/removing a retailer doesn't collapse every expanded market
+// table and Firm Receipt/Sales rate group back to its default closed state —
+// both for every OTHER product on the page, and for this one too. Every
+// sub-row starts collapsed on a fresh build, so a full re-render silently
+// discarded whatever the user had open.
+function _sudslabCaptureExpansionState(sku) {
+  const block = document.getElementById('sudslab-block-' + sku);
+  if (!block) return null;
+  const captured = { markets: {}, groups: {} };
+  ['us', 'ca'].forEach(market => {
+    const wrap = document.getElementById(`sudslab-mkt-table-${market}-${sku}`);
+    if (wrap) captured.markets[market] = wrap.style.display !== 'none';
+  });
+  block.querySelectorAll('tr.fr-sub-row').forEach(tr => {
+    const groupClass = [...tr.classList].find(c => c.startsWith('fr-group-sub-'));
+    if (groupClass) captured.groups[groupClass] = tr.style.display !== 'none';
+  });
+  return captured;
+}
+function _sudslabRestoreExpansionState(sku, captured) {
+  if (!captured) return;
+  const block = document.getElementById('sudslab-block-' + sku);
+  if (!block) return;
+  Object.entries(captured.markets).forEach(([market, isOpen]) => {
+    const wrap = document.getElementById(`sudslab-mkt-table-${market}-${sku}`);
+    const toggle = document.getElementById(`sudslab-mkt-toggle-${market}-${sku}`);
+    if (wrap) wrap.style.display = isOpen ? '' : 'none';
+    if (toggle) toggle.innerHTML = isOpen ? '&#9650;' : '&#9660;';
+  });
+  Object.entries(captured.groups).forEach(([groupClass, isOpen]) => {
+    block.querySelectorAll(`tr.${groupClass}`).forEach(tr => { tr.style.display = isOpen ? '' : 'none'; });
+  });
+}
+function _sudslabRerenderProduct(sku) {
+  const p = sudslabProducts.find(x => x.sku === sku);
+  const oldBlock = document.getElementById('sudslab-block-' + sku);
+  if (!p || !oldBlock) { renderSudsLabProducts(); return; }
+  const expansionState = _sudslabCaptureExpansionState(sku);
+  const newBlock = buildSudsLabProduct(p);
+  oldBlock.replaceWith(newBlock);
+  _sudslabRestoreExpansionState(sku, expansionState);
+}
+
 // ── suds.lab: manually-added retailers (Sales rate breakdown) ────────────────
 // Retailer names are a shared, account-wide catalog (persisted via app_cache,
 // avoiding a schema migration) — but which retailers apply to a given SKU is
@@ -3204,7 +3267,7 @@ function addSudsLabRetailer(sku, market) {
   const s = sudslabState[sku];
   if (!s.customSR) s.customSR = {};
   if (!s.customSR[retailer.id]) s.customSR[retailer.id] = new Array(weeks.length).fill(0);
-  renderSudsLabProducts();
+  _sudslabRerenderProduct(sku);
   buildSudslabFilterDropdown();
   buildSudslabRetailerFilterDropdown();
   applySudslabFilters();
@@ -3227,7 +3290,7 @@ function removeSudsLabRetailer(sku, market, retailerId) {
     return st && st.customSR && st.customSR[retailerId] !== undefined;
   });
   if (!stillUsed) sudslabRetailers[market] = sudslabRetailers[market].filter(x => x.id !== retailerId);
-  renderSudsLabProducts();
+  _sudslabRerenderProduct(sku);
   buildSudslabFilterDropdown();
   buildSudslabRetailerFilterDropdown();
   applySudslabFilters();
@@ -4243,7 +4306,13 @@ function _sudslabEnsureProduct(sku) {
   let p = sudslabProducts.find(x => x.sku === sku);
   if (!p) {
     p = { sku, desc: '', inner: null, master: null };
-    sudslabProducts.push(p);
+    // Insert alphabetically by SKU instead of appending to the end, so a
+    // newly-discovered or newly-added product lands in sorted order among
+    // whatever's already there — without disturbing the existing relative
+    // order of other products (e.g. any manual drag-and-drop arrangement).
+    const insertAt = sudslabProducts.findIndex(x => x.sku.toUpperCase() > sku.toUpperCase());
+    if (insertAt === -1) sudslabProducts.push(p);
+    else sudslabProducts.splice(insertAt, 0, p);
   }
   if (!sudslabState[sku]) sudslabState[sku] = _sudslabEmptyState();
   return p;
