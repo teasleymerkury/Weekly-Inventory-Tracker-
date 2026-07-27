@@ -11583,17 +11583,27 @@ function exportSudsLabRetailerList() {
   const retailer = (sudslabRetailers[market] || []).find(r => r.id === retailerId);
   if (!retailer) { alert('That retailer could not be found — try reopening Templates.'); return; }
 
+  // Per-warehouse breakdown mirrors exactly what exportSudsLabTemplate()
+  // already shows for the full list — same warehouse columns, same source
+  // fields — just filtered down to this one retailer's linked items.
+  const warehouseHdrs = market === 'us'
+    ? ['San Pedro', 'Toll E-Comm', 'Star Distribution', 'Ultra-Look']
+    : ['Vertex West'];
+
   const rows = [];
   sudslabProducts.forEach(p => {
     const s = sudslabState[p.sku];
     if (!s || !s.customSR || s.customSR[retailerId] === undefined) return;
-    // Same on-hand total calcSudsLabMarketRows() shows on the product card,
-    // for whichever market this retailer belongs to.
+    // On Hand total: same value calcSudsLabMarketRows() shows on the product
+    // card (respects a manual on-hand override for this market, if set).
+    // The individual warehouse columns always show the raw synced values,
+    // same as the main suds.lab export and the product card's own breakdown.
     const onHandManual = s.onHandManual && s.onHandManual[market];
-    const onHand = onHandManual != null ? onHandManual : (market === 'us'
-      ? (s.onHandSanPedro || 0) + (s.onHandTollEcomm || 0) + (s.onHandStar || 0) + (s.onHandUltra || 0)
-      : (s.onHandCanada || 0));
-    rows.push([p.sku, (s.customSRSku && s.customSRSku[retailerId]) || '', p.desc || '', onHand]);
+    const warehouseVals = market === 'us'
+      ? [s.onHandSanPedro || 0, s.onHandTollEcomm || 0, s.onHandStar || 0, s.onHandUltra || 0]
+      : [s.onHandCanada || 0];
+    const onHand = onHandManual != null ? onHandManual : warehouseVals.reduce((a, b) => a + b, 0);
+    rows.push([p.sku, (s.customSRSku && s.customSRSku[retailerId]) || '', p.desc || '', onHand, ...warehouseVals]);
   });
 
   if (rows.length === 0) { alert(`No items are linked to "${retailer.name}" yet.`); return; }
@@ -11601,11 +11611,11 @@ function exportSudsLabRetailerList() {
   const aoa = [
     [`${retailer.name} — Item List (${market === 'us' ? 'US' : 'Canada'})`],
     [],
-    ['SKU', `${retailer.name} SKU`, 'Description', 'On Hand'],
+    ['SKU', `${retailer.name} SKU`, 'Description', 'On Hand', ...warehouseHdrs],
     ...rows
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 34 }, { wch: 10 }];
+  ws['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 34 }, { wch: 10 }, ...warehouseHdrs.map(() => ({ wch: 14 }))];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, retailer.name.replace(/[\\/*?:[\]]/g, '').slice(0, 28) || 'Retailer');
   const dateStr = new Date().toISOString().slice(0, 10);
