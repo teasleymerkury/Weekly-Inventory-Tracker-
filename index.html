@@ -1896,6 +1896,12 @@
           <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;">Two tabs (US / CA) — On Hand + warehouse breakdown, then Firm Receipt per week for every SKU.</div>
           <button class="add-item-btn" onclick="exportSudsLabTemplate()">&#128229; Export suds.lab Recap</button>
         </div>
+        <div id="recapCardSudslabRetailer" style="flex:1;min-width:260px;background:rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">suds.lab — Retailer List</div>
+          <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;">Just the items linked to one retailer — SKU, that retailer's own SKU number, description, and on hand.</div>
+          <select id="sudslabRetailerExportSelect" class="fw-select" style="width:100%;margin-bottom:10px;"></select>
+          <button class="add-item-btn" onclick="exportSudsLabRetailerList()">&#128229; Export Retailer List</button>
+        </div>
       </div>
     </div>
 
@@ -5128,8 +5134,11 @@ function updateSheetsAccountVisibility() {
   if (reportTab) reportTab.style.display = isSudslab ? 'none' : '';
   const thdCard = document.getElementById('recapCardThd');
   const sudslabCard = document.getElementById('recapCardSudslab');
+  const sudslabRetailerCard = document.getElementById('recapCardSudslabRetailer');
   if (thdCard) thdCard.style.display = isSudslab ? 'none' : '';
   if (sudslabCard) sudslabCard.style.display = isSudslab ? '' : 'none';
+  if (sudslabRetailerCard) sudslabRetailerCard.style.display = isSudslab ? '' : 'none';
+  if (isSudslab) populateSudslabRetailerExportSelect();
   if (isSudslab && reportTab && reportTab.classList.contains('active')) switchSheetsTab('recap');
 }
 function showWeeklyRecap() {
@@ -11547,6 +11556,60 @@ function exportSudsLabTemplate() {
   XLSX.utils.book_append_sheet(wb, buildMarketSheet('ca'), 'suds.lab - CA');
   const dateStr = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `Weekly_Inventory_Recap_SudsLab_${dateStr}.xlsx`);
+}
+
+// ── suds.lab: export the item list for ONE retailer ──────────────────────────
+// Retailers are per-market (US vs CA catalogs), so the select's option value
+// encodes both — "us:rt_123" — since a bare retailer id alone doesn't say
+// which market's onHand total to use.
+function populateSudslabRetailerExportSelect() {
+  const sel = document.getElementById('sudslabRetailerExportSelect');
+  if (!sel) return;
+  const prevValue = sel.value;
+  const options = [];
+  (sudslabRetailers.us || []).forEach(r => options.push({ value: `us:${r.id}`, label: `${r.name} (US)` }));
+  (sudslabRetailers.ca || []).forEach(r => options.push({ value: `ca:${r.id}`, label: `${r.name} (CA)` }));
+  sel.innerHTML = options.length
+    ? options.map(o => `<option value="${o.value}">${o.label.replace(/"/g,'&quot;')}</option>`).join('')
+    : '<option value="">No retailers added yet</option>';
+  if (options.some(o => o.value === prevValue)) sel.value = prevValue;
+}
+
+function exportSudsLabRetailerList() {
+  const sel = document.getElementById('sudslabRetailerExportSelect');
+  const val = sel && sel.value;
+  if (!val || !val.includes(':')) { alert("Add a retailer to a product's Sales rate row first, then it'll show up here to export."); return; }
+  const [market, retailerId] = val.split(':');
+  const retailer = (sudslabRetailers[market] || []).find(r => r.id === retailerId);
+  if (!retailer) { alert('That retailer could not be found — try reopening Templates.'); return; }
+
+  const rows = [];
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    if (!s || !s.customSR || s.customSR[retailerId] === undefined) return;
+    // Same on-hand total calcSudsLabMarketRows() shows on the product card,
+    // for whichever market this retailer belongs to.
+    const onHandManual = s.onHandManual && s.onHandManual[market];
+    const onHand = onHandManual != null ? onHandManual : (market === 'us'
+      ? (s.onHandSanPedro || 0) + (s.onHandTollEcomm || 0) + (s.onHandStar || 0) + (s.onHandUltra || 0)
+      : (s.onHandCanada || 0));
+    rows.push([p.sku, (s.customSRSku && s.customSRSku[retailerId]) || '', p.desc || '', onHand]);
+  });
+
+  if (rows.length === 0) { alert(`No items are linked to "${retailer.name}" yet.`); return; }
+
+  const aoa = [
+    [`${retailer.name} — Item List (${market === 'us' ? 'US' : 'Canada'})`],
+    [],
+    ['SKU', `${retailer.name} SKU`, 'Description', 'On Hand'],
+    ...rows
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 34 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, retailer.name.replace(/[\\/*?:[\]]/g, '').slice(0, 28) || 'Retailer');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `${retailer.name.replace(/[^a-z0-9]+/gi, '_')}_Item_List_${dateStr}.xlsx`);
 }
 
 function getSavedReportTemplates() {
