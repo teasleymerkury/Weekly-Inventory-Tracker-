@@ -3832,6 +3832,11 @@ async function loadSudsLabFromSupabase() {
     buildSudslabRetailerFilterDropdown();
     initSudslabFilterBar();
     if (_retailerLinksCleaned && !isTestMode) { saveSudsLabRetailers(); saveSudsLabCustomSR(); }
+    // Fire-and-forget — don't hold up the rest of the page for this. Whatever
+    // sync files were last uploaded fill in shortly after the already-saved
+    // Supabase data renders, same as THD's (unwired) autoLoadSyncFiles was
+    // meant to work.
+    autoLoadSudsLabSyncFiles();
   } catch (e) {
     console.warn('loadSudsLabFromSupabase failed:', e.message);
   }
@@ -4238,6 +4243,10 @@ const SUDSLAB_GROUP_FR_FIELD     = { sanPedro: 'firmReceiptsSanPedro',  tollEcom
 const SUDSLAB_GROUP_SYNC_BTN     = { sanPedro: 'btnSudslabSanPedroSync', tollEcomm: 'btnSudslabTollEcommSync', canada: 'btnSudslabCanadaSync' };
 const SUDSLAB_GROUP_CONNECT_BTN  = { sanPedro: 'btnSudslabSanPedroConnect', tollEcomm: 'btnSudslabTollEcommConnect', canada: 'btnSudslabCanadaConnect' };
 const SUDSLAB_GROUP_FILE_KEY     = { sanPedro: 'sudslab_ats_sanPedro_file_name', tollEcomm: 'sudslab_ats_tollEcomm_file_name', canada: 'sudslab_ats_canada_file_name' };
+// Supabase Storage (sync-files bucket) filenames — own namespace so they
+// don't collide with THD's ats.xlsx/suof.xlsx/vd.xlsx in the same bucket.
+const SUDSLAB_GROUP_STORAGE_KEY = { sanPedro: 'sudslab_sanpedro.xlsx', tollEcomm: 'sudslab_tollecomm.xlsx', canada: 'sudslab_canada.xlsx' };
+const SUDSLAB_STOCK_STORAGE_KEY = 'sudslab_stock.xlsx';
 // Maps each status badge to its "Connect"/"Change File" button, so a restored
 // badge (see loadSudsLabFromSupabase) can also flip that button's label —
 // otherwise it would say "Connect" while the badge says "Connected".
@@ -4598,7 +4607,7 @@ async function _sudslabAwaitLoad() {
   if (_sudslabLoadPromise) { try { await _sudslabLoadPromise; } catch(e) {} _sudslabLoadPromise = null; }
 }
 
-async function syncSudsLabATS(group) {
+async function syncSudsLabATS(group, isAutoLoad) {
   const file = sudslabAtsFiles[group];
   if (!file) return;
   await _sudslabAwaitLoad();
@@ -4606,8 +4615,10 @@ async function syncSudsLabATS(group) {
   const onHandField = SUDSLAB_GROUP_ONHAND_FIELD[group];
   const frField = SUDSLAB_GROUP_FR_FIELD[group];
   const btnSync = document.getElementById(SUDSLAB_GROUP_SYNC_BTN[group]);
-  if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
-  _sudslabSetStatus(statusId, 'Syncing…');
+  if (!isAutoLoad) {
+    if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
+    _sudslabSetStatus(statusId, 'Syncing…');
+  }
   try {
     const buffer = await file.arrayBuffer();
     const wb = XLSX.read(buffer, { type: 'array', raw: true });
@@ -4621,11 +4632,13 @@ async function syncSudsLabATS(group) {
     const itemInfoData = wsItemInfo ? XLSX.utils.sheet_to_json(wsItemInfo, { header: 1, defval: null, raw: true }) : null;
 
     let synced = 0;
+    const matchedSkus = new Set();
     for (let ri = 2; ri < data.length; ri++) {
       const row = data[ri];
       if (!row || row[modelCol] == null) continue;
       const materialId = String(row[modelCol]).trim();
       if (!materialId.toUpperCase().startsWith('SL-')) continue;
+      matchedSkus.add(materialId.toUpperCase());
 
       const p = _sudslabEnsureProduct(materialId);
       const s = sudslabState[materialId];
@@ -4653,6 +4666,20 @@ async function syncSudsLabATS(group) {
 
     if (synced === 0) throw new Error('No SL- rows found in the ATS sheet.');
 
+    // A SKU that's ALREADY known but didn't show up anywhere in this sync
+    // means this source no longer carries it — confirmed zero here, not
+    // "unknown, leave whatever was last synced." Without this, removing an
+    // item from the real inventory file could never be reflected: the old
+    // on-hand/firm-receipt values would just sit there forever since nothing
+    // else ever clears them.
+    sudslabProducts.forEach(p => {
+      if (matchedSkus.has(p.sku.toUpperCase())) return;
+      const s = sudslabState[p.sku];
+      if (!s) return;
+      if (s[onHandField] !== 0) s[onHandField] = 0;
+      if (s[frField].some(v => v !== 0)) s[frField] = new Array(weeks.length).fill(0);
+    });
+
     const wsSoDetail = wb.Sheets['SO Detail'] || wb.Sheets['So Detail'] || wb.Sheets['so detail'];
     if (wsSoDetail) {
       const soData = XLSX.utils.sheet_to_json(wsSoDetail, { header: 1, defval: null, raw: true });
@@ -4663,16 +4690,22 @@ async function syncSudsLabATS(group) {
     buildSudslabFilterDropdown();
     applySudslabFilters();
     scrollAllSudsLabToCurrentWeek();
-    const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
-    _sudslabSetStatus(statusId, `✓ Connected — ${file.name} — last synced ${ts} (${synced} SKU${synced === 1 ? '' : 's'} synced)`, 'connected');
-    const connectBtn = document.getElementById(SUDSLAB_GROUP_CONNECT_BTN[group]);
-    if (connectBtn) connectBtn.textContent = '📂 Change File';
+    if (!isAutoLoad) {
+      const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+      _sudslabSetStatus(statusId, `✓ Connected — ${file.name} — last synced ${ts} (${synced} SKU${synced === 1 ? '' : 's'} synced)`, 'connected');
+      const connectBtn = document.getElementById(SUDSLAB_GROUP_CONNECT_BTN[group]);
+      if (connectBtn) connectBtn.textContent = '📂 Change File';
+      // Store the raw file so any device can auto-load it later — only on a
+      // real (non-auto-load) sync, otherwise we'd just re-upload the exact
+      // bytes we downloaded a moment ago.
+      uploadSyncFile(SUDSLAB_GROUP_STORAGE_KEY[group], buffer);
+    }
     if (!isTestMode) saveSudsLabState();
   } catch (e) {
-    _sudslabSetStatus(statusId, '⚠ Sync failed: ' + e.message, 'error');
+    if (!isAutoLoad) _sudslabSetStatus(statusId, '⚠ Sync failed: ' + e.message, 'error');
     console.warn('syncSudsLabATS(' + group + ') failed:', e.message);
   } finally {
-    if (btnSync) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
+    if (btnSync && !isAutoLoad) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
   }
 }
 
@@ -4689,13 +4722,15 @@ function _sudslabFindStockColumns(headerRow) {
   };
 }
 
-async function syncSudsLabStock() {
+async function syncSudsLabStock(isAutoLoad) {
   const file = sudslabStockFile;
   if (!file) return;
   await _sudslabAwaitLoad();
   const btnSync = document.getElementById('btnSudslabStockSync');
-  if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
-  _sudslabSetStatus('sudslabStockStatus', 'Syncing…');
+  if (!isAutoLoad) {
+    if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
+    _sudslabSetStatus('sudslabStockStatus', 'Syncing…');
+  }
   try {
     const buffer = await file.arrayBuffer();
     const wb = XLSX.read(buffer, { type: 'array', raw: true });
@@ -4713,6 +4748,7 @@ async function syncSudsLabStock() {
     if (productCol < 0 || onHandCol < 0 || siteCol < 0) throw new Error('Missing expected columns (Product ID / On-Hand Stock / Site ID).');
 
     let synced = 0, starCount = 0, ultraCount = 0;
+    const matchedStar = new Set(), matchedUltra = new Set();
     for (let ri = hdrIdx + 1; ri < data.length; ri++) {
       const row = data[ri];
       if (!row || row[productCol] == null) continue;
@@ -4725,27 +4761,41 @@ async function syncSudsLabStock() {
 
       _sudslabEnsureProduct(materialId);
       const s = sudslabState[materialId];
-      if (site === '200-310') { s.onHandStar = onHand; starCount++; }
-      else { s.onHandUltra = onHand; ultraCount++; }
+      if (site === '200-310') { s.onHandStar = onHand; starCount++; matchedStar.add(materialId.toUpperCase()); }
+      else { s.onHandUltra = onHand; ultraCount++; matchedUltra.add(materialId.toUpperCase()); }
       synced++;
     }
 
     if (synced === 0) throw new Error('No SL- rows found for Site ID 200-300/200-310.');
 
+    // Same reasoning as syncSudsLabATS: a known SKU missing from this site's
+    // rows in a fresh sync means confirmed zero there now, not "leave the
+    // last-synced value alone forever."
+    sudslabProducts.forEach(p => {
+      const s = sudslabState[p.sku];
+      if (!s) return;
+      const skuUp = p.sku.toUpperCase();
+      if (!matchedStar.has(skuUp) && s.onHandStar !== 0) s.onHandStar = 0;
+      if (!matchedUltra.has(skuUp) && s.onHandUltra !== 0) s.onHandUltra = 0;
+    });
+
     renderSudsLabProducts();
     buildSudslabFilterDropdown();
     applySudslabFilters();
     scrollAllSudsLabToCurrentWeek();
-    const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
-    _sudslabSetStatus('sudslabStockStatus', `✓ Connected — ${file.name} — last synced ${ts} (${starCount} Star, ${ultraCount} Ultra)`, 'connected');
-    const connectBtn = document.getElementById('btnSudslabStockConnect');
-    if (connectBtn) connectBtn.textContent = '📂 Change File';
+    if (!isAutoLoad) {
+      const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+      _sudslabSetStatus('sudslabStockStatus', `✓ Connected — ${file.name} — last synced ${ts} (${starCount} Star, ${ultraCount} Ultra)`, 'connected');
+      const connectBtn = document.getElementById('btnSudslabStockConnect');
+      if (connectBtn) connectBtn.textContent = '📂 Change File';
+      uploadSyncFile(SUDSLAB_STOCK_STORAGE_KEY, buffer);
+    }
     if (!isTestMode) saveSudsLabState();
   } catch (e) {
-    _sudslabSetStatus('sudslabStockStatus', '⚠ Sync failed: ' + e.message, 'error');
+    if (!isAutoLoad) _sudslabSetStatus('sudslabStockStatus', '⚠ Sync failed: ' + e.message, 'error');
     console.warn('syncSudsLabStock failed:', e.message);
   } finally {
-    if (btnSync) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
+    if (btnSync && !isAutoLoad) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
   }
 }
 
@@ -7101,6 +7151,32 @@ async function autoLoadSyncFiles() {
   if (atsBuffer)  await syncFromATS(atsBuffer);
   if (suofBuffer) await syncFromExcel(suofBuffer);
   if (vdBuffer)   await syncFromVD(vdBuffer);
+}
+
+// suds.lab equivalent — downloads whichever of the four sync files aren't
+// already in memory this session, wraps each in a File so it goes through
+// the exact same parsing path as a manual "Connect", but passes isAutoLoad
+// so the already-restored status badge/connect button don't get overwritten
+// with a synthetic filename, and the file isn't re-uploaded right after
+// being downloaded.
+async function autoLoadSudsLabSyncFiles() {
+  if (!sbClient || isTestMode) return;
+  const needSanPedro  = !sudslabAtsFiles.sanPedro;
+  const needTollEcomm = !sudslabAtsFiles.tollEcomm;
+  const needCanada    = !sudslabAtsFiles.canada;
+  const needStock     = !sudslabStockFile;
+  if (!needSanPedro && !needTollEcomm && !needCanada && !needStock) return;
+
+  const [spBuf, teBuf, caBuf, stBuf] = await Promise.all([
+    needSanPedro  ? downloadSyncFile(SUDSLAB_GROUP_STORAGE_KEY.sanPedro)  : Promise.resolve(null),
+    needTollEcomm ? downloadSyncFile(SUDSLAB_GROUP_STORAGE_KEY.tollEcomm) : Promise.resolve(null),
+    needCanada    ? downloadSyncFile(SUDSLAB_GROUP_STORAGE_KEY.canada)    : Promise.resolve(null),
+    needStock     ? downloadSyncFile(SUDSLAB_STOCK_STORAGE_KEY)          : Promise.resolve(null)
+  ]);
+  if (spBuf) { sudslabAtsFiles.sanPedro  = new File([spBuf], 'san_pedro_stored.xlsx');  await syncSudsLabATS('sanPedro', true); }
+  if (teBuf) { sudslabAtsFiles.tollEcomm = new File([teBuf], 'toll_ecomm_stored.xlsx'); await syncSudsLabATS('tollEcomm', true); }
+  if (caBuf) { sudslabAtsFiles.canada    = new File([caBuf], 'canada_stored.xlsx');     await syncSudsLabATS('canada', true); }
+  if (stBuf) { sudslabStockFile          = new File([stBuf], 'stock_stored.xlsx');     await syncSudsLabStock(true); }
 }
 
 // Save additionalModels map to Supabase app_cache so they persist across devices
