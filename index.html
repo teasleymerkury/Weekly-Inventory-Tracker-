@@ -11656,6 +11656,11 @@ function exportSudsLabRetailerList() {
   const retailer = (sudslabRetailers[market] || []).find(r => r.id === retailerId);
   if (!retailer) { alert('That retailer could not be found — try reopening Templates.'); return; }
 
+  // Autozone gets their own real item-setup file back (photos, specs, costs,
+  // UPCs — all Autozone-owned data we don't track) with just the on-hand
+  // columns refreshed, instead of the generic list every other retailer gets.
+  if (retailer.name.trim().toLowerCase() === 'autozone') { exportSudsLabAutozoneTemplate(retailerId); return; }
+
   // Per-warehouse breakdown mirrors exactly what exportSudsLabTemplate()
   // already shows for the full list — same warehouse columns, same source
   // fields — just filtered down to this one retailer's linked items.
@@ -11693,6 +11698,76 @@ function exportSudsLabRetailerList() {
   XLSX.utils.book_append_sheet(wb, ws, retailer.name.replace(/[\\/*?:[\]]/g, '').slice(0, 28) || 'Retailer');
   const dateStr = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `${retailer.name.replace(/[^a-z0-9]+/gi, '_')}_Item_List_${dateStr}.xlsx`);
+}
+
+// ── suds.lab: Autozone export — the real file as a live template ─────────────
+// Autozone requires their own item-setup file back in their own format (photos,
+// specs, FOB/Delivered/Retail cost, UPCs, LDP — all Autozone-owned data this
+// app doesn't track), not a generic list. Autozone_Template.xlsx is a snapshot
+// of that real file; ExcelJS (unlike the SheetJS build used for every other
+// export on this page) can write into an existing styled workbook, so the
+// embedded product photos, specs, pricing, and formatting all carry through
+// untouched — only columns N/O/P/Q (Toll E-Comm, 200-300 Ultra-Look, 200-310
+// Star Distribution, San Pedro) get overwritten with live on-hand values.
+// Rows are matched by column A (Old VPN, our own sku) first; if that doesn't
+// hit, by column B (MDM SKU#) against the retailer's own catalog number for
+// that product (customSRSku) — some rows in the real file don't carry a
+// recognizable Old VPN.
+async function exportSudsLabAutozoneTemplate(retailerId) {
+  let buf;
+  try {
+    const resp = await fetch('Autozone_Template.xlsx');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    buf = await resp.arrayBuffer();
+  } catch (e) {
+    alert('Could not load Autozone_Template.xlsx from the site — make sure that file is deployed alongside index.html.');
+    console.warn('Autozone template fetch failed:', e.message);
+    return;
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buf);
+  const ws = workbook.getWorksheet('AZ Store');
+  if (!ws) { alert('Autozone_Template.xlsx is missing the "AZ Store" sheet.'); return; }
+
+  const byOldVpn = {};
+  const byMdmSku = {};
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    if (!s) return;
+    byOldVpn[String(p.sku).trim().toUpperCase()] = s;
+    const mdm = s.customSRSku && s.customSRSku[retailerId];
+    if (mdm) byMdmSku[String(mdm).trim()] = s;
+  });
+
+  let matched = 0;
+  ws.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return; // header row
+    const oldVpn = row.getCell(1).value;
+    const mdmSku = row.getCell(2).value;
+    const s = (oldVpn && byOldVpn[String(oldVpn).trim().toUpperCase()])
+      || (mdmSku != null && byMdmSku[String(mdmSku).trim()]);
+    if (!s) return;
+    matched++;
+    row.getCell(14).value = s.onHandTollEcomm || 0; // N — Toll E-Comm
+    row.getCell(15).value = s.onHandUltra || 0;     // O — 200-300 Ultra-Look
+    row.getCell(16).value = s.onHandStar || 0;      // P — 200-310 Star Distribution
+    row.getCell(17).value = s.onHandSanPedro || 0;  // Q — San Pedro
+  });
+
+  if (matched === 0) { alert("None of this file's SKUs matched a product in the app — nothing was updated."); return; }
+
+  const outBuf = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const dateStr = new Date().toISOString().slice(0, 10);
+  a.download = `Autozone_Item_List_${dateStr}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function getSavedReportTemplates() {
