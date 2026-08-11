@@ -141,10 +141,6 @@
   .kpi-item .k { font-size: 10px; color: rgba(255,255,255,0.58); text-transform: uppercase;
     letter-spacing: 0.5px; white-space: nowrap; }
   .kpi-item .v { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.96); white-space: nowrap; }
-  .kpi-merkury-input { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.96); background: transparent;
-    border: none; border-radius: 0;
-    padding: 0 2px; width: 90px; outline: none; cursor: text; }
-  .kpi-merkury-input:focus { background: rgba(255,255,255,0.08); border-radius: 4px; }
   /* On Hand (Merkury) sub-cells */
   .kpi-merkury-wrap { display:flex; flex-direction:column; gap:3px; flex:1; min-width:0; }
   .kpi-merkury-main { display:flex; align-items:center; gap:8px; }
@@ -2344,7 +2340,7 @@ products.forEach(p => {
     reorders: new Array(weeks.length).fill(0),
     reorderData: new Array(weeks.length).fill(null).map(() => ({qty:0,casePack:'',config:''})),
     additionalModels: [],
-    openStock: 0,
+    openStock: p.onHandMerkury,
     skinnyQP: 0,
     salesRates: sr,
     salesRatesManual: new Array(weeks.length).fill(false),
@@ -2521,6 +2517,7 @@ function renderSummary() {
 }
 
 function buildProduct(p) {
+  recomputeOnHandMerkury(p.sku);
   const s = state[p.sku];
   const rows = calcRows(p);
 
@@ -2558,11 +2555,7 @@ function buildProduct(p) {
       </div>
       <div class="kpi-item" style="flex:3;min-width:320px;align-items:center;gap:10px;flex-wrap:nowrap;">
         <div class="k" style="white-space:nowrap;">On hand (Merkury)</div>
-        <input type="text" inputmode="numeric" class="v kpi-merkury-input" id="kpi-merkury-${p.sku}"
-          value="${s.onHandMerkury.toLocaleString()}"
-          data-sku="${p.sku}"
-          onfocus="this.value=this.value.replace(/,/g,'')"
-          onblur="this.value=(parseFloat(this.value.replace(/,/g,''))||0).toLocaleString();handleOnHandMerkuryEdit(this)" />
+        <div class="v" id="kpi-merkury-${p.sku}" title="Open Stock + Skinny QP">${s.onHandMerkury.toLocaleString()}</div>
         <div class="kpi-sub-item" style="">
           <label>Open Stock</label>
           <input type="text" inputmode="numeric"
@@ -3842,21 +3835,15 @@ async function loadSudsLabFromSupabase() {
   }
 }
 
-async function handleOnHandMerkuryEdit(input) {
-  const sku = input.dataset.sku;
-  const val = parseFloat(input.value.replace(/,/g, '')) || 0;
-  state[sku].onHandMerkury = val;
+// On Hand (Merkury) is a derived, read-only value: Open Stock + Skinny QP.
+// Call this any time either sub-field changes (manual edit, ATS sync, or a
+// cross-device Supabase overlay) before anything reads state[sku].onHandMerkury.
+function recomputeOnHandMerkury(sku) {
+  const s = state[sku];
+  if (!s) return;
+  s.onHandMerkury = (s.openStock || 0) + (s.skinnyQP || 0);
   const p = products.find(x => x.sku === sku);
-  if (p) p.onHandMerkury = val;
-  // Full recalc: updates all Ending INV, WOS, and KPI strip
-  updateCalcs(sku);
-  saveState();
-  // Persist to Supabase
-  if (!isTestMode && sbClient) {
-    try {
-      await sbClient.from('sku_meta').upsert({ sku, on_hand_merkury: val }, { onConflict: 'sku' });
-    } catch(e) { console.warn('onHandMerkury save failed:', e.message); }
-  }
+  if (p) p.onHandMerkury = s.onHandMerkury;
 }
 
 function handleMerkurySubField(input) {
@@ -3864,11 +3851,18 @@ function handleMerkurySubField(input) {
   const field = input.dataset.subfield;
   const val  = parseFloat(input.value.replace(/,/g, '')) || 0;
   state[sku][field] = val;
+  recomputeOnHandMerkury(sku);
+  updateCalcs(sku); // refreshes Ending INV, WOS, and the On Hand (Merkury) display
   saveState();
   const col = field === 'openStock' ? 'open_stock' : 'skinny_qp';
   if (!isTestMode && sbClient) {
     (async () => {
-      try { await sbClient.from('sku_meta').upsert({ sku, [col]: val }, { onConflict: 'sku' }); }
+      try {
+        await sbClient.from('sku_meta').upsert(
+          { sku, [col]: val, on_hand_merkury: state[sku].onHandMerkury },
+          { onConflict: 'sku' }
+        );
+      }
       catch(e) { console.warn(field + ' sync failed:', e.message); }
     })();
   }
@@ -4022,7 +4016,7 @@ function updateCalcs(sku) {
   const avgEl = document.getElementById(`kpi-avgsales-${sku}`);
   if (avgEl) avgEl.textContent = effectiveAvg.toLocaleString();
   const merkuryEl = document.getElementById(`kpi-merkury-${sku}`);
-  if (merkuryEl) merkuryEl.value = state[sku].onHandMerkury.toLocaleString();
+  if (merkuryEl) merkuryEl.textContent = state[sku].onHandMerkury.toLocaleString();
   renderSummary();
 }
 
@@ -4926,10 +4920,13 @@ async function syncFromATS(autoBuffer = null) {
       const sku   = modelToSku[model];
       if (!sku || !state[sku]) continue;
 
-      // 1. On Hand (Merkury) ← ATS NOW
+      // 1. Open Stock ← ATS NOW. On Hand (Merkury) is derived (Open Stock + Skinny QP) —
+      // recomputeOnHandMerkury() keeps it in sync; Skinny QP is manual-entry only (no
+      // column for it in this file) and is left untouched by a sync.
       const atsNow = row[ATS_NOW_COL];
       if (atsNow != null && !isNaN(atsNow)) {
-        state[sku].onHandMerkury = Math.round(Number(atsNow));
+        state[sku].openStock = Math.round(Number(atsNow));
+        recomputeOnHandMerkury(sku);
       }
 
       // 2. Firm Receipts ← PO Detail ETA (parsed dates mapped to FW weeks)
@@ -5028,6 +5025,7 @@ async function syncFromATS(autoBuffer = null) {
       try {
         const metaUpserts = skusUpdated.map(sku => ({
           sku,
+          open_stock: state[sku].openStock || 0,
           on_hand_merkury: state[sku].onHandMerkury
         }));
         const weeklyUpserts = [];
@@ -7423,11 +7421,8 @@ function applyMetaRow(row) {
     if (container) container.appendChild(buildProduct(newP));
   }
   if (row.hidden != null) state[sku].hidden = row.hidden;
-  if (row.on_hand_merkury != null) {
-    state[sku].onHandMerkury = row.on_hand_merkury;
-    const p = products.find(x => x.sku === sku);
-    if (p) p.onHandMerkury = row.on_hand_merkury;
-  }
+  // on_hand_merkury is a derived column (Open Stock + Skinny QP) — not applied directly
+  // here; recomputeOnHandMerkury() below rebuilds it from the two sub-fields instead.
   if (row.avg_weekly_sales_vd != null) {
     state[sku].avgWeeklySalesVD = parseFloat(row.avg_weekly_sales_vd);
     state[sku].vdConnected = true;
@@ -7439,6 +7434,7 @@ function applyMetaRow(row) {
   }
   if (row.open_stock != null) state[sku].openStock = row.open_stock;
   if (row.skinny_qp  != null) state[sku].skinnyQP  = row.skinny_qp;
+  recomputeOnHandMerkury(sku);
 }
 
 // Apply a single sku_weekly row to in-memory state (no DOM work — see refreshProductDom).
@@ -7497,14 +7493,15 @@ function refreshProductDom(sku, opts) {
       if (d && d.casePack) applyReorderColor(inp.closest('td'), d.casePack);
     });
   }
-  const merkuryEl = document.getElementById('kpi-merkury-' + sku);
-  if (merkuryEl && !skip(merkuryEl)) merkuryEl.value = (s.onHandMerkury || 0).toLocaleString();
   const thdEl = document.getElementById('kpi-thd-' + sku);
   if (thdEl) thdEl.textContent = (s.onHandTHD || 0).toLocaleString();
   const openEl = document.getElementById('kpi-openstock-' + sku);
   if (openEl && !skip(openEl)) openEl.value = (s.openStock || 0).toLocaleString();
   const qpEl = document.getElementById('kpi-skinnyqp-' + sku);
   if (qpEl && !skip(qpEl)) qpEl.value = (s.skinnyQP || 0).toLocaleString();
+  recomputeOnHandMerkury(sku); // Open Stock/Skinny QP may have just changed above
+  const merkuryEl = document.getElementById('kpi-merkury-' + sku);
+  if (merkuryEl) merkuryEl.textContent = (s.onHandMerkury || 0).toLocaleString();
   updateCalcs(sku);
   updateFirmReceiptLabel(sku);
   updateSuofLabel(sku);
@@ -7944,9 +7941,9 @@ function loadState() {
       s.openStock          = saved.openStock || 0;
       s.skinnyQP           = saved.skinnyQP  || 0;
       s.additionalModels   = saved.additionalModels || [];
-      s.onHandMerkury      = saved.onHandMerkury != null ? saved.onHandMerkury : p.onHandMerkury;
       s.trackingStartIdx   = saved.trackingStartIdx != null ? saved.trackingStartIdx : 0;
       s.savedCpData        = saved.savedCpData || null;
+      recomputeOnHandMerkury(p.sku); // derived from Open Stock + Skinny QP, not the stored flat value
     });
     return snap;
   } catch(e) { return false; }
