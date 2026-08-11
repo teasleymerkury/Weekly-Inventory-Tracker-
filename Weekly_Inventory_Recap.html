@@ -141,10 +141,6 @@
   .kpi-item .k { font-size: 10px; color: rgba(255,255,255,0.58); text-transform: uppercase;
     letter-spacing: 0.5px; white-space: nowrap; }
   .kpi-item .v { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.96); white-space: nowrap; }
-  .kpi-merkury-input { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.96); background: transparent;
-    border: none; border-radius: 0;
-    padding: 0 2px; width: 90px; outline: none; cursor: text; }
-  .kpi-merkury-input:focus { background: rgba(255,255,255,0.08); border-radius: 4px; }
   /* On Hand (Merkury) sub-cells */
   .kpi-merkury-wrap { display:flex; flex-direction:column; gap:3px; flex:1; min-width:0; }
   .kpi-merkury-main { display:flex; align-items:center; gap:8px; }
@@ -931,17 +927,23 @@
   tr.fr-group-header td.fr-group-header-lbl .fr-ctrl-group {
     display: flex; margin-left: 0; margin-top: 2px;
   }
-  tr.fr-sub-row td.fr-sub-lbl { padding-left: 22px !important; }
+  tr.fr-sub-row td.fr-sub-lbl { padding-left: 22px !important; overflow: hidden; }
   .fr-del-wh {
     display:inline-flex; align-items:center; justify-content:center;
-    width:12px; height:12px; margin-left:5px; border-radius:3px;
+    width:12px; height:12px; margin-left:5px; border-radius:3px; flex-shrink: 0;
     color:rgba(255,140,140,0.75); font-size:12px; line-height:1; cursor:pointer; vertical-align:middle;
   }
   .fr-del-wh:hover { color:rgba(255,120,120,1); background:rgba(255,100,100,0.15); }
+  /* Name, SKU#, and delete button all on one line — the label column is a
+     fixed 150px, so the name (flexible, truncates with an ellipsis) gives up
+     space first; the SKU input and delete button are fixed-size and never
+     shrink, so the SKU number itself is always fully visible. */
+  .fr-sub-lbl-top { display: flex; align-items: center; gap: 4px; overflow: hidden; }
+  .fr-sub-lbl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
   tr.fr-sub-row td.fr-sub-lbl input.sr-retailer-sku-input {
-    width: 56px !important; text-align: left !important; display: inline-block;
-    margin-left: 5px; padding: 1px 4px !important; border-radius: 3px;
-    background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85); font-size: 10.5px;
+    width: 46px; flex-shrink: 0; box-sizing: border-box; text-align: left !important; display: block;
+    padding: 1px 3px !important; border-radius: 3px;
+    background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85); font-size: 10px;
   }
   tr.fr-sub-row td.fr-sub-lbl input.sr-retailer-sku-input:focus { background: rgba(255,255,255,0.20); }
   tr.fr-sub-row td input {
@@ -1751,6 +1753,7 @@
         <span style="font-size:11px;color:var(--text-2);">to</span>
         <select class="fw-select" id="sudslabFwTo" onchange="applySudslabFilters()"></select>
         <div style="flex:1;"></div>
+        <button class="add-item-btn" onclick="sortSudsLabProductsAlphabetically()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Sort all items alphabetically by SKU — one-time action, not automatic ongoing sorting">A-Z Sort</button>
         <button class="add-item-btn" onclick="openSudslabAddItemModal()" style="margin-right:4px;">&#43; Add Item</button>
       </div>
       <div id="sudslabProductsContainer"></div>
@@ -1888,6 +1891,12 @@
           <div style="font-weight:700;font-size:13px;margin-bottom:4px;">suds.lab</div>
           <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;">Two tabs (US / CA) — On Hand + warehouse breakdown, then Firm Receipt per week for every SKU.</div>
           <button class="add-item-btn" onclick="exportSudsLabTemplate()">&#128229; Export suds.lab Recap</button>
+        </div>
+        <div id="recapCardSudslabRetailer" style="flex:1;min-width:260px;background:rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">suds.lab — Retailer List</div>
+          <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;">Just the items linked to one retailer — SKU, that retailer's own SKU number, description, and on hand.</div>
+          <select id="sudslabRetailerExportSelect" class="fw-select" style="width:100%;margin-bottom:10px;"></select>
+          <button class="add-item-btn" onclick="exportSudsLabRetailerList()">&#128229; Export Retailer List</button>
         </div>
       </div>
     </div>
@@ -2331,7 +2340,7 @@ products.forEach(p => {
     reorders: new Array(weeks.length).fill(0),
     reorderData: new Array(weeks.length).fill(null).map(() => ({qty:0,casePack:'',config:''})),
     additionalModels: [],
-    openStock: 0,
+    openStock: p.onHandMerkury,
     skinnyQP: 0,
     salesRates: sr,
     salesRatesManual: new Array(weeks.length).fill(false),
@@ -2508,6 +2517,7 @@ function renderSummary() {
 }
 
 function buildProduct(p) {
+  recomputeOnHandMerkury(p.sku);
   const s = state[p.sku];
   const rows = calcRows(p);
 
@@ -2545,11 +2555,7 @@ function buildProduct(p) {
       </div>
       <div class="kpi-item" style="flex:3;min-width:320px;align-items:center;gap:10px;flex-wrap:nowrap;">
         <div class="k" style="white-space:nowrap;">On hand (Merkury)</div>
-        <input type="text" inputmode="numeric" class="v kpi-merkury-input" id="kpi-merkury-${p.sku}"
-          value="${s.onHandMerkury.toLocaleString()}"
-          data-sku="${p.sku}"
-          onfocus="this.value=this.value.replace(/,/g,'')"
-          onblur="this.value=(parseFloat(this.value.replace(/,/g,''))||0).toLocaleString();handleOnHandMerkuryEdit(this)" />
+        <div class="v" id="kpi-merkury-${p.sku}" title="Open Stock + Skinny QP">${s.onHandMerkury.toLocaleString()}</div>
         <div class="kpi-sub-item" style="">
           <label>Open Stock</label>
           <input type="text" inputmode="numeric"
@@ -2989,12 +2995,15 @@ function buildSudsLabMarketTable(p, s, rows, market) {
     if (opts.custom) {
       const removeOnClick = opts.removeOnClick || `${opts.removeFn}('${market}','${opts.itemId}')`;
       // Retailer sub-rows (not warehouse ones) also carry that retailer's OWN
-      // SKU/catalog number for this product — an inline editable cell right
-      // next to the name, e.g. "Autozone 1234".
+      // SKU/catalog number for this product, on the SAME line as the name —
+      // the label column is a fixed 150px, so the name truncates with an
+      // ellipsis if it's too long to fit alongside the SKU and delete button;
+      // the SKU number itself always stays fully visible (chosen over
+      // wrapping to a second line or hiding the SKU behind a hover/click).
       const skuInputHtml = opts.retailerSkuValue !== undefined
         ? `<input type="text" class="sr-retailer-sku-input" value="${(opts.retailerSkuValue || '').replace(/"/g,'&quot;')}" placeholder="SKU#" data-sku="${p.sku}" data-retailer-id="${opts.itemId}" onclick="event.stopPropagation()" onchange="handleSudsLabRetailerSkuChange(this)" />`
         : '';
-      tdLabel.innerHTML = `${label}${skuInputHtml}<span class="fr-del-wh" title="Remove" onclick="${removeOnClick}">&times;</span>`;
+      tdLabel.innerHTML = `<div class="fr-sub-lbl-top"><span class="fr-sub-lbl-name" title="${label.replace(/"/g,'&quot;')}">${label}</span>${skuInputHtml}<span class="fr-del-wh" title="Remove" onclick="${removeOnClick}">&times;</span></div>`;
     } else {
       tdLabel.textContent = label;
     }
@@ -3154,6 +3163,23 @@ function renderSudsLabProducts() {
   container.appendChild(frag);
 }
 
+// One-time action, not an ongoing behavior — re-sorts the whole list by SKU
+// right now. New items landing in the right spot going forward is handled
+// separately by _sudslabEnsureProduct's alphabetical insert; this is for
+// fixing up whatever order the list is ALREADY in (e.g. left over from
+// before that existed, or from manual drag-and-drop). Persists the same way
+// drag-and-drop reordering already does (saveSudsLabState()) — this doesn't
+// introduce a new persistence mechanism, just reuses the existing one.
+function sortSudsLabProductsAlphabetically() {
+  sudslabProducts.sort((a, b) => a.sku.toUpperCase() < b.sku.toUpperCase() ? -1 : a.sku.toUpperCase() > b.sku.toUpperCase() ? 1 : 0);
+  renderSudsLabProducts();
+  buildSudslabFilterDropdown();
+  buildSudslabRetailerFilterDropdown();
+  applySudslabFilters();
+  scrollAllSudsLabToCurrentWeek();
+  if (!isTestMode) saveSudsLabState();
+}
+
 function expandSudsLabGroup(sku, groupKey) {
   const block = document.getElementById('sudslab-block-' + sku);
   if (!block) return;
@@ -3177,6 +3203,51 @@ function toggleSudsLabMarket(sku, market) {
   if (toggle) toggle.innerHTML = isHidden ? '&#9650;' : '&#9660;';
 }
 
+// Rebuilding a SINGLE product's block (instead of calling
+// renderSudsLabProducts(), which tears down and rebuilds all ~90 blocks) so
+// that adding/removing a retailer doesn't collapse every expanded market
+// table and Firm Receipt/Sales rate group back to its default closed state —
+// both for every OTHER product on the page, and for this one too. Every
+// sub-row starts collapsed on a fresh build, so a full re-render silently
+// discarded whatever the user had open.
+function _sudslabCaptureExpansionState(sku) {
+  const block = document.getElementById('sudslab-block-' + sku);
+  if (!block) return null;
+  const captured = { markets: {}, groups: {} };
+  ['us', 'ca'].forEach(market => {
+    const wrap = document.getElementById(`sudslab-mkt-table-${market}-${sku}`);
+    if (wrap) captured.markets[market] = wrap.style.display !== 'none';
+  });
+  block.querySelectorAll('tr.fr-sub-row').forEach(tr => {
+    const groupClass = [...tr.classList].find(c => c.startsWith('fr-group-sub-'));
+    if (groupClass) captured.groups[groupClass] = tr.style.display !== 'none';
+  });
+  return captured;
+}
+function _sudslabRestoreExpansionState(sku, captured) {
+  if (!captured) return;
+  const block = document.getElementById('sudslab-block-' + sku);
+  if (!block) return;
+  Object.entries(captured.markets).forEach(([market, isOpen]) => {
+    const wrap = document.getElementById(`sudslab-mkt-table-${market}-${sku}`);
+    const toggle = document.getElementById(`sudslab-mkt-toggle-${market}-${sku}`);
+    if (wrap) wrap.style.display = isOpen ? '' : 'none';
+    if (toggle) toggle.innerHTML = isOpen ? '&#9650;' : '&#9660;';
+  });
+  Object.entries(captured.groups).forEach(([groupClass, isOpen]) => {
+    block.querySelectorAll(`tr.${groupClass}`).forEach(tr => { tr.style.display = isOpen ? '' : 'none'; });
+  });
+}
+function _sudslabRerenderProduct(sku) {
+  const p = sudslabProducts.find(x => x.sku === sku);
+  const oldBlock = document.getElementById('sudslab-block-' + sku);
+  if (!p || !oldBlock) { renderSudsLabProducts(); return; }
+  const expansionState = _sudslabCaptureExpansionState(sku);
+  const newBlock = buildSudsLabProduct(p);
+  oldBlock.replaceWith(newBlock);
+  _sudslabRestoreExpansionState(sku, expansionState);
+}
+
 // ── suds.lab: manually-added retailers (Sales rate breakdown) ────────────────
 // Retailer names are a shared, account-wide catalog (persisted via app_cache,
 // avoiding a schema migration) — but which retailers apply to a given SKU is
@@ -3195,7 +3266,7 @@ function addSudsLabRetailer(sku, market) {
   const s = sudslabState[sku];
   if (!s.customSR) s.customSR = {};
   if (!s.customSR[retailer.id]) s.customSR[retailer.id] = new Array(weeks.length).fill(0);
-  renderSudsLabProducts();
+  _sudslabRerenderProduct(sku);
   buildSudslabFilterDropdown();
   buildSudslabRetailerFilterDropdown();
   applySudslabFilters();
@@ -3218,7 +3289,7 @@ function removeSudsLabRetailer(sku, market, retailerId) {
     return st && st.customSR && st.customSR[retailerId] !== undefined;
   });
   if (!stillUsed) sudslabRetailers[market] = sudslabRetailers[market].filter(x => x.id !== retailerId);
-  renderSudsLabProducts();
+  _sudslabRerenderProduct(sku);
   buildSudslabFilterDropdown();
   buildSudslabRetailerFilterDropdown();
   applySudslabFilters();
@@ -3754,26 +3825,25 @@ async function loadSudsLabFromSupabase() {
     buildSudslabRetailerFilterDropdown();
     initSudslabFilterBar();
     if (_retailerLinksCleaned && !isTestMode) { saveSudsLabRetailers(); saveSudsLabCustomSR(); }
+    // Fire-and-forget — don't hold up the rest of the page for this. Whatever
+    // sync files were last uploaded fill in shortly after the already-saved
+    // Supabase data renders, same as THD's (unwired) autoLoadSyncFiles was
+    // meant to work.
+    autoLoadSudsLabSyncFiles();
   } catch (e) {
     console.warn('loadSudsLabFromSupabase failed:', e.message);
   }
 }
 
-async function handleOnHandMerkuryEdit(input) {
-  const sku = input.dataset.sku;
-  const val = parseFloat(input.value.replace(/,/g, '')) || 0;
-  state[sku].onHandMerkury = val;
+// On Hand (Merkury) is a derived, read-only value: Open Stock + Skinny QP.
+// Call this any time either sub-field changes (manual edit, ATS sync, or a
+// cross-device Supabase overlay) before anything reads state[sku].onHandMerkury.
+function recomputeOnHandMerkury(sku) {
+  const s = state[sku];
+  if (!s) return;
+  s.onHandMerkury = (s.openStock || 0) + (s.skinnyQP || 0);
   const p = products.find(x => x.sku === sku);
-  if (p) p.onHandMerkury = val;
-  // Full recalc: updates all Ending INV, WOS, and KPI strip
-  updateCalcs(sku);
-  saveState();
-  // Persist to Supabase
-  if (!isTestMode && sbClient) {
-    try {
-      await sbClient.from('sku_meta').upsert({ sku, on_hand_merkury: val }, { onConflict: 'sku' });
-    } catch(e) { console.warn('onHandMerkury save failed:', e.message); }
-  }
+  if (p) p.onHandMerkury = s.onHandMerkury;
 }
 
 function handleMerkurySubField(input) {
@@ -3781,11 +3851,18 @@ function handleMerkurySubField(input) {
   const field = input.dataset.subfield;
   const val  = parseFloat(input.value.replace(/,/g, '')) || 0;
   state[sku][field] = val;
+  recomputeOnHandMerkury(sku);
+  updateCalcs(sku); // refreshes Ending INV, WOS, and the On Hand (Merkury) display
   saveState();
   const col = field === 'openStock' ? 'open_stock' : 'skinny_qp';
   if (!isTestMode && sbClient) {
     (async () => {
-      try { await sbClient.from('sku_meta').upsert({ sku, [col]: val }, { onConflict: 'sku' }); }
+      try {
+        await sbClient.from('sku_meta').upsert(
+          { sku, [col]: val, on_hand_merkury: state[sku].onHandMerkury },
+          { onConflict: 'sku' }
+        );
+      }
       catch(e) { console.warn(field + ' sync failed:', e.message); }
     })();
   }
@@ -3939,7 +4016,7 @@ function updateCalcs(sku) {
   const avgEl = document.getElementById(`kpi-avgsales-${sku}`);
   if (avgEl) avgEl.textContent = effectiveAvg.toLocaleString();
   const merkuryEl = document.getElementById(`kpi-merkury-${sku}`);
-  if (merkuryEl) merkuryEl.value = state[sku].onHandMerkury.toLocaleString();
+  if (merkuryEl) merkuryEl.textContent = state[sku].onHandMerkury.toLocaleString();
   renderSummary();
 }
 
@@ -4160,6 +4237,10 @@ const SUDSLAB_GROUP_FR_FIELD     = { sanPedro: 'firmReceiptsSanPedro',  tollEcom
 const SUDSLAB_GROUP_SYNC_BTN     = { sanPedro: 'btnSudslabSanPedroSync', tollEcomm: 'btnSudslabTollEcommSync', canada: 'btnSudslabCanadaSync' };
 const SUDSLAB_GROUP_CONNECT_BTN  = { sanPedro: 'btnSudslabSanPedroConnect', tollEcomm: 'btnSudslabTollEcommConnect', canada: 'btnSudslabCanadaConnect' };
 const SUDSLAB_GROUP_FILE_KEY     = { sanPedro: 'sudslab_ats_sanPedro_file_name', tollEcomm: 'sudslab_ats_tollEcomm_file_name', canada: 'sudslab_ats_canada_file_name' };
+// Supabase Storage (sync-files bucket) filenames — own namespace so they
+// don't collide with THD's ats.xlsx/suof.xlsx/vd.xlsx in the same bucket.
+const SUDSLAB_GROUP_STORAGE_KEY = { sanPedro: 'sudslab_sanpedro.xlsx', tollEcomm: 'sudslab_tollecomm.xlsx', canada: 'sudslab_canada.xlsx' };
+const SUDSLAB_STOCK_STORAGE_KEY = 'sudslab_stock.xlsx';
 // Maps each status badge to its "Connect"/"Change File" button, so a restored
 // badge (see loadSudsLabFromSupabase) can also flip that button's label —
 // otherwise it would say "Connect" while the badge says "Connected".
@@ -4234,7 +4315,13 @@ function _sudslabEnsureProduct(sku) {
   let p = sudslabProducts.find(x => x.sku === sku);
   if (!p) {
     p = { sku, desc: '', inner: null, master: null };
-    sudslabProducts.push(p);
+    // Insert alphabetically by SKU instead of appending to the end, so a
+    // newly-discovered or newly-added product lands in sorted order among
+    // whatever's already there — without disturbing the existing relative
+    // order of other products (e.g. any manual drag-and-drop arrangement).
+    const insertAt = sudslabProducts.findIndex(x => x.sku.toUpperCase() > sku.toUpperCase());
+    if (insertAt === -1) sudslabProducts.push(p);
+    else sudslabProducts.splice(insertAt, 0, p);
   }
   if (!sudslabState[sku]) sudslabState[sku] = _sudslabEmptyState();
   return p;
@@ -4514,7 +4601,7 @@ async function _sudslabAwaitLoad() {
   if (_sudslabLoadPromise) { try { await _sudslabLoadPromise; } catch(e) {} _sudslabLoadPromise = null; }
 }
 
-async function syncSudsLabATS(group) {
+async function syncSudsLabATS(group, isAutoLoad) {
   const file = sudslabAtsFiles[group];
   if (!file) return;
   await _sudslabAwaitLoad();
@@ -4522,8 +4609,10 @@ async function syncSudsLabATS(group) {
   const onHandField = SUDSLAB_GROUP_ONHAND_FIELD[group];
   const frField = SUDSLAB_GROUP_FR_FIELD[group];
   const btnSync = document.getElementById(SUDSLAB_GROUP_SYNC_BTN[group]);
-  if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
-  _sudslabSetStatus(statusId, 'Syncing…');
+  if (!isAutoLoad) {
+    if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
+    _sudslabSetStatus(statusId, 'Syncing…');
+  }
   try {
     const buffer = await file.arrayBuffer();
     const wb = XLSX.read(buffer, { type: 'array', raw: true });
@@ -4537,11 +4626,13 @@ async function syncSudsLabATS(group) {
     const itemInfoData = wsItemInfo ? XLSX.utils.sheet_to_json(wsItemInfo, { header: 1, defval: null, raw: true }) : null;
 
     let synced = 0;
+    const matchedSkus = new Set();
     for (let ri = 2; ri < data.length; ri++) {
       const row = data[ri];
       if (!row || row[modelCol] == null) continue;
       const materialId = String(row[modelCol]).trim();
       if (!materialId.toUpperCase().startsWith('SL-')) continue;
+      matchedSkus.add(materialId.toUpperCase());
 
       const p = _sudslabEnsureProduct(materialId);
       const s = sudslabState[materialId];
@@ -4569,6 +4660,20 @@ async function syncSudsLabATS(group) {
 
     if (synced === 0) throw new Error('No SL- rows found in the ATS sheet.');
 
+    // A SKU that's ALREADY known but didn't show up anywhere in this sync
+    // means this source no longer carries it — confirmed zero here, not
+    // "unknown, leave whatever was last synced." Without this, removing an
+    // item from the real inventory file could never be reflected: the old
+    // on-hand/firm-receipt values would just sit there forever since nothing
+    // else ever clears them.
+    sudslabProducts.forEach(p => {
+      if (matchedSkus.has(p.sku.toUpperCase())) return;
+      const s = sudslabState[p.sku];
+      if (!s) return;
+      if (s[onHandField] !== 0) s[onHandField] = 0;
+      if (s[frField].some(v => v !== 0)) s[frField] = new Array(weeks.length).fill(0);
+    });
+
     const wsSoDetail = wb.Sheets['SO Detail'] || wb.Sheets['So Detail'] || wb.Sheets['so detail'];
     if (wsSoDetail) {
       const soData = XLSX.utils.sheet_to_json(wsSoDetail, { header: 1, defval: null, raw: true });
@@ -4579,16 +4684,22 @@ async function syncSudsLabATS(group) {
     buildSudslabFilterDropdown();
     applySudslabFilters();
     scrollAllSudsLabToCurrentWeek();
-    const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
-    _sudslabSetStatus(statusId, `✓ Connected — ${file.name} — last synced ${ts} (${synced} SKU${synced === 1 ? '' : 's'} synced)`, 'connected');
-    const connectBtn = document.getElementById(SUDSLAB_GROUP_CONNECT_BTN[group]);
-    if (connectBtn) connectBtn.textContent = '📂 Change File';
+    if (!isAutoLoad) {
+      const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+      _sudslabSetStatus(statusId, `✓ Connected — ${file.name} — last synced ${ts} (${synced} SKU${synced === 1 ? '' : 's'} synced)`, 'connected');
+      const connectBtn = document.getElementById(SUDSLAB_GROUP_CONNECT_BTN[group]);
+      if (connectBtn) connectBtn.textContent = '📂 Change File';
+      // Store the raw file so any device can auto-load it later — only on a
+      // real (non-auto-load) sync, otherwise we'd just re-upload the exact
+      // bytes we downloaded a moment ago.
+      uploadSyncFile(SUDSLAB_GROUP_STORAGE_KEY[group], buffer);
+    }
     if (!isTestMode) saveSudsLabState();
   } catch (e) {
-    _sudslabSetStatus(statusId, '⚠ Sync failed: ' + e.message, 'error');
+    if (!isAutoLoad) _sudslabSetStatus(statusId, '⚠ Sync failed: ' + e.message, 'error');
     console.warn('syncSudsLabATS(' + group + ') failed:', e.message);
   } finally {
-    if (btnSync) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
+    if (btnSync && !isAutoLoad) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
   }
 }
 
@@ -4605,13 +4716,15 @@ function _sudslabFindStockColumns(headerRow) {
   };
 }
 
-async function syncSudsLabStock() {
+async function syncSudsLabStock(isAutoLoad) {
   const file = sudslabStockFile;
   if (!file) return;
   await _sudslabAwaitLoad();
   const btnSync = document.getElementById('btnSudslabStockSync');
-  if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
-  _sudslabSetStatus('sudslabStockStatus', 'Syncing…');
+  if (!isAutoLoad) {
+    if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
+    _sudslabSetStatus('sudslabStockStatus', 'Syncing…');
+  }
   try {
     const buffer = await file.arrayBuffer();
     const wb = XLSX.read(buffer, { type: 'array', raw: true });
@@ -4629,6 +4742,7 @@ async function syncSudsLabStock() {
     if (productCol < 0 || onHandCol < 0 || siteCol < 0) throw new Error('Missing expected columns (Product ID / On-Hand Stock / Site ID).');
 
     let synced = 0, starCount = 0, ultraCount = 0;
+    const matchedStar = new Set(), matchedUltra = new Set();
     for (let ri = hdrIdx + 1; ri < data.length; ri++) {
       const row = data[ri];
       if (!row || row[productCol] == null) continue;
@@ -4641,27 +4755,41 @@ async function syncSudsLabStock() {
 
       _sudslabEnsureProduct(materialId);
       const s = sudslabState[materialId];
-      if (site === '200-310') { s.onHandStar = onHand; starCount++; }
-      else { s.onHandUltra = onHand; ultraCount++; }
+      if (site === '200-310') { s.onHandStar = onHand; starCount++; matchedStar.add(materialId.toUpperCase()); }
+      else { s.onHandUltra = onHand; ultraCount++; matchedUltra.add(materialId.toUpperCase()); }
       synced++;
     }
 
     if (synced === 0) throw new Error('No SL- rows found for Site ID 200-300/200-310.');
 
+    // Same reasoning as syncSudsLabATS: a known SKU missing from this site's
+    // rows in a fresh sync means confirmed zero there now, not "leave the
+    // last-synced value alone forever."
+    sudslabProducts.forEach(p => {
+      const s = sudslabState[p.sku];
+      if (!s) return;
+      const skuUp = p.sku.toUpperCase();
+      if (!matchedStar.has(skuUp) && s.onHandStar !== 0) s.onHandStar = 0;
+      if (!matchedUltra.has(skuUp) && s.onHandUltra !== 0) s.onHandUltra = 0;
+    });
+
     renderSudsLabProducts();
     buildSudslabFilterDropdown();
     applySudslabFilters();
     scrollAllSudsLabToCurrentWeek();
-    const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
-    _sudslabSetStatus('sudslabStockStatus', `✓ Connected — ${file.name} — last synced ${ts} (${starCount} Star, ${ultraCount} Ultra)`, 'connected');
-    const connectBtn = document.getElementById('btnSudslabStockConnect');
-    if (connectBtn) connectBtn.textContent = '📂 Change File';
+    if (!isAutoLoad) {
+      const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+      _sudslabSetStatus('sudslabStockStatus', `✓ Connected — ${file.name} — last synced ${ts} (${starCount} Star, ${ultraCount} Ultra)`, 'connected');
+      const connectBtn = document.getElementById('btnSudslabStockConnect');
+      if (connectBtn) connectBtn.textContent = '📂 Change File';
+      uploadSyncFile(SUDSLAB_STOCK_STORAGE_KEY, buffer);
+    }
     if (!isTestMode) saveSudsLabState();
   } catch (e) {
-    _sudslabSetStatus('sudslabStockStatus', '⚠ Sync failed: ' + e.message, 'error');
+    if (!isAutoLoad) _sudslabSetStatus('sudslabStockStatus', '⚠ Sync failed: ' + e.message, 'error');
     console.warn('syncSudsLabStock failed:', e.message);
   } finally {
-    if (btnSync) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
+    if (btnSync && !isAutoLoad) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
   }
 }
 
@@ -4792,10 +4920,13 @@ async function syncFromATS(autoBuffer = null) {
       const sku   = modelToSku[model];
       if (!sku || !state[sku]) continue;
 
-      // 1. On Hand (Merkury) ← ATS NOW
+      // 1. Open Stock ← ATS NOW. On Hand (Merkury) is derived (Open Stock + Skinny QP) —
+      // recomputeOnHandMerkury() keeps it in sync; Skinny QP is manual-entry only (no
+      // column for it in this file) and is left untouched by a sync.
       const atsNow = row[ATS_NOW_COL];
       if (atsNow != null && !isNaN(atsNow)) {
-        state[sku].onHandMerkury = Math.round(Number(atsNow));
+        state[sku].openStock = Math.round(Number(atsNow));
+        recomputeOnHandMerkury(sku);
       }
 
       // 2. Firm Receipts ← PO Detail ETA (parsed dates mapped to FW weeks)
@@ -4894,6 +5025,7 @@ async function syncFromATS(autoBuffer = null) {
       try {
         const metaUpserts = skusUpdated.map(sku => ({
           sku,
+          open_stock: state[sku].openStock || 0,
           on_hand_merkury: state[sku].onHandMerkury
         }));
         const weeklyUpserts = [];
@@ -5050,8 +5182,11 @@ function updateSheetsAccountVisibility() {
   if (reportTab) reportTab.style.display = isSudslab ? 'none' : '';
   const thdCard = document.getElementById('recapCardThd');
   const sudslabCard = document.getElementById('recapCardSudslab');
+  const sudslabRetailerCard = document.getElementById('recapCardSudslabRetailer');
   if (thdCard) thdCard.style.display = isSudslab ? 'none' : '';
   if (sudslabCard) sudslabCard.style.display = isSudslab ? '' : 'none';
+  if (sudslabRetailerCard) sudslabRetailerCard.style.display = isSudslab ? '' : 'none';
+  if (isSudslab) populateSudslabRetailerExportSelect();
   if (isSudslab && reportTab && reportTab.classList.contains('active')) switchSheetsTab('recap');
 }
 function showWeeklyRecap() {
@@ -7016,6 +7151,32 @@ async function autoLoadSyncFiles() {
   if (vdBuffer)   await syncFromVD(vdBuffer);
 }
 
+// suds.lab equivalent — downloads whichever of the four sync files aren't
+// already in memory this session, wraps each in a File so it goes through
+// the exact same parsing path as a manual "Connect", but passes isAutoLoad
+// so the already-restored status badge/connect button don't get overwritten
+// with a synthetic filename, and the file isn't re-uploaded right after
+// being downloaded.
+async function autoLoadSudsLabSyncFiles() {
+  if (!sbClient || isTestMode) return;
+  const needSanPedro  = !sudslabAtsFiles.sanPedro;
+  const needTollEcomm = !sudslabAtsFiles.tollEcomm;
+  const needCanada    = !sudslabAtsFiles.canada;
+  const needStock     = !sudslabStockFile;
+  if (!needSanPedro && !needTollEcomm && !needCanada && !needStock) return;
+
+  const [spBuf, teBuf, caBuf, stBuf] = await Promise.all([
+    needSanPedro  ? downloadSyncFile(SUDSLAB_GROUP_STORAGE_KEY.sanPedro)  : Promise.resolve(null),
+    needTollEcomm ? downloadSyncFile(SUDSLAB_GROUP_STORAGE_KEY.tollEcomm) : Promise.resolve(null),
+    needCanada    ? downloadSyncFile(SUDSLAB_GROUP_STORAGE_KEY.canada)    : Promise.resolve(null),
+    needStock     ? downloadSyncFile(SUDSLAB_STOCK_STORAGE_KEY)          : Promise.resolve(null)
+  ]);
+  if (spBuf) { sudslabAtsFiles.sanPedro  = new File([spBuf], 'san_pedro_stored.xlsx');  await syncSudsLabATS('sanPedro', true); }
+  if (teBuf) { sudslabAtsFiles.tollEcomm = new File([teBuf], 'toll_ecomm_stored.xlsx'); await syncSudsLabATS('tollEcomm', true); }
+  if (caBuf) { sudslabAtsFiles.canada    = new File([caBuf], 'canada_stored.xlsx');     await syncSudsLabATS('canada', true); }
+  if (stBuf) { sudslabStockFile          = new File([stBuf], 'stock_stored.xlsx');     await syncSudsLabStock(true); }
+}
+
 // Save additionalModels map to Supabase app_cache so they persist across devices
 async function saveAdditionalModelsCache() {
   if (isTestMode || !sbClient) return;
@@ -7260,11 +7421,8 @@ function applyMetaRow(row) {
     if (container) container.appendChild(buildProduct(newP));
   }
   if (row.hidden != null) state[sku].hidden = row.hidden;
-  if (row.on_hand_merkury != null) {
-    state[sku].onHandMerkury = row.on_hand_merkury;
-    const p = products.find(x => x.sku === sku);
-    if (p) p.onHandMerkury = row.on_hand_merkury;
-  }
+  // on_hand_merkury is a derived column (Open Stock + Skinny QP) — not applied directly
+  // here; recomputeOnHandMerkury() below rebuilds it from the two sub-fields instead.
   if (row.avg_weekly_sales_vd != null) {
     state[sku].avgWeeklySalesVD = parseFloat(row.avg_weekly_sales_vd);
     state[sku].vdConnected = true;
@@ -7276,6 +7434,7 @@ function applyMetaRow(row) {
   }
   if (row.open_stock != null) state[sku].openStock = row.open_stock;
   if (row.skinny_qp  != null) state[sku].skinnyQP  = row.skinny_qp;
+  recomputeOnHandMerkury(sku);
 }
 
 // Apply a single sku_weekly row to in-memory state (no DOM work — see refreshProductDom).
@@ -7334,14 +7493,15 @@ function refreshProductDom(sku, opts) {
       if (d && d.casePack) applyReorderColor(inp.closest('td'), d.casePack);
     });
   }
-  const merkuryEl = document.getElementById('kpi-merkury-' + sku);
-  if (merkuryEl && !skip(merkuryEl)) merkuryEl.value = (s.onHandMerkury || 0).toLocaleString();
   const thdEl = document.getElementById('kpi-thd-' + sku);
   if (thdEl) thdEl.textContent = (s.onHandTHD || 0).toLocaleString();
   const openEl = document.getElementById('kpi-openstock-' + sku);
   if (openEl && !skip(openEl)) openEl.value = (s.openStock || 0).toLocaleString();
   const qpEl = document.getElementById('kpi-skinnyqp-' + sku);
   if (qpEl && !skip(qpEl)) qpEl.value = (s.skinnyQP || 0).toLocaleString();
+  recomputeOnHandMerkury(sku); // Open Stock/Skinny QP may have just changed above
+  const merkuryEl = document.getElementById('kpi-merkury-' + sku);
+  if (merkuryEl) merkuryEl.textContent = (s.onHandMerkury || 0).toLocaleString();
   updateCalcs(sku);
   updateFirmReceiptLabel(sku);
   updateSuofLabel(sku);
@@ -7781,9 +7941,9 @@ function loadState() {
       s.openStock          = saved.openStock || 0;
       s.skinnyQP           = saved.skinnyQP  || 0;
       s.additionalModels   = saved.additionalModels || [];
-      s.onHandMerkury      = saved.onHandMerkury != null ? saved.onHandMerkury : p.onHandMerkury;
       s.trackingStartIdx   = saved.trackingStartIdx != null ? saved.trackingStartIdx : 0;
       s.savedCpData        = saved.savedCpData || null;
+      recomputeOnHandMerkury(p.sku); // derived from Open Stock + Skinny QP, not the stored flat value
     });
     return snap;
   } catch(e) { return false; }
@@ -11469,6 +11629,145 @@ function exportSudsLabTemplate() {
   XLSX.utils.book_append_sheet(wb, buildMarketSheet('ca'), 'suds.lab - CA');
   const dateStr = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `Weekly_Inventory_Recap_SudsLab_${dateStr}.xlsx`);
+}
+
+// ── suds.lab: export the item list for ONE retailer ──────────────────────────
+// Retailers are per-market (US vs CA catalogs), so the select's option value
+// encodes both — "us:rt_123" — since a bare retailer id alone doesn't say
+// which market's onHand total to use.
+function populateSudslabRetailerExportSelect() {
+  const sel = document.getElementById('sudslabRetailerExportSelect');
+  if (!sel) return;
+  const prevValue = sel.value;
+  const options = [];
+  (sudslabRetailers.us || []).forEach(r => options.push({ value: `us:${r.id}`, label: `${r.name} (US)` }));
+  (sudslabRetailers.ca || []).forEach(r => options.push({ value: `ca:${r.id}`, label: `${r.name} (CA)` }));
+  sel.innerHTML = options.length
+    ? options.map(o => `<option value="${o.value}">${o.label.replace(/"/g,'&quot;')}</option>`).join('')
+    : '<option value="">No retailers added yet</option>';
+  if (options.some(o => o.value === prevValue)) sel.value = prevValue;
+}
+
+function exportSudsLabRetailerList() {
+  const sel = document.getElementById('sudslabRetailerExportSelect');
+  const val = sel && sel.value;
+  if (!val || !val.includes(':')) { alert("Add a retailer to a product's Sales rate row first, then it'll show up here to export."); return; }
+  const [market, retailerId] = val.split(':');
+  const retailer = (sudslabRetailers[market] || []).find(r => r.id === retailerId);
+  if (!retailer) { alert('That retailer could not be found — try reopening Templates.'); return; }
+
+  // Autozone gets their own real item-setup file back (photos, specs, costs,
+  // UPCs — all Autozone-owned data we don't track) with just the on-hand
+  // columns refreshed, instead of the generic list every other retailer gets.
+  if (retailer.name.trim().toLowerCase() === 'autozone') { exportSudsLabAutozoneTemplate(retailerId); return; }
+
+  // Per-warehouse breakdown mirrors exactly what exportSudsLabTemplate()
+  // already shows for the full list — same warehouse columns, same source
+  // fields — just filtered down to this one retailer's linked items.
+  const warehouseHdrs = market === 'us'
+    ? ['San Pedro', 'Toll E-Comm', 'Star Distribution', 'Ultra-Look']
+    : ['Vertex West'];
+
+  const rows = [];
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    if (!s || !s.customSR || s.customSR[retailerId] === undefined) return;
+    // On Hand total: same value calcSudsLabMarketRows() shows on the product
+    // card (respects a manual on-hand override for this market, if set).
+    // The individual warehouse columns always show the raw synced values,
+    // same as the main suds.lab export and the product card's own breakdown.
+    const onHandManual = s.onHandManual && s.onHandManual[market];
+    const warehouseVals = market === 'us'
+      ? [s.onHandSanPedro || 0, s.onHandTollEcomm || 0, s.onHandStar || 0, s.onHandUltra || 0]
+      : [s.onHandCanada || 0];
+    const onHand = onHandManual != null ? onHandManual : warehouseVals.reduce((a, b) => a + b, 0);
+    rows.push([p.sku, (s.customSRSku && s.customSRSku[retailerId]) || '', p.desc || '', onHand, ...warehouseVals]);
+  });
+
+  if (rows.length === 0) { alert(`No items are linked to "${retailer.name}" yet.`); return; }
+
+  const aoa = [
+    [`${retailer.name} — Item List (${market === 'us' ? 'US' : 'Canada'})`],
+    [],
+    ['SKU', `${retailer.name} SKU`, 'Description', 'On Hand', ...warehouseHdrs],
+    ...rows
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 34 }, { wch: 10 }, ...warehouseHdrs.map(() => ({ wch: 14 }))];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, retailer.name.replace(/[\\/*?:[\]]/g, '').slice(0, 28) || 'Retailer');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `${retailer.name.replace(/[^a-z0-9]+/gi, '_')}_Item_List_${dateStr}.xlsx`);
+}
+
+// ── suds.lab: Autozone export — the real file as a live template ─────────────
+// Autozone requires their own item-setup file back in their own format (photos,
+// specs, FOB/Delivered/Retail cost, UPCs, LDP — all Autozone-owned data this
+// app doesn't track), not a generic list. Autozone_Template.xlsx is a snapshot
+// of that real file; ExcelJS (unlike the SheetJS build used for every other
+// export on this page) can write into an existing styled workbook, so the
+// embedded product photos, specs, pricing, and formatting all carry through
+// untouched — only columns N/O/P/Q (Toll E-Comm, 200-300 Ultra-Look, 200-310
+// Star Distribution, San Pedro) get overwritten with live on-hand values.
+// Rows are matched by column A (Old VPN, our own sku) first; if that doesn't
+// hit, by column B (MDM SKU#) against the retailer's own catalog number for
+// that product (customSRSku) — some rows in the real file don't carry a
+// recognizable Old VPN.
+async function exportSudsLabAutozoneTemplate(retailerId) {
+  let buf;
+  try {
+    const resp = await fetch('Autozone_Template.xlsx');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    buf = await resp.arrayBuffer();
+  } catch (e) {
+    alert('Could not load Autozone_Template.xlsx from the site — make sure that file is deployed alongside index.html.');
+    console.warn('Autozone template fetch failed:', e.message);
+    return;
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buf);
+  const ws = workbook.getWorksheet('AZ Store');
+  if (!ws) { alert('Autozone_Template.xlsx is missing the "AZ Store" sheet.'); return; }
+
+  const byOldVpn = {};
+  const byMdmSku = {};
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    if (!s) return;
+    byOldVpn[String(p.sku).trim().toUpperCase()] = s;
+    const mdm = s.customSRSku && s.customSRSku[retailerId];
+    if (mdm) byMdmSku[String(mdm).trim()] = s;
+  });
+
+  let matched = 0;
+  ws.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return; // header row
+    const oldVpn = row.getCell(1).value;
+    const mdmSku = row.getCell(2).value;
+    const s = (oldVpn && byOldVpn[String(oldVpn).trim().toUpperCase()])
+      || (mdmSku != null && byMdmSku[String(mdmSku).trim()]);
+    if (!s) return;
+    matched++;
+    row.getCell(14).value = s.onHandTollEcomm || 0; // N — Toll E-Comm
+    row.getCell(15).value = s.onHandUltra || 0;     // O — 200-300 Ultra-Look
+    row.getCell(16).value = s.onHandStar || 0;      // P — 200-310 Star Distribution
+    row.getCell(17).value = s.onHandSanPedro || 0;  // Q — San Pedro
+  });
+
+  if (matched === 0) { alert("None of this file's SKUs matched a product in the app — nothing was updated."); return; }
+
+  const outBuf = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const dateStr = new Date().toISOString().slice(0, 10);
+  a.download = `Autozone_Item_List_${dateStr}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function getSavedReportTemplates() {
