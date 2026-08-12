@@ -11486,6 +11486,26 @@ async function exportHomeDepotTemplate() {
   // they'll still export with zeroed Avg Weekly Sales/On Hand/Firm Receipt.
   allSkus.forEach(sku => { if (state[sku]) cpBySku[sku] = computeCpWeeklyQtys(sku); });
 
+  // Which config-bucket(s) ('open stock' | 'qp') each SKU appears under anywhere
+  // in the template. A SKU synced via ATS always has its on-hand land in the
+  // openStock field regardless of which config it actually sells under at THD —
+  // Skinny QP is manual-entry only. So a SKU that appears in ONLY ONE bucket
+  // (e.g. a QP-only new item with no companion Open Stock row) has nothing to
+  // split: its row must show the full On Hand (Merkury) total, not just
+  // whichever sub-field happens to match its config, or real inbound stock
+  // silently reads as 0. The per-bucket split below only applies to a SKU that
+  // genuinely appears under BOTH buckets somewhere (e.g. LH-PL023-999, which has
+  // both an Open Stock row and a Skinny QP row) — that's the only case where
+  // reading the flat total on both rows would double-count the same units.
+  const skuBuckets = {};
+  rows.forEach(row => {
+    const b = _d27lConfigBucket(row.config);
+    row.sku.forEach(sku => {
+      if (!skuBuckets[sku]) skuBuckets[sku] = new Set();
+      skuBuckets[sku].add(b);
+    });
+  });
+
   // Build the model->{ceRow, qpRow} pairing map for the WOS blend rule,
   // using each row's FINAL (post-reshape) row number.
   const ceFp = finalPositions['Current Existing Items'];
@@ -11528,7 +11548,14 @@ async function exportHomeDepotTemplate() {
       // split in this app, so onHandTHD stays a flat per-SKU total.
       const onHandMerkuryField = bucket === 'qp' ? 'skinnyQP' : 'openStock';
       const avgWeeklySales = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].avgWeeklySalesVD) || 0), 0);
-      const onHandMerkury  = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku][onHandMerkuryField]) || 0), 0);
+      const onHandMerkury  = row.sku.reduce((sum, sku) => {
+        if (!state[sku]) return sum;
+        // Only split between openStock/skinnyQP when this SKU genuinely appears
+        // under both config buckets somewhere in the template — otherwise there's
+        // nothing to split, use the full derived total.
+        const splitNeeded = skuBuckets[sku] && skuBuckets[sku].size > 1;
+        return sum + (splitNeeded ? (state[sku][onHandMerkuryField] || 0) : (state[sku].onHandMerkury || 0));
+      }, 0);
       const onHandTHD      = row.sku.reduce((sum, sku) => sum + ((state[sku] && state[sku].onHandTHD) || 0), 0);
       r.getCell(6).value = avgWeeklySales; // F — Avg Weekly Sales
       r.getCell(7).value = onHandMerkury;  // G — Current On Hands (Merkury)
