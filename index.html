@@ -154,6 +154,19 @@
     background:transparent; border:none; outline:none; width:38px; text-align:right;
     font-family:inherit; }
   .kpi-sub-item input:focus { color:#fff; }
+  /* On Hand (Merkury) bucket list — user-addable/deletable name+qty pairs (see
+     _ensureOnHandBuckets in JS) that replaced the old fixed Open Stock/Skinny QP pair */
+  .kpi-bucket-list { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .kpi-sub-item .bucket-label-input { width:60px; text-align:left; font-weight:500; }
+  .kpi-sub-item .bucket-qty-input { width:44px; font-weight:700; color:#fff; }
+  .bucket-del-btn { cursor:pointer; color:rgba(255,255,255,0.45); font-size:12px;
+    line-height:1; padding:0 1px; }
+  .bucket-del-btn:hover { color:rgba(255,120,120,0.95); }
+  .bucket-add-btn { width:19px; height:19px; border-radius:50%; flex-shrink:0;
+    border:1px solid rgba(255,255,255,0.35); background:rgba(255,255,255,0.10);
+    color:rgba(255,255,255,0.85); font-size:12px; line-height:1; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center; padding:0; }
+  .bucket-add-btn:hover { background:rgba(255,255,255,0.22); }
 
   /* ── suds.lab market row (collapsed/expanded per-market header) ── */
   .mkt-section { margin-bottom: 8px; }
@@ -2553,29 +2566,10 @@ function buildProduct(p) {
         <div class="k">Avg weekly sales</div>
         <div class="v" id="kpi-avgsales-${p.sku}">${displayAvg.toLocaleString()}</div>
       </div>
-      <div class="kpi-item" style="flex:3;min-width:320px;align-items:center;gap:10px;flex-wrap:nowrap;">
+      <div class="kpi-item" style="flex:3;min-width:320px;align-items:center;gap:10px;flex-wrap:wrap;">
         <div class="k" style="white-space:nowrap;">On hand (Merkury)</div>
-        <div class="v" id="kpi-merkury-${p.sku}" title="Open Stock + Skinny QP">${s.onHandMerkury.toLocaleString()}</div>
-        <div class="kpi-sub-item" style="">
-          <label>Open Stock</label>
-          <input type="text" inputmode="numeric"
-            id="kpi-openstock-${p.sku}"
-            value="${(state[p.sku].openStock||0).toLocaleString()}"
-            data-sku="${p.sku}" data-subfield="openStock"
-            onchange="handleMerkurySubField(this)"
-            onfocus="this.value=this.value.replace(/,/g,'')"
-            onblur="this.value=parseFloat(this.value)||0;this.value=(parseFloat(this.value)||0).toLocaleString()" />
-        </div>
-        <div class="kpi-sub-item" style="">
-          <label>Skinny QP</label>
-          <input type="text" inputmode="numeric"
-            id="kpi-skinnyqp-${p.sku}"
-            value="${(state[p.sku].skinnyQP||0).toLocaleString()}"
-            data-sku="${p.sku}" data-subfield="skinnyQP"
-            onchange="handleMerkurySubField(this)"
-            onfocus="this.value=this.value.replace(/,/g,'')"
-            onblur="this.value=parseFloat(this.value)||0;this.value=(parseFloat(this.value)||0).toLocaleString()" />
-        </div>
+        <div class="v" id="kpi-merkury-${p.sku}" title="Sum of the buckets below">${s.onHandMerkury.toLocaleString()}</div>
+        <div class="kpi-bucket-list" id="kpi-buckets-${p.sku}">${renderOnHandBucketsHtml(p.sku)}</div>
       </div>
       <div class="kpi-item" style="flex:0.65;min-width:90px;"><div class="k">On hand (THD)</div><div class="v" id="kpi-thd-${p.sku}">${p.onHandTHD.toLocaleString()}</div></div>
       <div class="kpi-item" style="flex:0.55;min-width:80px;"><div class="k">Current WOS</div><div class="v" id="kpi-wos-${p.sku}">${currentWos}</div></div>
@@ -3835,37 +3829,124 @@ async function loadSudsLabFromSupabase() {
   }
 }
 
-// On Hand (Merkury) is a derived, read-only value: Open Stock + Skinny QP.
-// Call this any time either sub-field changes (manual edit, ATS sync, or a
-// cross-device Supabase overlay) before anything reads state[sku].onHandMerkury.
+// ── On Hand (Merkury) buckets ─────────────────────────────────────────────────
+// On Hand (Merkury) is a derived, read-only value: the sum of an arbitrary,
+// user-managed list of named buckets (e.g. "Open Stock"/"Skinny QP" by default, or
+// any custom split the user adds/deletes). openStock/skinnyQP stay as derived
+// mirrors — bucket labels matching /qp/i sum into skinnyQP, everything else into
+// openStock — purely so the D27L export's per-config split (which predates buckets
+// and reads those two fixed fields) keeps working unmodified, and so ATS sync has a
+// stable target to write "ATS NOW" into (see syncFromATS).
+function _ensureOnHandBuckets(sku) {
+  const s = state[sku];
+  if (!s || s.onHandBuckets) return;
+  s.onHandBuckets = [
+    { id: 'open-stock', label: 'Open Stock', qty: s.openStock || 0 },
+    { id: 'skinny-qp',  label: 'Skinny QP',  qty: s.skinnyQP  || 0 }
+  ];
+}
+
+// Call this any time a bucket changes (manual edit, ATS sync, or a cross-device
+// Supabase overlay) before anything reads state[sku].onHandMerkury/.openStock/.skinnyQP.
 function recomputeOnHandMerkury(sku) {
   const s = state[sku];
   if (!s) return;
-  s.onHandMerkury = (s.openStock || 0) + (s.skinnyQP || 0);
+  _ensureOnHandBuckets(sku);
+  s.onHandMerkury = s.onHandBuckets.reduce((sum, b) => sum + (b.qty || 0), 0);
+  s.openStock = s.onHandBuckets.filter(b => !/qp/i.test(b.label)).reduce((sum, b) => sum + (b.qty || 0), 0);
+  s.skinnyQP  = s.onHandBuckets.filter(b =>  /qp/i.test(b.label)).reduce((sum, b) => sum + (b.qty || 0), 0);
   const p = products.find(x => x.sku === sku);
   if (p) p.onHandMerkury = s.onHandMerkury;
 }
 
-function handleMerkurySubField(input) {
-  const sku  = input.dataset.sku;
-  const field = input.dataset.subfield;
-  const val  = parseFloat(input.value.replace(/,/g, '')) || 0;
-  state[sku][field] = val;
-  recomputeOnHandMerkury(sku);
-  updateCalcs(sku); // refreshes Ending INV, WOS, and the On Hand (Merkury) display
+function renderOnHandBucketsHtml(sku) {
+  _ensureOnHandBuckets(sku);
+  return state[sku].onHandBuckets.map(b => `<div class="kpi-sub-item" data-bucket-id="${b.id}">`
+      + `<input type="text" class="bucket-label-input" value="${String(b.label || '').replace(/"/g,'&quot;')}" `
+      +   `data-sku="${sku}" data-bucket-id="${b.id}" onchange="handleOnHandBucketLabelChange(this)" />`
+      + `<input type="text" inputmode="numeric" class="bucket-qty-input" value="${(b.qty || 0).toLocaleString()}" `
+      +   `data-sku="${sku}" data-bucket-id="${b.id}" onchange="handleOnHandBucketQtyChange(this)" `
+      +   `onfocus="this.value=this.value.replace(/,/g,'')" `
+      +   `onblur="this.value=parseFloat(this.value)||0;this.value=(parseFloat(this.value)||0).toLocaleString()" />`
+      + `<span class="bucket-del-btn" title="Delete this bucket" onclick="deleteOnHandBucket('${sku}','${b.id}')">&times;</span>`
+      + `</div>`
+    ).join('')
+    + `<button type="button" class="bucket-add-btn" title="Add a new on-hand bucket" onclick="addOnHandBucket('${sku}')">&#43;</button>`;
+}
+
+function refreshOnHandBucketsDom(sku) {
+  const el = document.getElementById('kpi-buckets-' + sku);
+  if (el) el.innerHTML = renderOnHandBucketsHtml(sku);
+}
+
+function persistOnHandBuckets(sku) {
   saveState();
-  const col = field === 'openStock' ? 'open_stock' : 'skinny_qp';
+  saveOnHandBuckets();
   if (!isTestMode && sbClient) {
     (async () => {
       try {
         await sbClient.from('sku_meta').upsert(
-          { sku, [col]: val, on_hand_merkury: state[sku].onHandMerkury },
+          { sku, open_stock: state[sku].openStock || 0, skinny_qp: state[sku].skinnyQP || 0, on_hand_merkury: state[sku].onHandMerkury },
           { onConflict: 'sku' }
         );
-      }
-      catch(e) { console.warn(field + ' sync failed:', e.message); }
+      } catch(e) { console.warn('on-hand bucket sync failed:', e.message); }
     })();
   }
+}
+
+function handleOnHandBucketQtyChange(input) {
+  const sku = input.dataset.sku;
+  const bucket = (state[sku].onHandBuckets || []).find(b => b.id === input.dataset.bucketId);
+  if (!bucket) return;
+  bucket.qty = parseFloat(input.value.replace(/,/g, '')) || 0;
+  recomputeOnHandMerkury(sku);
+  updateCalcs(sku); // refreshes Ending INV, WOS, and the On Hand (Merkury) display
+  persistOnHandBuckets(sku);
+}
+
+function handleOnHandBucketLabelChange(input) {
+  const sku = input.dataset.sku;
+  const bucket = (state[sku].onHandBuckets || []).find(b => b.id === input.dataset.bucketId);
+  if (!bucket) return;
+  bucket.label = input.value.trim() || 'Bucket';
+  input.value = bucket.label;
+  recomputeOnHandMerkury(sku); // renaming can move this bucket's qty between the openStock/skinnyQP mirrors
+  updateCalcs(sku);
+  persistOnHandBuckets(sku);
+}
+
+function addOnHandBucket(sku) {
+  _ensureOnHandBuckets(sku);
+  const id = 'bucket-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+  state[sku].onHandBuckets.push({ id, label: 'New Bucket', qty: 0 });
+  recomputeOnHandMerkury(sku);
+  refreshOnHandBucketsDom(sku);
+  updateCalcs(sku);
+  persistOnHandBuckets(sku);
+}
+
+function deleteOnHandBucket(sku, bucketId) {
+  const s = state[sku];
+  if (!s || !s.onHandBuckets) return;
+  s.onHandBuckets = s.onHandBuckets.filter(b => b.id !== bucketId);
+  recomputeOnHandMerkury(sku);
+  refreshOnHandBucketsDom(sku);
+  updateCalcs(sku);
+  persistOnHandBuckets(sku);
+}
+
+async function saveOnHandBuckets() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const map = {};
+    products.forEach(p => {
+      if (state[p.sku] && state[p.sku].onHandBuckets) map[p.sku] = state[p.sku].onHandBuckets;
+    });
+    await sbClient.from('app_cache').upsert(
+      { key: 'on_hand_buckets', data: map },
+      { onConflict: 'key' }
+    );
+  } catch(e) { console.warn('on_hand_buckets save failed:', e.message); }
 }
 
 // ── Debounced per-field Supabase sync ─────────────────────────────────────────
@@ -4173,7 +4254,13 @@ function buildThdSalesOrders() {
     });
   }
 
-  // Apply to state: place totals in the correct week slot
+  // Apply to state: place totals in the correct week slot.
+  // Past weeks are locked in as history — this sheet typically only lists recent/open
+  // orders, so an old order dropping off it does NOT mean it never happened. For i < curIdx,
+  // only ever ADD (Math.max on the total, keep whichever side's detail rows go with the
+  // bigger number) — never let a past week's total shrink or its detail rows vanish just
+  // because this sync's SO Detail tab no longer mentions it. Current/future weeks stay a
+  // full live mirror since those genuinely need to move as orders get placed or revised.
   products.forEach(p => {
     const skuMap = soMap[p.sku] || {};
     const arr       = new Array(weeks.length).fill(0);
@@ -4185,8 +4272,14 @@ function buildThdSalesOrders() {
         detailArr[i] = skuMap[wi].details;
       }
     });
-    state[p.sku].thdSalesOrders = arr;
-    state[p.sku].thdSoDetails   = detailArr;
+    const prevArr    = state[p.sku].thdSalesOrders || [];
+    const prevDetail = state[p.sku].thdSoDetails   || [];
+    const mergedArr    = arr.map((v, i) => (i < curIdx ? Math.max(prevArr[i] || 0, v) : v));
+    const mergedDetail = detailArr.map((d, i) =>
+      i < curIdx ? (v => v > (prevArr[i] || 0) ? d : (prevDetail[i] || d))(arr[i]) : d
+    );
+    state[p.sku].thdSalesOrders = mergedArr;
+    state[p.sku].thdSoDetails   = mergedDetail;
     updateCalcs(p.sku);
   });
   saveThdSalesOrdersCache();
@@ -4912,6 +5005,13 @@ async function syncFromATS(autoBuffer = null) {
     // once per ATS row — causing them to be multiplied N times.
     const skusAddlModelsDone = new Set();
 
+    // Past weeks are locked in as history: a sync only ever ADDS to what a past week
+    // already shows, never erases/reduces it — even if the source file no longer lists
+    // an old ETA (e.g. because the PO was already received and dropped off Home Depot's
+    // live report). Current/future weeks stay a full live mirror since those genuinely
+    // need to move freely as POs get rescheduled, split, or canceled.
+    const curIdxForHistory = getCurrentWeekIdx();
+
     // Data starts at row index 2 (row 3 in sheet), headers are row index 1
     for (let ri = 2; ri < data.length; ri++) {
       const row = data[ri];
@@ -4920,12 +5020,22 @@ async function syncFromATS(autoBuffer = null) {
       const sku   = modelToSku[model];
       if (!sku || !state[sku]) continue;
 
-      // 1. Open Stock ← ATS NOW. On Hand (Merkury) is derived (Open Stock + Skinny QP) —
-      // recomputeOnHandMerkury() keeps it in sync; Skinny QP is manual-entry only (no
-      // column for it in this file) and is left untouched by a sync.
+      // 1. "Open Stock" bucket ← ATS NOW. On Hand (Merkury) is the sum of all of this SKU's
+      // on-hand buckets (see _ensureOnHandBuckets/recomputeOnHandMerkury) — a sync writes
+      // into whichever bucket is actually labeled "Open Stock" (falling back to the first
+      // non-QP bucket, or creating one, if the user renamed/deleted it), so it keeps working
+      // no matter how the user has customized their bucket list. Any other buckets (custom
+      // splits, "Skinny QP", etc.) are manual-entry only and left untouched by a sync.
       const atsNow = row[ATS_NOW_COL];
       if (atsNow != null && !isNaN(atsNow)) {
-        state[sku].openStock = Math.round(Number(atsNow));
+        _ensureOnHandBuckets(sku);
+        let openBucket = state[sku].onHandBuckets.find(b => b.label.trim().toLowerCase() === 'open stock')
+          || state[sku].onHandBuckets.find(b => !/qp/i.test(b.label));
+        if (!openBucket) {
+          openBucket = { id: 'bucket-' + Date.now() + '-' + Math.floor(Math.random() * 1000), label: 'Open Stock', qty: 0 };
+          state[sku].onHandBuckets.push(openBucket);
+        }
+        openBucket.qty = Math.round(Number(atsNow));
         recomputeOnHandMerkury(sku);
       }
 
@@ -4937,8 +5047,11 @@ async function syncFromATS(autoBuffer = null) {
       }
 
       if (!skusAddlModelsDone.has(sku)) {
-        // First ATS row for this SKU: set base receipts, then add additional models once
-        state[sku].firmReceipts = newFirmReceipts;
+        // First ATS row for this SKU: set base receipts, then add additional models once.
+        // Merge with Math.max instead of replacing outright for past weeks — see note above.
+        state[sku].firmReceipts = newFirmReceipts.map((v, i) =>
+          i < curIdxForHistory ? Math.max(state[sku].firmReceipts[i] || 0, v) : v
+        );
         state[sku].atsConnected = true;
 
         // Add quantities from additional models (added via + button) — only once per SKU
@@ -4997,15 +5110,22 @@ async function syncFromATS(autoBuffer = null) {
         }
       });
       state[sku].firmReceiptEntries = entries;
-      // Recompute firmReceipts from firmReceiptEntries — single source of truth
+      // Recompute firmReceipts from firmReceiptEntries — single source of truth for
+      // current/future weeks. This runs right after (and would otherwise undo) the
+      // past-preserving merge done in the loop above, so it needs the same Math.max
+      // protection for i < curIdxForHistory — see the comment near curIdxForHistory's
+      // declaration for why past weeks must never shrink on a resync.
       const newFR = new Array(weeks.length).fill(0);
       entries.forEach(({ weekIdx, qty }) => { newFR[weekIdx] = (newFR[weekIdx] || 0) + qty; });
-      state[sku].firmReceipts = newFR;
+      const mergedFR = newFR.map((v, i) =>
+        i < curIdxForHistory ? Math.max(state[sku].firmReceipts[i] || 0, v) : v
+      );
+      state[sku].firmReceipts = mergedFR;
       // Refresh FR inputs in DOM
       const blk = document.getElementById('block-' + sku);
       if (blk) {
         blk.querySelectorAll('input[data-row="firmReceipt"]').forEach(inp => {
-          inp.value = fmtInput(newFR[parseInt(inp.dataset.idx)] || 0);
+          inp.value = fmtInput(mergedFR[parseInt(inp.dataset.idx)] || 0);
         });
       }
     });
@@ -5036,6 +5156,7 @@ async function syncFromATS(autoBuffer = null) {
         });
         if (metaUpserts.length)  await sbClient.from('sku_meta').upsert(metaUpserts,  { onConflict: 'sku' });
         if (weeklyUpserts.length) await sbClient.from('sku_weekly').upsert(weeklyUpserts, { onConflict: 'sku,week_idx' });
+        saveOnHandBuckets(); // in case the sync just created a fresh "Open Stock" bucket
       } catch(sbErr) { console.warn('Supabase ATS upsert failed:', sbErr.message); }
     }
 
@@ -7495,11 +7616,12 @@ function refreshProductDom(sku, opts) {
   }
   const thdEl = document.getElementById('kpi-thd-' + sku);
   if (thdEl) thdEl.textContent = (s.onHandTHD || 0).toLocaleString();
-  const openEl = document.getElementById('kpi-openstock-' + sku);
-  if (openEl && !skip(openEl)) openEl.value = (s.openStock || 0).toLocaleString();
-  const qpEl = document.getElementById('kpi-skinnyqp-' + sku);
-  if (qpEl && !skip(qpEl)) qpEl.value = (s.skinnyQP || 0).toLocaleString();
-  recomputeOnHandMerkury(sku); // Open Stock/Skinny QP may have just changed above
+  // Buckets are re-rendered wholesale from current state rather than patched in place —
+  // a cross-device edit to a bucket's qty/label only shows up here (not live via Realtime,
+  // which only carries the flat open_stock/skinny_qp mirror columns, not bucket identity)
+  // once this device reloads and re-fetches the on_hand_buckets app_cache key.
+  recomputeOnHandMerkury(sku);
+  refreshOnHandBucketsDom(sku);
   const merkuryEl = document.getElementById('kpi-merkury-' + sku);
   if (merkuryEl) merkuryEl.textContent = (s.onHandMerkury || 0).toLocaleString();
   updateCalcs(sku);
@@ -7540,7 +7662,7 @@ function subscribeRealtimeSync() {
 async function loadFromSupabase() {
   if (!sbClient) return;
   try {
-    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }, { data: firmReceiptDetailRows }, { data: atsStatusRows }, { data: suofStatusRows }, { data: vdStatusRows }, { data: reportTemplatesRows }, { data: d27lRowsRows }] =
+    const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }, { data: firmReceiptDetailRows }, { data: atsStatusRows }, { data: suofStatusRows }, { data: vdStatusRows }, { data: reportTemplatesRows }, { data: d27lRowsRows }, { data: onHandBucketsRows }] =
       await Promise.all([
         sbClient.from('sku_meta').select('*'),
         fetchAllSkuWeekly(),
@@ -7561,7 +7683,8 @@ async function loadFromSupabase() {
         sbClient.from('app_cache').select('*').eq('key', 'suof_status_msg'),
         sbClient.from('app_cache').select('*').eq('key', 'vd_status_msg'),
         sbClient.from('app_cache').select('*').eq('key', 'report_templates'),
-        sbClient.from('app_cache').select('*').eq('key', 'd27l_rows')
+        sbClient.from('app_cache').select('*').eq('key', 'd27l_rows'),
+        sbClient.from('app_cache').select('*').eq('key', 'on_hand_buckets')
       ]);
 
     if (metaErr)   throw metaErr;
@@ -7664,6 +7787,21 @@ async function loadFromSupabase() {
         });
       }
     }
+
+    // Restore On Hand (Merkury) buckets (arbitrary user-managed name/qty list, e.g. "Open
+    // Stock"/"Skinny QP" or custom splits) from Supabase. recomputeOnHandMerkury() below
+    // seeds any SKU still missing an entry from its legacy openStock/skinnyQP columns.
+    if (onHandBucketsRows && onHandBucketsRows.length > 0) {
+      const map = onHandBucketsRows[0].data;
+      if (map && typeof map === 'object') {
+        Object.keys(map).forEach(sku => {
+          if (state[sku] && Array.isArray(map[sku]) && map[sku].length > 0) {
+            state[sku].onHandBuckets = map[sku];
+          }
+        });
+      }
+    }
+    products.forEach(p => { if (state[p.sku]) recomputeOnHandMerkury(p.sku); });
 
     // Restore VD sales rates and store counts from Supabase cache
     if (vdRatesRows && vdRatesRows.length > 0) {
@@ -7855,6 +7993,7 @@ function saveState() {
         additionalModels:  s.additionalModels || [],
         openStock:         s.openStock  || 0,
         skinnyQP:          s.skinnyQP   || 0,
+        onHandBuckets:     s.onHandBuckets || null,
         trackingStartIdx:  s.trackingStartIdx != null ? s.trackingStartIdx : 0,
         savedCpData:       s.savedCpData || null
       };
@@ -7940,6 +8079,7 @@ function loadState() {
       if (saved.firmReceiptEntries) s.firmReceiptEntries = saved.firmReceiptEntries;
       s.openStock          = saved.openStock || 0;
       s.skinnyQP           = saved.skinnyQP  || 0;
+      if (saved.onHandBuckets && saved.onHandBuckets.length > 0) s.onHandBuckets = saved.onHandBuckets;
       s.additionalModels   = saved.additionalModels || [];
       s.trackingStartIdx   = saved.trackingStartIdx != null ? saved.trackingStartIdx : 0;
       s.savedCpData        = saved.savedCpData || null;
@@ -10236,17 +10376,11 @@ function showAgentAccuracyDetail() {
     const desc  = p ? p.desc  : '';
     const flagIcon = d.flag === 'over' ? '⬆' : d.flag === 'under' ? '⬇' : '✓';
     const flagColor = d.flag === 'over' ? 'rgba(255,180,80,1)' : d.flag === 'under' ? 'rgba(130,200,255,1)' : 'rgba(100,220,130,1)';
-    const biasSign = d.bias > 0 ? '+' : '';
     const n = d.weeksCompared || 1;
 
     // MAPE calculation shown: avg of |fc−actual|/actual × 100 across n weeks
     const mapeCalc = d.mape != null
       ? `avg(|forecast − actual| ÷ actual × 100) over ${n} week${n !== 1 ? 's' : ''} = <strong>${d.mape.toFixed(1)}%</strong>`
-      : '—';
-
-    // Bias calculation shown: avg of (fc−actual)/actual × 100 across n weeks
-    const biasCalc = d.bias != null
-      ? `avg((forecast − actual) ÷ actual × 100) over ${n} week${n !== 1 ? 's' : ''} = <strong>${biasSign}${d.bias.toFixed(1)}%</strong>`
       : '—';
 
     // Worst week example
@@ -10273,15 +10407,11 @@ function showAgentAccuracyDetail() {
           <div style="text-align:right;flex-shrink:0;">
             <span style="font-size:13px;font-weight:700;color:#f0f0f8;">${d.mape != null ? d.mape.toFixed(1) + '%' : '—'}</span>
             <span style="font-size:11px;color:rgba(255,255,255,.4);margin-left:4px;">MAPE</span>
-            <span style="font-size:12px;color:rgba(255,255,255,.5);margin:0 6px;">·</span>
-            <span style="font-size:13px;font-weight:700;color:#f0f0f8;">${d.bias != null ? biasSign + d.bias.toFixed(1) + '%' : '—'}</span>
-            <span style="font-size:11px;color:rgba(255,255,255,.4);margin-left:4px;">Bias</span>
             <span style="font-size:15px;color:${flagColor};margin-left:8px;">${flagIcon}</span>
           </div>
         </div>
         <div style="margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.04);border-left:2px solid rgba(120,80,255,.5);border-radius:0 6px 6px 0;font-size:11px;color:rgba(255,255,255,.5);line-height:1.8;">
           <div>MAPE = ${mapeCalc}</div>
-          <div>Bias = ${biasCalc}</div>
         </div>
         ${worstHtml}
       </td>
@@ -10302,8 +10432,7 @@ function showAgentAccuracyDetail() {
       <div style="margin-bottom:14px;padding:12px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);border-radius:10px;font-size:12px;color:rgba(255,255,255,.6);line-height:1.8;">
         <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Definitions</div>
         <div><span style="color:#f0f0f8;font-weight:600;">MAPE</span> (Mean Absolute Percentage Error) — how far off the forecast was on average, regardless of direction. Formula: <span style="font-family:monospace;font-size:11px;color:rgba(200,180,255,.8);">avg( |forecast − actual| ÷ actual × 100 )</span>. Target: &lt;20%.</div>
-        <div style="margin-top:4px;"><span style="color:#f0f0f8;font-weight:600;">Bias</span> — whether the forecast consistently runs high or low. Formula: <span style="font-family:monospace;font-size:11px;color:rgba(200,180,255,.8);">avg( (forecast − actual) ÷ actual × 100 )</span>. Positive (+) = over-forecast. Negative (−) = under-forecast.</div>
-        <div style="margin-top:4px;"><span style="color:rgba(255,180,80,1);">⬆ over-forecast</span> = bias &gt; +20% &nbsp;·&nbsp; <span style="color:rgba(130,200,255,1);">⬇ under-forecast</span> = bias &lt; −20% &nbsp;·&nbsp; <span style="color:rgba(100,220,130,1);">✓ on target</span> = within ±20%</div>
+        <div style="margin-top:4px;"><span style="color:rgba(255,180,80,1);">⬆ over-forecast</span> · <span style="color:rgba(130,200,255,1);">⬇ under-forecast</span> · <span style="color:rgba(100,220,130,1);">✓ on target</span> — flags whether the forecast consistently runs high or low, separate from MAPE.</div>
       </div>
 
       <!-- Overall MAPE -->
