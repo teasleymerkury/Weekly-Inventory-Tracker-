@@ -7503,16 +7503,26 @@ async function fetchAllSkuWeekly() {
 // Shared by the login-time restore and the live Realtime subscription below.
 function applyMetaRow(row) {
   const sku = row.sku;
-  if (row.deleted === true && !deletedSkus.has(sku)) {
-    // Deleted on another device — remove it here too
-    deletedSkus.add(sku);
-    const idx = products.findIndex(x => x.sku === sku);
-    if (idx >= 0) products.splice(idx, 1);
-    delete state[sku];
-    const block = document.getElementById('block-' + sku);
-    if (block) block.remove();
-    for (const m of Object.keys(modelToSku)) {
-      if (modelToSku[m] === sku) delete modelToSku[m];
+  if (row.deleted === true) {
+    // Bug fixed: this used to be `row.deleted === true && !deletedSkus.has(sku)`, which only
+    // ran the cleanup (and only skipped recreation) the FIRST time a device saw the deletion.
+    // On every later sync of the same soft-deleted row — another bulk load, a page refresh,
+    // the Realtime subscription re-broadcasting it — deletedSkus already had the SKU, so this
+    // whole block was skipped and execution fell through into the "unrecognized SKU, recreate
+    // it" branch below, which resurrected the product from the row's still-present
+    // model/description/etc. every single time. A deleted row must ALWAYS return here — the
+    // one-time cleanup below only needs to run once, but the return must not be conditional on
+    // that.
+    if (!deletedSkus.has(sku)) {
+      deletedSkus.add(sku);
+      const idx = products.findIndex(x => x.sku === sku);
+      if (idx >= 0) products.splice(idx, 1);
+      delete state[sku];
+      const block = document.getElementById('block-' + sku);
+      if (block) block.remove();
+      for (const m of Object.keys(modelToSku)) {
+        if (modelToSku[m] === sku) delete modelToSku[m];
+      }
     }
     return;
   }
