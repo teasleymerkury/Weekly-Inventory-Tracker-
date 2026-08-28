@@ -7565,6 +7565,18 @@ function applyMetaRow(row) {
   }
   if (row.open_stock != null) state[sku].openStock = row.open_stock;
   if (row.skinny_qp  != null) state[sku].skinnyQP  = row.skinny_qp;
+  // Self-heal against a stale/wrong bucket list: sku_meta's plain on_hand_merkury column is
+  // the authoritative total (every bucket edit writes both together — see
+  // persistOnHandBuckets), so if the buckets we currently have don't add up to what this row
+  // says, something's out of sync (e.g. a stale tab overwrote the bucket cache with old data —
+  // the on_hand_buckets Realtime subscription above is the fix for that not happening going
+  // forward, but this catches it if it ever does anyway). Drop the bad bucket list rather than
+  // silently keep showing/persisting the wrong total — recomputeOnHandMerkury() below rebuilds
+  // a clean 2-bucket split from the now-current openStock/skinnyQP mirrors.
+  if (row.on_hand_merkury != null && state[sku].onHandBuckets) {
+    const bucketSum = state[sku].onHandBuckets.reduce((sum, b) => sum + (b.qty || 0), 0);
+    if (bucketSum !== row.on_hand_merkury) delete state[sku].onHandBuckets;
+  }
   recomputeOnHandMerkury(sku);
 }
 
@@ -7662,6 +7674,28 @@ function subscribeRealtimeSync() {
       if (!row || !row.sku) return;
       applyMetaRow(row);
       refreshProductDom(row.sku, { skipFocused: true });
+      renderReorderTab();
+      renderSummary();
+    })
+    .subscribe();
+  // On Hand (Merkury) bucket lists live in app_cache (key='on_hand_buckets'), not a normal
+  // per-SKU row, so they need their own live subscription — otherwise a tab open when someone
+  // else edits a bucket has no way to learn about it short of a manual reload, and if THAT tab
+  // later saves its own (now-stale) bucket list, it silently overwrites the newer one. Filtered
+  // to just this one row so it doesn't fire on every unrelated app_cache key.
+  sbClient.channel('on_hand_buckets_live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'app_cache', filter: 'key=eq.on_hand_buckets' }, payload => {
+      const map = payload.new && payload.new.data;
+      if (!map || typeof map !== 'object') return;
+      Object.keys(map).forEach(sku => {
+        if (!state[sku] || !Array.isArray(map[sku]) || map[sku].length === 0) return;
+        state[sku].onHandBuckets = map[sku];
+        recomputeOnHandMerkury(sku);
+        refreshOnHandBucketsDom(sku);
+        const merkuryEl = document.getElementById('kpi-merkury-' + sku);
+        if (merkuryEl) merkuryEl.textContent = (state[sku].onHandMerkury || 0).toLocaleString();
+        updateCalcs(sku);
+      });
       renderReorderTab();
       renderSummary();
     })
