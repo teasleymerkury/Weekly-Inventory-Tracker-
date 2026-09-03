@@ -1786,7 +1786,7 @@
         <span style="font-size:11px;color:var(--text-2);">to</span>
         <select class="fw-select" id="sudslabFwTo" onchange="applySudslabFilters()"></select>
         <div style="flex:1;"></div>
-        <button class="add-item-btn sr-filter-btn" id="sudslabSampleRoomFilterBtn" onclick="toggleSudslabSampleRoomFilter()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Show only SKUs currently holding Sample Room stock">&#129514; Sample Room</button>
+        <button class="add-item-btn sr-filter-btn" id="sudslabSampleRoomFilterBtn" onclick="toggleSudslabSampleRoomFilter()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Show only SKUs currently holding Sample Room stock"><svg width="13" height="16" viewBox="0 0 13 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="2" y="6" width="7" height="9" rx="1.2"/><line x1="4.5" y1="6" x2="4.5" y2="3.5"/><line x1="6.5" y1="6" x2="6.5" y2="3.5"/><rect x="4" y="2" width="3.2" height="2" rx="0.4"/><line x1="7.2" y1="2.6" x2="11.5" y2="1.8"/><path d="M4.5 4.2 C3 5, 2.3 6.3, 3 7.5"/></svg> Sample Room</button>
         <button class="add-item-btn" onclick="sortSudsLabProductsAlphabetically()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Sort all items alphabetically by SKU — one-time action, not automatic ongoing sorting">A-Z Sort</button>
         <button class="add-item-btn" onclick="openSudslabAddItemModal()" style="margin-right:4px;">&#43; Add Item</button>
       </div>
@@ -3177,7 +3177,7 @@ const _srLabelStyle = 'display:block;font-size:11px;color:rgba(255,255,255,.55);
 
 function openSampleRoomAdd(sku) {
   const p = sudslabProducts.find(x => x.sku === sku);
-  const name = p ? (p.desc || p.sku) : sku;
+  const name = p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku;
   const body = `
     <label style="${_srLabelStyle}">Quantity to add</label>
     <input type="text" inputmode="numeric" id="srAddQty" placeholder="0" style="${_srInputStyle}" />
@@ -3208,7 +3208,7 @@ function confirmSampleRoomAdd(sku) {
 function openSampleRoomRemove(sku) {
   const p = sudslabProducts.find(x => x.sku === sku);
   const s = sudslabState[sku];
-  const name = p ? (p.desc || p.sku) : sku;
+  const name = p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku;
   const avail = s.sampleRoomOnHand || 0;
   const body = `
     <label style="${_srLabelStyle}">Quantity to take out (${avail.toLocaleString()} available)</label>
@@ -3255,7 +3255,7 @@ function confirmSampleRoomRemove(sku) {
 function openSampleRoomHistory(sku) {
   const p = sudslabProducts.find(x => x.sku === sku);
   const s = sudslabState[sku];
-  const name = p ? (p.desc || p.sku) : sku;
+  const name = p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku;
   const history = (s.sampleRoomHistory || []).slice().reverse(); // newest first
   const rowsHtml = history.length === 0
     ? `<div style="text-align:center;color:rgba(255,255,255,.4);font-size:13px;padding:16px 0;">No history yet.</div>`
