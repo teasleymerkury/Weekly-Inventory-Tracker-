@@ -200,6 +200,22 @@
   }
   .mkt-spacer { flex: 1; background: rgba(255,255,255,0.03); }
 
+  /* ── suds.lab Sample Room row (no expand/collapse — just on-hand + actions) ── */
+  .sr-row { cursor: default; }
+  .sr-onhand-cell { cursor: pointer; }
+  .sr-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-right: 12px; }
+  .sr-action-btn {
+    width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.30);
+    background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.9); font-size: 16px; font-weight: 700;
+    line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .sr-action-btn.sr-add:hover { background: rgba(120,220,150,0.30); border-color: rgba(120,220,150,0.6); }
+  .sr-action-btn.sr-remove:hover { background: rgba(255,140,120,0.30); border-color: rgba(255,140,120,0.6); }
+  .sr-modal-overlay {
+    position: fixed; inset: 0; z-index: 9500; background: rgba(0,0,0,0.82);
+    display: flex; align-items: center; justify-content: center;
+  }
+
   /* ── Data grid ── */
   .scroll-wrap { overflow-x: auto; }
   table.grid { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
@@ -353,6 +369,10 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.32);
   }
   .add-item-btn:hover { background: rgba(255,255,255,0.28); }
+  .sr-filter-btn.active {
+    background: rgba(120,180,255,0.55) !important; border-color: rgba(120,180,255,0.9);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 0 0 1px rgba(120,180,255,0.5);
+  }
 
   /* ── Modal ── */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(30,45,80,0.55); backdrop-filter: blur(18px); z-index: 2000; align-items: center; justify-content: center; }
@@ -1766,6 +1786,7 @@
         <span style="font-size:11px;color:var(--text-2);">to</span>
         <select class="fw-select" id="sudslabFwTo" onchange="applySudslabFilters()"></select>
         <div style="flex:1;"></div>
+        <button class="add-item-btn sr-filter-btn" id="sudslabSampleRoomFilterBtn" onclick="toggleSudslabSampleRoomFilter()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Show only SKUs currently holding Sample Room stock">&#129514; Sample Room</button>
         <button class="add-item-btn" onclick="sortSudsLabProductsAlphabetically()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Sort all items alphabetically by SKU — one-time action, not automatic ongoing sorting">A-Z Sort</button>
         <button class="add-item-btn" onclick="openSudslabAddItemModal()" style="margin-right:4px;">&#43; Add Item</button>
       </div>
@@ -3065,6 +3086,28 @@ function buildSudsLabMarketTable(p, s, rows, market) {
   return scrollWrap;
 }
 
+// ── suds.lab: Sample Room ─────────────────────────────────────────────────────
+// Deliberately NOT built on the Market row/table pattern above (no forecast grid,
+// no warehouses, no reorder/sales-rate tracking) — just an on-hand number plus
+// +/- actions, so it gets its own much simpler row instead of reusing
+// buildSudsLabMarketRow/buildSudsLabMarketTable.
+function buildSudsLabSampleRoomRow(p, s) {
+  const row = document.createElement('div');
+  row.className = 'mkt-row sr-row';
+  row.innerHTML = `
+    <div class="mkt-name-cell">Sample Room</div>
+    <div class="mkt-kpi-cell onhand sr-onhand-cell" title="Double-click to view history" ondblclick="openSampleRoomHistory('${p.sku}')">
+      <div class="k">On Hand</div>
+      <div class="v">${(s.sampleRoomOnHand || 0).toLocaleString()}</div>
+    </div>
+    <div class="mkt-spacer sr-actions">
+      <button type="button" class="sr-action-btn sr-add" title="Add to Sample Room" onclick="openSampleRoomAdd('${p.sku}')">&#43;</button>
+      <button type="button" class="sr-action-btn sr-remove" title="Take from Sample Room" onclick="openSampleRoomRemove('${p.sku}')">&minus;</button>
+    </div>
+  `;
+  return row;
+}
+
 function buildSudsLabProduct(p) {
   const s = sudslabState[p.sku];
   const rowsUS = calcSudsLabMarketRows(p, 'us');
@@ -3101,7 +3144,165 @@ function buildSudsLabProduct(p) {
     bodyDiv.appendChild(section);
   });
 
+  const sampleSection = document.createElement('div');
+  sampleSection.className = 'mkt-section';
+  sampleSection.appendChild(buildSudsLabSampleRoomRow(p, s));
+  bodyDiv.appendChild(sampleSection);
+
   return wrap;
+}
+
+function _sudslabCloseSrModal() {
+  const el = document.querySelector('.sr-modal-overlay');
+  if (el) el.remove();
+}
+
+function _sudslabSrModalHtml(titleText, subText, bodyHtml, confirmLabel, confirmOnclick) {
+  return `<div class="sr-modal-overlay" onclick="if(event.target===this) _sudslabCloseSrModal()">
+    <div style="background:#1e1e2e;border:1px solid rgba(255,255,255,.18);border-radius:16px;padding:22px 24px;width:min(380px,92vw);max-height:82vh;overflow:auto;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+      <div style="font-size:15px;font-weight:700;color:#f0f0f8;">${titleText}</div>
+      <div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:2px;">${subText}</div>
+      ${bodyHtml}
+      <div id="srModalErr" style="display:none;margin-top:10px;font-size:12px;color:rgba(255,140,120,1);background:rgba(255,140,120,.12);border-radius:6px;padding:6px 10px;"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+        <button type="button" onclick="_sudslabCloseSrModal()" style="background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.20);border-radius:8px;padding:6px 14px;color:rgba(255,255,255,.7);cursor:pointer;font-size:13px;">Cancel</button>
+        <button type="button" onclick="${confirmOnclick}" style="background:rgba(100,180,255,.85);border:none;border-radius:8px;padding:6px 14px;color:#0c1420;font-weight:700;cursor:pointer;font-size:13px;">${confirmLabel}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+const _srInputStyle = 'width:100%;box-sizing:border-box;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.20);border-radius:8px;padding:8px 10px;color:#f0f0f8;font-size:14px;font-family:inherit;outline:none;';
+const _srLabelStyle = 'display:block;font-size:11px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.4px;margin:12px 0 4px;';
+
+function openSampleRoomAdd(sku) {
+  const p = sudslabProducts.find(x => x.sku === sku);
+  const name = p ? (p.desc || p.sku) : sku;
+  const body = `
+    <label style="${_srLabelStyle}">Quantity to add</label>
+    <input type="text" inputmode="numeric" id="srAddQty" placeholder="0" style="${_srInputStyle}" />
+  `;
+  document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Add to Sample Room', name, body, 'Add', `confirmSampleRoomAdd('${sku}')`));
+  setTimeout(() => { const el = document.getElementById('srAddQty'); if (el) el.focus(); }, 20);
+}
+
+function confirmSampleRoomAdd(sku) {
+  const qtyEl = document.getElementById('srAddQty');
+  const errEl = document.getElementById('srModalErr');
+  const qty = Math.round(parseFloat(qtyEl.value.replace(/,/g, '')));
+  if (!qty || qty <= 0 || isNaN(qty)) {
+    errEl.textContent = 'Enter a quantity greater than 0.';
+    errEl.style.display = 'block';
+    return;
+  }
+  const s = sudslabState[sku];
+  s.sampleRoomOnHand = (s.sampleRoomOnHand || 0) + qty;
+  if (!s.sampleRoomHistory) s.sampleRoomHistory = [];
+  s.sampleRoomHistory.push({ date: new Date().toISOString(), type: 'in', qty, reason: null, balance: s.sampleRoomOnHand });
+  _sudslabCloseSrModal();
+  _sudslabRerenderProduct(sku);
+  applySudslabFilters(); // the Sample Room filter cares about this exact value changing
+  if (!isTestMode) saveSudsLabSampleRoom();
+}
+
+function openSampleRoomRemove(sku) {
+  const p = sudslabProducts.find(x => x.sku === sku);
+  const s = sudslabState[sku];
+  const name = p ? (p.desc || p.sku) : sku;
+  const avail = s.sampleRoomOnHand || 0;
+  const body = `
+    <label style="${_srLabelStyle}">Quantity to take out (${avail.toLocaleString()} available)</label>
+    <input type="text" inputmode="numeric" id="srRemoveQty" placeholder="0" style="${_srInputStyle}" />
+    <label style="${_srLabelStyle}">Reason</label>
+    <input type="text" id="srRemoveReason" placeholder="e.g. sent to buyer, damaged" style="${_srInputStyle}" />
+  `;
+  document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Take from Sample Room', name, body, 'Take Out', `confirmSampleRoomRemove('${sku}')`));
+  setTimeout(() => { const el = document.getElementById('srRemoveQty'); if (el) el.focus(); }, 20);
+}
+
+function confirmSampleRoomRemove(sku) {
+  const s = sudslabState[sku];
+  const qtyEl = document.getElementById('srRemoveQty');
+  const reasonEl = document.getElementById('srRemoveReason');
+  const errEl = document.getElementById('srModalErr');
+  const avail = s.sampleRoomOnHand || 0;
+  const qty = Math.round(parseFloat(qtyEl.value.replace(/,/g, '')));
+  if (!qty || qty <= 0 || isNaN(qty)) {
+    errEl.textContent = 'Enter a quantity greater than 0.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (qty > avail) {
+    errEl.textContent = `Only ${avail.toLocaleString()} available.`;
+    errEl.style.display = 'block';
+    return;
+  }
+  const reason = reasonEl.value.trim();
+  if (!reason) {
+    errEl.textContent = 'Enter a reason for taking this out.';
+    errEl.style.display = 'block';
+    return;
+  }
+  s.sampleRoomOnHand = avail - qty;
+  if (!s.sampleRoomHistory) s.sampleRoomHistory = [];
+  s.sampleRoomHistory.push({ date: new Date().toISOString(), type: 'out', qty, reason, balance: s.sampleRoomOnHand });
+  _sudslabCloseSrModal();
+  _sudslabRerenderProduct(sku);
+  applySudslabFilters(); // the Sample Room filter cares about this exact value changing
+  if (!isTestMode) saveSudsLabSampleRoom();
+}
+
+function openSampleRoomHistory(sku) {
+  const p = sudslabProducts.find(x => x.sku === sku);
+  const s = sudslabState[sku];
+  const name = p ? (p.desc || p.sku) : sku;
+  const history = (s.sampleRoomHistory || []).slice().reverse(); // newest first
+  const rowsHtml = history.length === 0
+    ? `<div style="text-align:center;color:rgba(255,255,255,.4);font-size:13px;padding:16px 0;">No history yet.</div>`
+    : history.map(h => {
+        const d = new Date(h.date);
+        const dateStr = isNaN(d) ? String(h.date) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        const sign = h.type === 'in' ? '+' : '−';
+        const color = h.type === 'in' ? 'rgba(120,220,150,1)' : 'rgba(255,140,120,1)';
+        const reasonHtml = h.reason ? `<div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:2px;">${String(h.reason).replace(/</g, '&lt;')}</div>` : '';
+        return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+          <div style="min-width:0;">
+            <div style="font-size:12px;color:rgba(255,255,255,.85);">${dateStr}</div>
+            ${reasonHtml}
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:14px;font-weight:700;color:${color};">${sign}${h.qty.toLocaleString()}</div>
+            <div style="font-size:10px;color:rgba(255,255,255,.4);">balance ${h.balance.toLocaleString()}</div>
+          </div>
+        </div>`;
+      }).join('');
+  const html = `<div class="sr-modal-overlay" onclick="if(event.target===this) _sudslabCloseSrModal()">
+    <div style="background:#1e1e2e;border:1px solid rgba(255,255,255,.18);border-radius:16px;padding:22px 24px;width:min(420px,92vw);max-height:82vh;overflow:auto;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:#f0f0f8;">Sample Room History</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:2px;">${name} · currently ${(s.sampleRoomOnHand || 0).toLocaleString()}</div>
+        </div>
+        <button type="button" onclick="_sudslabCloseSrModal()" style="background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.20);border-radius:8px;padding:4px 12px;color:rgba(255,255,255,.7);cursor:pointer;font-size:13px;">&times;</button>
+      </div>
+      <div style="margin-top:10px;">${rowsHtml}</div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function saveSudsLabSampleRoom() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const blob = {};
+    sudslabProducts.forEach(p => {
+      const s = sudslabState[p.sku];
+      if (s && ((s.sampleRoomOnHand || 0) !== 0 || (s.sampleRoomHistory && s.sampleRoomHistory.length))) {
+        blob[p.sku] = { onHand: s.sampleRoomOnHand || 0, history: s.sampleRoomHistory || [] };
+      }
+    });
+    await sbClient.from('app_cache').upsert({ key: 'sudslab_sample_room', data: blob }, { onConflict: 'key' });
+  } catch(e) { console.warn('saveSudsLabSampleRoom failed:', e.message); }
 }
 
 // Scrolls a product's grid so the current-week (col-cur) column sits right
@@ -3675,7 +3876,7 @@ async function loadSudsLabFromSupabase() {
     const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }] = await Promise.all([
       sbClient.from('sudslab_sku_meta').select('*'),
       _fetchAllSudsLabWeekly(),
-      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr', 'sudslab_custom_sr_sku', 'sudslab_reorder_wh_ref', 'sudslab_onhand_manual', 'sudslab_sync_status', 'sudslab_retailer_cleanup_v1', 'sudslab_status_sanpedro', 'sudslab_status_tollecomm', 'sudslab_status_canada', 'sudslab_status_stock'])
+      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr', 'sudslab_custom_sr_sku', 'sudslab_reorder_wh_ref', 'sudslab_onhand_manual', 'sudslab_sync_status', 'sudslab_retailer_cleanup_v1', 'sudslab_status_sanpedro', 'sudslab_status_tollecomm', 'sudslab_status_canada', 'sudslab_status_stock', 'sudslab_sample_room'])
     ]);
     if (metaErr) throw metaErr;
     if (weeklyErr) throw weeklyErr;
@@ -3744,6 +3945,15 @@ async function loadSudsLabFromSupabase() {
           us: onHandManualRow.data[sku].us != null ? onHandManualRow.data[sku].us : null,
           ca: onHandManualRow.data[sku].ca != null ? onHandManualRow.data[sku].ca : null
         };
+      });
+    }
+    const sampleRoomRow = (cacheRows || []).find(r => r.key === 'sudslab_sample_room');
+    if (sampleRoomRow && sampleRoomRow.data) {
+      Object.keys(sampleRoomRow.data).forEach(sku => {
+        if (!sudslabState[sku]) return;
+        const d = sampleRoomRow.data[sku];
+        sudslabState[sku].sampleRoomOnHand = d.onHand || 0;
+        sudslabState[sku].sampleRoomHistory = d.history || [];
       });
     }
 
@@ -4399,6 +4609,8 @@ function _sudslabEmptyState() {
     customSRSku: {}, // retailerId -> that retailer's OWN SKU/catalog number for this product
     reorderWhRef: { us: new Array(weeks.length).fill(null), ca: new Array(weeks.length).fill(null) },
     onHandManual: { us: null, ca: null },
+    sampleRoomOnHand: 0,
+    sampleRoomHistory: [], // [{ date, type: 'in'|'out', qty, reason, balance }], oldest first
     hidden: false
   };
 }
@@ -8245,6 +8457,14 @@ function applyFilters() {
 
 // ── suds.lab: Filter & date range (mirrors the THD filter bar above, own state) ──
 let sudslabFilterSelected = null;
+let sudslabSampleRoomFilterOn = false; // when true, only show SKUs currently holding Sample Room stock
+
+function toggleSudslabSampleRoomFilter() {
+  sudslabSampleRoomFilterOn = !sudslabSampleRoomFilterOn;
+  const btn = document.getElementById('sudslabSampleRoomFilterBtn');
+  if (btn) btn.classList.toggle('active', sudslabSampleRoomFilterOn);
+  applySudslabFilters();
+}
 
 function initSudslabFilterBar() {
   const from = document.getElementById('sudslabFwFrom');
@@ -8359,6 +8579,10 @@ function applySudslabFilters() {
       // real numbers were entered.
       const s = sudslabState[p.sku];
       visible = !!(s && s.customSR && s.customSR[retailerId] !== undefined);
+    }
+    if (visible && sudslabSampleRoomFilterOn) {
+      const s = sudslabState[p.sku];
+      visible = !!(s && (s.sampleRoomOnHand || 0) > 0);
     }
     block.style.display = visible ? '' : 'none';
 
