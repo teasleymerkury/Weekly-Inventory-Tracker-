@@ -3305,6 +3305,64 @@ async function saveSudsLabSampleRoom() {
   } catch(e) { console.warn('saveSudsLabSampleRoom failed:', e.message); }
 }
 
+// ── suds.lab: Sample Room events from an external source (phone form) ────────
+// Writing directly into the shared sudslab_sample_room blob from a no-code
+// tool like Power Automate would need a read-modify-write (fetch the whole
+// blob, find this SKU, compute a new balance, write the whole thing back) —
+// exactly the kind of stale-overwrite race that corrupted real bucket data
+// earlier. Instead an external submission writes ONE small, disposable event
+// row (key sr_evt_<id>, data {sku, type, qty, reason, date}) — a single
+// INSERT, no read-first step, so two submissions can never race each other.
+// Every load drains whatever event rows are sitting there into the real
+// sampleRoomOnHand/History (same math the in-app +/- buttons use), re-saves
+// the consolidated result, and deletes the processed events so the inbox
+// stays small. The SKU on the phone form is a dropdown of real SKUs (not
+// free text), so an event referencing a SKU this device doesn't recognize
+// is skipped rather than retried forever — there's nothing to attach it to.
+async function _sudslabDrainSampleRoomEvents() {
+  if (isTestMode || !sbClient) return;
+  try {
+    const { data: rows } = await sbClient.from('app_cache').select('*').like('key', 'sr_evt_%');
+    if (!rows || rows.length === 0) return;
+
+    rows.sort((a, b) => new Date((a.data && a.data.date) || 0) - new Date((b.data && b.data.date) || 0));
+
+    let changed = false;
+    rows.forEach(row => {
+      const e = row.data;
+      if (!e || !e.sku || !e.type) return;
+      const s = sudslabState[e.sku];
+      if (!s) return; // unrecognized SKU — nothing to attach it to
+      const qty = Math.round(Math.abs(Number(e.qty))) || 0;
+      if (qty === 0) return;
+      if (!s.sampleRoomHistory) s.sampleRoomHistory = [];
+      if (e.type === 'in') {
+        s.sampleRoomOnHand = (s.sampleRoomOnHand || 0) + qty;
+      } else {
+        // A phone submission has no live on-hand to validate against (that's
+        // the whole point — it's one blind HTTP POST), so an "out" larger
+        // than what's actually there can't be blocked up front like the
+        // in-app modal does. Clamp at 0 instead of going negative, but keep
+        // the qty actually requested in the history entry so the shortfall
+        // is visible there rather than silently absorbed.
+        s.sampleRoomOnHand = Math.max(0, (s.sampleRoomOnHand || 0) - qty);
+      }
+      s.sampleRoomHistory.push({
+        date: e.date || row.updated_at || new Date().toISOString(),
+        type: e.type === 'in' ? 'in' : 'out',
+        qty,
+        reason: e.reason || (e.type === 'out' ? '(no reason given via phone form)' : null),
+        balance: s.sampleRoomOnHand,
+        source: 'form'
+      });
+      changed = true;
+    });
+
+    await sbClient.from('app_cache').delete().in('key', rows.map(r => r.key));
+    if (changed) await saveSudsLabSampleRoom();
+  } catch(e) { console.warn('_sudslabDrainSampleRoomEvents failed:', e.message); }
+}
+
 // Scrolls a product's grid so the current-week (col-cur) column sits right
 // after the sticky Row-label column, instead of opening on FW1.
 function scrollSudsLabToCurrentWeek(sku) {
@@ -4023,6 +4081,13 @@ async function loadSudsLabFromSupabase() {
       const btn = document.getElementById(SUDSLAB_STATUS_CONNECT_BTN[elId]);
       if (btn) btn.textContent = '📂 Change File';
     });
+
+    // Fold in any Sample Room events an external source (a phone form via
+    // Power Automate) wrote since the last load — see
+    // _sudslabDrainSampleRoomEvents for why this is a disposable event inbox
+    // rather than the external source writing sampleRoomOnHand/History
+    // directly. Awaited so the very first render already reflects them.
+    await _sudslabDrainSampleRoomEvents();
 
     _sudslabLoaded = true;
     renderSudsLabProducts();
