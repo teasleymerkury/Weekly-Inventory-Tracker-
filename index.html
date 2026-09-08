@@ -3415,6 +3415,7 @@ async function _sudslabDrainSampleRoomEvents() {
         balance: s.sampleRoomOnHand,
         source: 'form'
       });
+      _sudslabCheckAuditFlagResolved(e.sku);
       changed = true;
     });
 
