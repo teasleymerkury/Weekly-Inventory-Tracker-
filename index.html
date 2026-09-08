@@ -1944,6 +1944,11 @@
           <select id="sudslabRetailerExportSelect" class="fw-select" style="width:100%;margin-bottom:10px;"></select>
           <button class="add-item-btn" onclick="exportSudsLabRetailerList()">&#128229; Export Retailer List</button>
         </div>
+        <div id="recapCardSudslabSampleRoom" style="flex:1;min-width:260px;background:rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">suds.lab — Sample Room Count Sheet</div>
+          <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;">Blank count sheet for a physical Sample Room inventory — Product ID, Description, Inner/Master Pack, and the site's Current On Hand Quantity, with an Actual Count column left blank to fill in by hand.</div>
+          <button class="add-item-btn" onclick="exportSudsLabSampleRoomCountSheet()">&#128229; Export Count Sheet</button>
+        </div>
       </div>
     </div>
 
@@ -5771,9 +5776,11 @@ function updateSheetsAccountVisibility() {
   const thdCard = document.getElementById('recapCardThd');
   const sudslabCard = document.getElementById('recapCardSudslab');
   const sudslabRetailerCard = document.getElementById('recapCardSudslabRetailer');
+  const sudslabSampleRoomCard = document.getElementById('recapCardSudslabSampleRoom');
   if (thdCard) thdCard.style.display = isSudslab ? 'none' : '';
   if (sudslabCard) sudslabCard.style.display = isSudslab ? '' : 'none';
   if (sudslabRetailerCard) sudslabRetailerCard.style.display = isSudslab ? '' : 'none';
+  if (sudslabSampleRoomCard) sudslabSampleRoomCard.style.display = isSudslab ? '' : 'none';
   if (isSudslab) populateSudslabRetailerExportSelect();
   if (isSudslab && reportTab && reportTab.classList.contains('active')) switchSheetsTab('recap');
 }
@@ -12311,6 +12318,34 @@ function exportSudsLabTemplate() {
   XLSX.utils.book_append_sheet(wb, buildMarketSheet('ca'), 'suds.lab - CA');
   const dateStr = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `Weekly_Inventory_Recap_SudsLab_${dateStr}.xlsx`);
+}
+
+// ── suds.lab: blank Sample Room count sheet for a physical inventory ─────────
+// Product ID/Description/Inner/Master Pack + the site's current Sample Room
+// On Hand, with an Actual Count column left blank to fill in by hand during
+// a physical count. Only SKUs currently showing Sample Room stock — same
+// scope as the Sample Room filter on the Weekly Recap page.
+function exportSudsLabSampleRoomCountSheet() {
+  const rows = [];
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    const onHand = s ? (s.sampleRoomOnHand || 0) : 0;
+    if (onHand <= 0) return;
+    rows.push([p.sku, p.desc || '', p.inner || '', p.master || '', onHand, '']);
+  });
+
+  if (rows.length === 0) { alert('No SKUs currently show Sample Room stock — nothing to count.'); return; }
+
+  const aoa = [
+    ['Product ID', 'Description', 'Inner Pack', 'Master pack', 'Current On Hand Quantity', 'Actual Count'],
+    ...rows
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 16 }, { wch: 34 }, { wch: 11 }, { wch: 12 }, { wch: 20 }, { wch: 14 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sample Room Count');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `SudsLab_Sample_Room_Count_${dateStr}.xlsx`);
 }
 
 // ── suds.lab: export the item list for ONE retailer ──────────────────────────
