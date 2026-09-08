@@ -3111,6 +3111,18 @@ function buildSudsLabMarketTable(p, s, rows, market) {
 // no warehouses, no reorder/sales-rate tracking) — just an on-hand number plus
 // +/- actions, so it gets its own much simpler row instead of reusing
 // buildSudsLabMarketRow/buildSudsLabMarketTable.
+// A manual +/- that brings On Hand back in line with the last audited
+// quantity resolves the discrepancy without needing another audit — the
+// flag is a report of a mismatch that existed at audit time, not something
+// that should linger once the count is actually corrected.
+function _sudslabCheckAuditFlagResolved(sku) {
+  const s = sudslabState[sku];
+  const flag = s && s.sampleRoomAuditFlag;
+  if (flag && flag.auditedQty != null && (s.sampleRoomOnHand || 0) === flag.auditedQty) {
+    s.sampleRoomAuditFlag = null;
+  }
+}
+
 function _sudslabAuditFlagText(flag) {
   if (!flag) return '';
   const d = new Date(flag.date);
@@ -3214,6 +3226,8 @@ function openSampleRoomAdd(sku) {
   const body = `
     <label style="${_srLabelStyle}">Quantity to add</label>
     <input type="text" inputmode="numeric" id="srAddQty" placeholder="0" style="${_srInputStyle}" />
+    <label style="${_srLabelStyle}">Reason (optional)</label>
+    <input type="text" id="srAddReason" placeholder="e.g. received from vendor" style="${_srInputStyle}" />
   `;
   document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Add to Sample Room', name, body, 'Add', `confirmSampleRoomAdd('${sku}')`));
   setTimeout(() => { const el = document.getElementById('srAddQty'); if (el) el.focus(); }, 20);
@@ -3221,6 +3235,7 @@ function openSampleRoomAdd(sku) {
 
 function confirmSampleRoomAdd(sku) {
   const qtyEl = document.getElementById('srAddQty');
+  const reasonEl = document.getElementById('srAddReason');
   const errEl = document.getElementById('srModalErr');
   const qty = Math.round(parseFloat(qtyEl.value.replace(/,/g, '')));
   if (!qty || qty <= 0 || isNaN(qty)) {
@@ -3228,10 +3243,12 @@ function confirmSampleRoomAdd(sku) {
     errEl.style.display = 'block';
     return;
   }
+  const reason = reasonEl.value.trim() || null;
   const s = sudslabState[sku];
   s.sampleRoomOnHand = (s.sampleRoomOnHand || 0) + qty;
   if (!s.sampleRoomHistory) s.sampleRoomHistory = [];
-  s.sampleRoomHistory.push({ date: new Date().toISOString(), type: 'in', qty, reason: null, balance: s.sampleRoomOnHand });
+  s.sampleRoomHistory.push({ date: new Date().toISOString(), type: 'in', qty, reason, balance: s.sampleRoomOnHand });
+  _sudslabCheckAuditFlagResolved(sku);
   _sudslabCloseSrModal();
   _sudslabRerenderProduct(sku);
   applySudslabFilters(); // the Sample Room filter cares about this exact value changing
@@ -3279,6 +3296,7 @@ function confirmSampleRoomRemove(sku) {
   s.sampleRoomOnHand = avail - qty;
   if (!s.sampleRoomHistory) s.sampleRoomHistory = [];
   s.sampleRoomHistory.push({ date: new Date().toISOString(), type: 'out', qty, reason, balance: s.sampleRoomOnHand });
+  _sudslabCheckAuditFlagResolved(sku);
   _sudslabCloseSrModal();
   _sudslabRerenderProduct(sku);
   applySudslabFilters(); // the Sample Room filter cares about this exact value changing
@@ -5351,7 +5369,7 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
         const onHandAtAudit = s.sampleRoomOnHand || 0;
         const diff = onHandAtAudit - qty; // >0 site shows more than counted (missing); <0 counted more (extra); 0 = match
         const discrepancy = { type: diff > 0 ? 'missing' : (diff < 0 ? 'extra' : 'match'), amount: Math.abs(diff) };
-        s.sampleRoomAuditFlag = { ...discrepancy, date: when.toISOString() };
+        s.sampleRoomAuditFlag = { ...discrepancy, date: when.toISOString(), auditedQty: qty };
         s.sampleRoomHistory.push({ date: when.toISOString(), type: 'audit', qty, reason: null, by, balance: onHandAtAudit, discrepancy, source: 'form' });
         processed.add(rowId);
         applied++;
