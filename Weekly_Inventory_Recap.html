@@ -5390,6 +5390,7 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
         balance: s.sampleRoomOnHand,
         source: 'form'
       });
+      _sudslabCheckAuditFlagResolved(p.sku);
 
       processed.add(rowId);
       applied++;
