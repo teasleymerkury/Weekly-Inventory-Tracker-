@@ -694,6 +694,7 @@
   /* ── Sync row (horizontal 3-col) ── */
   .sync-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
   .sync-row-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .sync-row-5 { grid-template-columns: 1fr 1fr 1fr 1fr 1fr; }
   .sync-col {
     background: var(--glass-bg);
     backdrop-filter: blur(28px) saturate(1.7);
@@ -1709,7 +1710,7 @@
           <p>SL- products only &mdash; firm receipts grouped by shipping source</p>
         </div>
       </div>
-      <div class="sync-row sync-row-4">
+      <div class="sync-row sync-row-5">
         <div class="sync-col">
           <div class="sync-col-head">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V21H3V8"/><path d="M23 3H1v5h22V3z"/><path d="M10 12h4"/></svg>
@@ -1752,6 +1753,17 @@
           <div class="sync-col-btns">
             <button class="xbtn primary" id="btnSudslabStockConnect" onclick="connectSudsLabStock()">&#128194; Connect</button>
             <button class="xbtn sync"    id="btnSudslabStockSync"    onclick="syncSudsLabStock()" disabled>&#128260; Sync</button>
+          </div>
+        </div>
+        <div class="sync-col">
+          <div class="sync-col-head">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+            Sample Room Log
+          </div>
+          <span class="sync-col-status" id="sudslabSampleRoomLogStatus">Not connected</span>
+          <div class="sync-col-btns">
+            <button class="xbtn primary" id="btnSudslabSampleRoomLogConnect" onclick="connectSudsLabSampleRoomLog()">&#128194; Connect</button>
+            <button class="xbtn sync"    id="btnSudslabSampleRoomLogSync"    onclick="syncSudsLabSampleRoomLog()" disabled>&#128260; Sync</button>
           </div>
         </div>
       </div>
@@ -1997,6 +2009,7 @@
 <input type="file" id="inputSudslabTollEcomm" accept=".xlsx,.xlsm,.xls" style="display:none" />
 <input type="file" id="inputSudslabCanada"    accept=".xlsx,.xlsm,.xls" style="display:none" />
 <input type="file" id="inputSudslabStock"     accept=".xlsx,.xlsm,.xls" style="display:none" />
+<input type="file" id="inputSudslabSampleRoomLog" accept=".xlsx,.xlsm,.xls" style="display:none" />
 
 <!-- Reorder Cell Popup -->
 <div class="rp-overlay" id="rpOverlay">
@@ -3265,10 +3278,12 @@ function openSampleRoomHistory(sku) {
         const sign = h.type === 'in' ? '+' : '−';
         const color = h.type === 'in' ? 'rgba(120,220,150,1)' : 'rgba(255,140,120,1)';
         const reasonHtml = h.reason ? `<div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:2px;">${String(h.reason).replace(/</g, '&lt;')}</div>` : '';
+        const byHtml = h.by ? `<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:2px;">by ${String(h.by).replace(/</g, '&lt;')}</div>` : '';
         return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08);">
           <div style="min-width:0;">
             <div style="font-size:12px;color:rgba(255,255,255,.85);">${dateStr}</div>
             ${reasonHtml}
+            ${byHtml}
           </div>
           <div style="text-align:right;flex-shrink:0;">
             <div style="font-size:14px;font-weight:700;color:${color};">${sign}${h.qty.toLocaleString()}</div>
@@ -3934,7 +3949,7 @@ async function loadSudsLabFromSupabase() {
     const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }] = await Promise.all([
       sbClient.from('sudslab_sku_meta').select('*'),
       _fetchAllSudsLabWeekly(),
-      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr', 'sudslab_custom_sr_sku', 'sudslab_reorder_wh_ref', 'sudslab_onhand_manual', 'sudslab_sync_status', 'sudslab_retailer_cleanup_v1', 'sudslab_status_sanpedro', 'sudslab_status_tollecomm', 'sudslab_status_canada', 'sudslab_status_stock', 'sudslab_sample_room'])
+      sbClient.from('app_cache').select('*').in('key', ['sudslab_custom_warehouses', 'sudslab_custom_fr', 'sudslab_retailers', 'sudslab_custom_sr', 'sudslab_custom_sr_sku', 'sudslab_reorder_wh_ref', 'sudslab_onhand_manual', 'sudslab_sync_status', 'sudslab_retailer_cleanup_v1', 'sudslab_status_sanpedro', 'sudslab_status_tollecomm', 'sudslab_status_canada', 'sudslab_status_stock', 'sudslab_status_sampleroomlog', 'sudslab_sample_room', 'sudslab_sample_room_log_processed'])
     ]);
     if (metaErr) throw metaErr;
     if (weeklyErr) throw weeklyErr;
@@ -4013,6 +4028,10 @@ async function loadSudsLabFromSupabase() {
         sudslabState[sku].sampleRoomOnHand = d.onHand || 0;
         sudslabState[sku].sampleRoomHistory = d.history || [];
       });
+    }
+    const logProcessedRow = (cacheRows || []).find(r => r.key === 'sudslab_sample_room_log_processed');
+    if (logProcessedRow && logProcessedRow.data && Array.isArray(logProcessedRow.data.ids)) {
+      sudslabSampleRoomLogProcessedIds = new Set(logProcessedRow.data.ids);
     }
 
     // One-time cleanup: an earlier bug auto-linked every retailer to every
@@ -4609,6 +4628,14 @@ const SUDSLAB_GROUP_FILE_KEY     = { sanPedro: 'sudslab_ats_sanPedro_file_name',
 // don't collide with THD's ats.xlsx/suof.xlsx/vd.xlsx in the same bucket.
 const SUDSLAB_GROUP_STORAGE_KEY = { sanPedro: 'sudslab_sanpedro.xlsx', tollEcomm: 'sudslab_tollecomm.xlsx', canada: 'sudslab_canada.xlsx' };
 const SUDSLAB_STOCK_STORAGE_KEY = 'sudslab_stock.xlsx';
+const SUDSLAB_SAMPLE_LOG_STORAGE_KEY = 'sudslab_sample_room_log.xlsx';
+// Rows already applied from the Sample Room Log workbook (Microsoft Forms →
+// Excel Online export), keyed by that workbook's own "ID" column — persisted
+// (see saveSudsLabSampleRoomLogProcessed) so re-syncing the same, ever-growing
+// export only applies whatever rows were appended since the last sync instead
+// of re-adding every historical row again.
+let sudslabSampleRoomLogFile = null;
+let sudslabSampleRoomLogProcessedIds = new Set();
 // Maps each status badge to its "Connect"/"Change File" button, so a restored
 // badge (see loadSudsLabFromSupabase) can also flip that button's label —
 // otherwise it would say "Connect" while the badge says "Connected".
@@ -4616,7 +4643,8 @@ const SUDSLAB_STATUS_CONNECT_BTN = {
   sudslabSanPedroStatus:  'btnSudslabSanPedroConnect',
   sudslabTollEcommStatus: 'btnSudslabTollEcommConnect',
   sudslabCanadaStatus:    'btnSudslabCanadaConnect',
-  sudslabStockStatus:     'btnSudslabStockConnect'
+  sudslabStockStatus:     'btnSudslabStockConnect',
+  sudslabSampleRoomLogStatus: 'btnSudslabSampleRoomLogConnect'
 };
 // Each source gets its OWN app_cache row — deliberately NOT one shared row
 // holding all four. A shared row means every sync's upsert overwrites the
@@ -4632,7 +4660,8 @@ const SUDSLAB_STATUS_CACHE_KEY = {
   sudslabSanPedroStatus:  'sudslab_status_sanpedro',
   sudslabTollEcommStatus: 'sudslab_status_tollecomm',
   sudslabCanadaStatus:    'sudslab_status_canada',
-  sudslabStockStatus:     'sudslab_status_stock'
+  sudslabStockStatus:     'sudslab_status_stock',
+  sudslabSampleRoomLogStatus: 'sudslab_status_sampleroomlog'
 };
 // Persisted so "last synced" survives a reload — previously this only ever
 // lived in the DOM, so a fresh login always showed "Not connected" even
@@ -4643,6 +4672,7 @@ function connectSudsLabSanPedro()  { document.getElementById('inputSudslabSanPed
 function connectSudsLabTollEcomm() { document.getElementById('inputSudslabTollEcomm').click(); }
 function connectSudsLabCanada()    { document.getElementById('inputSudslabCanada').click(); }
 function connectSudsLabStock()     { document.getElementById('inputSudslabStock').click(); }
+function connectSudsLabSampleRoomLog() { document.getElementById('inputSudslabSampleRoomLog').click(); }
 
 function _sudslabSetStatus(elId, msg, type) {
   const el = document.getElementById(elId);
@@ -5158,6 +5188,166 @@ async function syncSudsLabStock(isAutoLoad) {
   } catch (e) {
     if (!isAutoLoad) _sudslabSetStatus('sudslabStockStatus', '⚠ Sync failed: ' + e.message, 'error');
     console.warn('syncSudsLabStock failed:', e.message);
+  } finally {
+    if (btnSync && !isAutoLoad) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
+  }
+}
+
+// Excel serial date (with fractional day = time-of-day) → JS Date, preserving
+// the actual submission time — the Sample Room history popup shows hour:minute
+// alongside the date, and that only means something if the timestamp survives.
+function _sudslabParseFormDateTime(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return new Date(Math.round((v - 25569) * 86400 * 1000));
+  const d = new Date(String(v));
+  return isNaN(d) ? null : d;
+}
+
+// The form's per-category SKU columns (Chemicals/Auto Accessories/Combo/New)
+// sometimes hold just the SKU, sometimes "SKU  Full description text" as the
+// dropdown's display label — pull out the leading SL-xxx-xxx token either way.
+function _sudslabExtractSkuFromCell(raw) {
+  if (raw == null) return null;
+  const m = String(raw).trim().match(/SL-[A-Za-z0-9]+-[A-Za-z0-9]+/);
+  return m ? m[0].toUpperCase() : null;
+}
+
+async function saveSudsLabSampleRoomLogProcessed() {
+  if (isTestMode || !sbClient) return;
+  try {
+    await sbClient.from('app_cache').upsert(
+      { key: 'sudslab_sample_room_log_processed', data: { ids: Array.from(sudslabSampleRoomLogProcessedIds) } },
+      { onConflict: 'key' }
+    );
+  } catch(e) { console.warn('saveSudsLabSampleRoomLogProcessed failed:', e.message); }
+}
+
+// Syncs the Microsoft Forms → Excel Online "Sample Room Log" export (manual
+// download + Sync Now, same pattern as the other three sources — no
+// Power Automate/Premium licensing involved). Each row becomes a Sample Room
+// history entry the exact same way the in-app +/- buttons do, deduped by the
+// workbook's own "ID" column so re-syncing a re-downloaded (grown) copy of
+// the file only applies rows that weren't already applied. A SKU not found
+// under Chemicals/Auto Accessories/Combo is skipped (those are dropdowns of
+// the existing catalog, so a miss there is a typo); a SKU not found under
+// New is auto-created bare, since that column is the one branch meant for a
+// genuinely new product that hasn't been added to the site yet.
+async function syncSudsLabSampleRoomLog(isAutoLoad) {
+  const file = sudslabSampleRoomLogFile;
+  if (!file) return;
+  await _sudslabAwaitLoad();
+  const btnSync = document.getElementById('btnSudslabSampleRoomLogSync');
+  if (!isAutoLoad) {
+    if (btnSync) { btnSync.textContent = '⏳ Syncing…'; btnSync.disabled = true; }
+    _sudslabSetStatus('sudslabSampleRoomLogStatus', 'Syncing…');
+  }
+  try {
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array', raw: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    if (!ws) throw new Error('No sheet found in the workbook.');
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+
+    let hdrIdx = -1;
+    for (let i = 0; i < Math.min(10, data.length); i++) {
+      const row = data[i];
+      if (row && row.some(c => String(c || '').trim().toLowerCase() === 'id')) { hdrIdx = i; break; }
+    }
+    if (hdrIdx < 0) throw new Error('Could not find an "ID" header row.');
+    const hdr = data[hdrIdx].map(c => c != null ? String(c).trim().toLowerCase() : '');
+    const findCol = (...terms) => { for (const t of terms) { const i = hdr.findIndex(h => h.includes(t.toLowerCase())); if (i !== -1) return i; } return -1; };
+
+    const idCol        = findCol('id');
+    const timeCol       = findCol('completion time');
+    const nameCol       = findCol('name');
+    const directionCol  = findCol('direction');
+    const qtyCol        = findCol('quantity');
+    const reasonCol     = findCol('reason');
+    // Chemicals/Auto Accessories/Combo are dropdowns of the EXISTING catalog —
+    // a value there that doesn't match a real SKU is a typo, so it's skipped.
+    // The "New" column is the one branch meant for a genuinely new product
+    // that hasn't been added to the site yet, so a miss there auto-creates
+    // the SKU instead (bare — sku only, same as when ATS/Stock sync first
+    // sees an unrecognized SL- sku — desc/inner/master get filled in later).
+    const knownSkuCols = ['chemicals', 'auto accessories', 'combo'].map(t => findCol(t)).filter(i => i >= 0);
+    const newSkuCol     = findCol('new');
+
+    if (idCol < 0 || directionCol < 0 || qtyCol < 0) throw new Error('Missing expected columns (ID / Direction / Quantity).');
+
+    const processed = sudslabSampleRoomLogProcessedIds;
+    let applied = 0, unmatchedSkus = new Set(), createdSkus = new Set();
+
+    for (let ri = hdrIdx + 1; ri < data.length; ri++) {
+      const row = data[ri];
+      if (!row || row[idCol] == null) continue;
+      const rowId = String(row[idCol]).trim();
+      if (!rowId || processed.has(rowId)) continue;
+
+      let sku = null, fromNewCol = false;
+      for (const ci of knownSkuCols) {
+        sku = _sudslabExtractSkuFromCell(row[ci]);
+        if (sku) break;
+      }
+      if (!sku && newSkuCol >= 0) {
+        sku = _sudslabExtractSkuFromCell(row[newSkuCol]);
+        if (sku) fromNewCol = true;
+      }
+      if (!sku) { processed.add(rowId); continue; } // no SKU selected on this row — nothing to log
+
+      let p = sudslabProducts.find(x => x.sku.toUpperCase() === sku);
+      if (!p) {
+        if (!fromNewCol) { unmatchedSkus.add(sku); processed.add(rowId); continue; } // typo in an existing-catalog column — skip, never auto-create
+        p = _sudslabEnsureProduct(sku);
+        createdSkus.add(sku);
+      }
+
+      const qty = Math.round(Math.abs(Number(row[qtyCol]))) || 0;
+      if (qty === 0) { processed.add(rowId); continue; }
+      const dirRaw = String(row[directionCol] || '').trim().toLowerCase();
+      const type = dirRaw.startsWith('out') ? 'out' : 'in';
+
+      const s = sudslabState[p.sku];
+      if (!s.sampleRoomHistory) s.sampleRoomHistory = [];
+      if (type === 'in') s.sampleRoomOnHand = (s.sampleRoomOnHand || 0) + qty;
+      else s.sampleRoomOnHand = Math.max(0, (s.sampleRoomOnHand || 0) - qty);
+
+      const when = (timeCol >= 0 ? _sudslabParseFormDateTime(row[timeCol]) : null) || new Date();
+      s.sampleRoomHistory.push({
+        date: when.toISOString(),
+        type,
+        qty,
+        reason: reasonCol >= 0 && row[reasonCol] ? String(row[reasonCol]).trim() : null,
+        by: nameCol >= 0 && row[nameCol] ? String(row[nameCol]).trim() : null,
+        balance: s.sampleRoomOnHand,
+        source: 'form'
+      });
+
+      processed.add(rowId);
+      applied++;
+    }
+
+    if (applied > 0) {
+      renderSudsLabProducts();
+      buildSudslabFilterDropdown();
+      applySudslabFilters();
+    }
+
+    if (!isAutoLoad) {
+      const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+      let msg = `✓ Connected — ${file.name} — last synced ${ts} (${applied} new)`;
+      if (createdSkus.size > 0) msg += `, ${createdSkus.size} new SKU${createdSkus.size > 1 ? 's' : ''} added`;
+      if (unmatchedSkus.size > 0) msg += `, ${unmatchedSkus.size} skipped (unknown SKU)`;
+      _sudslabSetStatus('sudslabSampleRoomLogStatus', msg, 'connected');
+      const connectBtn = document.getElementById('btnSudslabSampleRoomLogConnect');
+      if (connectBtn) connectBtn.textContent = '📂 Change File';
+      uploadSyncFile(SUDSLAB_SAMPLE_LOG_STORAGE_KEY, buffer);
+    }
+    if (!isTestMode && createdSkus.size > 0) await saveSudsLabState();
+    if (!isTestMode && applied > 0) await saveSudsLabSampleRoom();
+    if (!isTestMode) await saveSudsLabSampleRoomLogProcessed();
+  } catch (e) {
+    if (!isAutoLoad) _sudslabSetStatus('sudslabSampleRoomLogStatus', '⚠ Sync failed: ' + e.message, 'error');
+    console.warn('syncSudsLabSampleRoomLog failed:', e.message);
   } finally {
     if (btnSync && !isAutoLoad) { btnSync.textContent = '🔄 Sync Now'; btnSync.disabled = false; }
   }
@@ -7561,18 +7751,21 @@ async function autoLoadSudsLabSyncFiles() {
   const needTollEcomm = !sudslabAtsFiles.tollEcomm;
   const needCanada    = !sudslabAtsFiles.canada;
   const needStock     = !sudslabStockFile;
-  if (!needSanPedro && !needTollEcomm && !needCanada && !needStock) return;
+  const needLog       = !sudslabSampleRoomLogFile;
+  if (!needSanPedro && !needTollEcomm && !needCanada && !needStock && !needLog) return;
 
-  const [spBuf, teBuf, caBuf, stBuf] = await Promise.all([
+  const [spBuf, teBuf, caBuf, stBuf, logBuf] = await Promise.all([
     needSanPedro  ? downloadSyncFile(SUDSLAB_GROUP_STORAGE_KEY.sanPedro)  : Promise.resolve(null),
     needTollEcomm ? downloadSyncFile(SUDSLAB_GROUP_STORAGE_KEY.tollEcomm) : Promise.resolve(null),
     needCanada    ? downloadSyncFile(SUDSLAB_GROUP_STORAGE_KEY.canada)    : Promise.resolve(null),
-    needStock     ? downloadSyncFile(SUDSLAB_STOCK_STORAGE_KEY)          : Promise.resolve(null)
+    needStock     ? downloadSyncFile(SUDSLAB_STOCK_STORAGE_KEY)          : Promise.resolve(null),
+    needLog       ? downloadSyncFile(SUDSLAB_SAMPLE_LOG_STORAGE_KEY)     : Promise.resolve(null)
   ]);
   if (spBuf) { sudslabAtsFiles.sanPedro  = new File([spBuf], 'san_pedro_stored.xlsx');  await syncSudsLabATS('sanPedro', true); }
   if (teBuf) { sudslabAtsFiles.tollEcomm = new File([teBuf], 'toll_ecomm_stored.xlsx'); await syncSudsLabATS('tollEcomm', true); }
   if (caBuf) { sudslabAtsFiles.canada    = new File([caBuf], 'canada_stored.xlsx');     await syncSudsLabATS('canada', true); }
   if (stBuf) { sudslabStockFile          = new File([stBuf], 'stock_stored.xlsx');     await syncSudsLabStock(true); }
+  if (logBuf) { sudslabSampleRoomLogFile = new File([logBuf], 'sample_room_log_stored.xlsx'); await syncSudsLabSampleRoomLog(true); }
 }
 
 // Save additionalModels map to Supabase app_cache so they persist across devices
@@ -12499,6 +12692,13 @@ document.getElementById('inputSudslabStock').addEventListener('change', function
   if (!file) return;
   sudslabStockFile = file;
   syncSudsLabStock();
+  this.value = '';
+});
+document.getElementById('inputSudslabSampleRoomLog').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  sudslabSampleRoomLogFile = file;
+  syncSudsLabSampleRoomLog();
   this.value = '';
 });
 
