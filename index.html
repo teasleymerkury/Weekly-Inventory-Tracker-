@@ -3307,7 +3307,9 @@ function openSampleRoomHistory(sku) {
   const p = sudslabProducts.find(x => x.sku === sku);
   const s = sudslabState[sku];
   const name = p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku;
-  const history = (s.sampleRoomHistory || []).slice().reverse(); // newest first
+  // Carry each entry's real index in the underlying array (before reversing
+  // for newest-first display) so the delete button can splice the right one.
+  const history = (s.sampleRoomHistory || []).map((h, i) => Object.assign({ _idx: i }, h)).reverse();
   const rowsHtml = history.length === 0
     ? `<div style="text-align:center;color:rgba(255,255,255,.4);font-size:13px;padding:16px 0;">No history yet.</div>`
     : history.map(h => {
@@ -3331,7 +3333,10 @@ function openSampleRoomHistory(sku) {
             ${discrepancyHtml}
           </div>
           <div style="text-align:right;flex-shrink:0;">
-            <div style="font-size:14px;font-weight:700;color:${color};">${label}${h.type === 'audit' ? ': ' + h.qty.toLocaleString() : ''}</div>
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
+              <div style="font-size:14px;font-weight:700;color:${color};">${label}${h.type === 'audit' ? ': ' + h.qty.toLocaleString() : ''}</div>
+              <button type="button" onclick="deleteSampleRoomHistoryEntry('${sku}', ${h._idx})" title="Delete this entry" style="background:transparent;border:none;color:rgba(255,255,255,.3);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;">&times;</button>
+            </div>
             <div style="font-size:10px;color:rgba(255,255,255,.4);">balance ${h.balance.toLocaleString()}</div>
           </div>
         </div>`;
@@ -3349,6 +3354,47 @@ function openSampleRoomHistory(sku) {
     </div>
   </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// Deleting a history entry does NOT just splice it out — sampleRoomOnHand is
+// a live running counter, not derived from history, so removing one entry
+// would otherwise leave On Hand untouched and every later entry's stored
+// 'balance' snapshot silently wrong. Recompute the whole chain from scratch
+// in array order instead, so the remaining history stays internally
+// consistent and On Hand reflects exactly what's left. Deleting the audit
+// entry that's the source of the currently-shown discrepancy flag clears
+// that flag too, since its explanation would otherwise vanish while the
+// flag stayed stuck.
+function deleteSampleRoomHistoryEntry(sku, idx) {
+  const s = sudslabState[sku];
+  const history = s.sampleRoomHistory || [];
+  const entry = history[idx];
+  if (!entry) return;
+  const label = entry.type === 'audit' ? `Audit: ${entry.qty}` : `${entry.type === 'in' ? '+' : '-'}${entry.qty}`;
+  const d = new Date(entry.date);
+  const dateStr = isNaN(d) ? String(entry.date) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (!confirm(`Delete this history entry (${label} on ${dateStr})?\nOn Hand and later balances will be recalculated.`)) return;
+
+  const wasActiveAuditSource = entry.type === 'audit' && s.sampleRoomAuditFlag && s.sampleRoomAuditFlag.date === entry.date;
+
+  history.splice(idx, 1);
+
+  let running = 0;
+  history.forEach(h => {
+    if (h.type === 'in') running += h.qty;
+    else if (h.type === 'out') running = Math.max(0, running - h.qty);
+    h.balance = running;
+  });
+  s.sampleRoomOnHand = running;
+
+  if (wasActiveAuditSource) s.sampleRoomAuditFlag = null;
+  _sudslabCheckAuditFlagResolved(sku);
+
+  _sudslabCloseSrModal();
+  openSampleRoomHistory(sku);
+  _sudslabRerenderProduct(sku);
+  applySudslabFilters();
+  if (!isTestMode) saveSudsLabSampleRoom();
 }
 
 async function saveSudsLabSampleRoom() {
