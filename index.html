@@ -220,7 +220,8 @@
   .sr-add-version-btn:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); border-color: rgba(255,255,255,0.4); }
   /* Compact per-version KPI cells when a SKU has more than one version —
      everything stays in the same box as the market rows, just more columns. */
-  .sr-mini-actions { display: flex; gap: 4px; margin-top: 3px; }
+  .sr-value-row { display: flex; align-items: center; gap: 6px; }
+  .sr-mini-actions { display: flex; gap: 4px; }
   .sr-mini-btn {
     width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.30);
     background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.9); font-size: 11px; font-weight: 700;
@@ -3256,12 +3257,14 @@ function buildSudsLabSampleRoomRow(p, s) {
     return `
       <div class="mkt-kpi-cell sr-onhand-cell" title="Double-click to view history" ondblclick="openSampleRoomHistory('${p.sku}','${bucket.id}')">
         <div class="k">${bucket.label}${removeBtn}</div>
-        <div class="v">${bucket.onHand.toLocaleString()}</div>
-        ${flagHtml}
-        <div class="sr-mini-actions">
-          <button type="button" class="sr-mini-btn sr-add" title="Add" onclick="openSampleRoomAdd('${p.sku}','${bucket.id}')">&#43;</button>
-          <button type="button" class="sr-mini-btn sr-remove" title="Take out" onclick="openSampleRoomRemove('${p.sku}','${bucket.id}')">&minus;</button>
+        <div class="sr-value-row">
+          <div class="v">${bucket.onHand.toLocaleString()}</div>
+          <div class="sr-mini-actions">
+            <button type="button" class="sr-mini-btn sr-add" title="Add" onclick="openSampleRoomAdd('${p.sku}','${bucket.id}')">&#43;</button>
+            <button type="button" class="sr-mini-btn sr-remove" title="Take out" onclick="openSampleRoomRemove('${p.sku}','${bucket.id}')">&minus;</button>
+          </div>
         </div>
+        ${flagHtml}
       </div>`;
   }).join('');
 
