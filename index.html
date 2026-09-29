@@ -213,6 +213,23 @@
   }
   .sr-action-btn.sr-add:hover { background: rgba(120,220,150,0.30); border-color: rgba(120,220,150,0.6); }
   .sr-action-btn.sr-remove:hover { background: rgba(255,140,120,0.30); border-color: rgba(255,140,120,0.6); }
+  .sr-add-version-btn {
+    background: transparent; border: 1px dashed rgba(255,255,255,0.25); border-radius: 6px;
+    color: rgba(255,255,255,0.55); font-size: 11px; padding: 4px 10px; cursor: pointer; font-family: inherit; white-space: nowrap;
+  }
+  .sr-add-version-btn:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); border-color: rgba(255,255,255,0.4); }
+  /* Compact per-version KPI cells when a SKU has more than one version —
+     everything stays in the same box as the market rows, just more columns. */
+  .sr-mini-actions { display: flex; gap: 4px; margin-top: 3px; }
+  .sr-mini-btn {
+    width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.30);
+    background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.9); font-size: 11px; font-weight: 700;
+    line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .sr-mini-btn.sr-add:hover { background: rgba(120,220,150,0.30); border-color: rgba(120,220,150,0.6); }
+  .sr-mini-btn.sr-remove:hover { background: rgba(255,140,120,0.30); border-color: rgba(255,140,120,0.6); }
+  .sr-mini-x { background: transparent; border: none; color: rgba(255,255,255,0.35); cursor: pointer; font-size: 11px; padding: 0 0 0 3px; line-height: 1; vertical-align: middle; }
+  .sr-mini-x:hover { color: #fff; }
   .sr-modal-overlay {
     position: fixed; inset: 0; z-index: 9500; background: rgba(0,0,0,0.82);
     display: flex; align-items: center; justify-content: center;
@@ -3115,12 +3132,64 @@ function buildSudsLabMarketTable(p, s, rows, market) {
 // quantity resolves the discrepancy without needing another audit — the
 // flag is a report of a mismatch that existed at audit time, not something
 // that should linger once the count is actually corrected.
-function _sudslabCheckAuditFlagResolved(sku) {
+function _sudslabCheckAuditFlagResolved(sku, versionId) {
   const s = sudslabState[sku];
-  const flag = s && s.sampleRoomAuditFlag;
-  if (flag && flag.auditedQty != null && (s.sampleRoomOnHand || 0) === flag.auditedQty) {
-    s.sampleRoomAuditFlag = null;
+  if (!s) return;
+  if (!versionId || versionId === 'default') {
+    const flag = s.sampleRoomAuditFlag;
+    if (flag && flag.auditedQty != null && (s.sampleRoomOnHand || 0) === flag.auditedQty) {
+      s.sampleRoomAuditFlag = null;
+    }
+    return;
   }
+  const v = (s.sampleRoomVersions || []).find(x => x.id === versionId);
+  if (v && v.auditFlag && v.auditFlag.auditedQty != null && (v.onHand || 0) === v.auditFlag.auditedQty) {
+    v.auditFlag = null;
+  }
+}
+
+// Resolve a Sample Room "bucket" — the primary on-hand/history/auditFlag
+// fields for versionId 'default' (or unset), or one entry in
+// sampleRoomVersions for anything else. Returns null if the version was
+// removed out from under an open modal.
+function _sudslabSrBucket(s, versionId) {
+  if (!versionId || versionId === 'default') {
+    if (!s.sampleRoomHistory) s.sampleRoomHistory = [];
+    return {
+      id: 'default', label: '', isPrimary: true,
+      get onHand() { return s.sampleRoomOnHand || 0; },
+      set onHand(v) { s.sampleRoomOnHand = v; },
+      get history() { return s.sampleRoomHistory; },
+      get auditFlag() { return s.sampleRoomAuditFlag || null; },
+      set auditFlag(v) { s.sampleRoomAuditFlag = v; }
+    };
+  }
+  const v = (s.sampleRoomVersions || []).find(x => x.id === versionId);
+  if (!v) return null;
+  if (!v.history) v.history = [];
+  return {
+    id: v.id, label: v.label || '', isPrimary: false,
+    get onHand() { return v.onHand || 0; },
+    set onHand(val) { v.onHand = val; },
+    get history() { return v.history; },
+    get auditFlag() { return v.auditFlag || null; },
+    set auditFlag(val) { v.auditFlag = val; }
+  };
+}
+
+// All Sample Room buckets for a SKU — the primary bucket first, then any
+// extra versions in the order they were added.
+function _sudslabSrBuckets(s) {
+  const primary = _sudslabSrBucket(s, 'default');
+  const extras = (s.sampleRoomVersions || []).map(v => _sudslabSrBucket(s, v.id));
+  return [primary, ...extras];
+}
+
+// On Hand summed across the primary bucket and every extra version — used
+// wherever a SKU-level Sample Room total is needed (filter, count sheet).
+function _sudslabSrTotalOnHand(s) {
+  if (!s) return 0;
+  return (s.sampleRoomOnHand || 0) + (s.sampleRoomVersions || []).reduce((sum, v) => sum + (v.onHand || 0), 0);
 }
 
 function _sudslabAuditFlagText(flag) {
@@ -3132,22 +3201,76 @@ function _sudslabAuditFlagText(flag) {
   return `No discrepancy found in audit on ${dateStr}`;
 }
 
+// Renders the whole Sample Room section as ONE box (one .mkt-row), same as
+// the US MARKET / CA MARKET rows do with their warehouse breakdown — a SKU
+// with no extra versions gets the original single On-Hand-cell layout
+// unchanged; a SKU with versions gets one compact KPI cell per version,
+// side by side in that same row, each with its own mini +/- and history.
 function buildSudsLabSampleRoomRow(p, s) {
+  const buckets = _sudslabSrBuckets(s); // [primary, ...versions]
   const row = document.createElement('div');
   row.className = 'mkt-row sr-row';
-  const flagText = _sudslabAuditFlagText(s.sampleRoomAuditFlag);
-  const flagIsMatch = s.sampleRoomAuditFlag && s.sampleRoomAuditFlag.type === 'match';
-  const flagHtml = flagText ? `<div class="sr-audit-flag${flagIsMatch ? ' match' : ''}">${flagText}</div>` : '';
+
+  if (buckets.length === 1) {
+    const bucket = buckets[0];
+    const flagText = _sudslabAuditFlagText(bucket.auditFlag);
+    const flagIsMatch = bucket.auditFlag && bucket.auditFlag.type === 'match';
+    const flagHtml = flagText ? `<div class="sr-audit-flag${flagIsMatch ? ' match' : ''}">${flagText}</div>` : '';
+    row.innerHTML = `
+      <div class="mkt-name-cell">Sample Room</div>
+      <div class="mkt-kpi-cell onhand sr-onhand-cell" title="Double-click to view history" ondblclick="openSampleRoomHistory('${p.sku}','default')">
+        <div class="k">On Hand</div>
+        <div class="v">${bucket.onHand.toLocaleString()}</div>
+        ${flagHtml}
+      </div>
+      <div class="mkt-spacer sr-actions">
+        <button type="button" class="sr-action-btn sr-add" title="Add to Sample Room" onclick="openSampleRoomAdd('${p.sku}','default')">&#43;</button>
+        <button type="button" class="sr-action-btn sr-remove" title="Take from Sample Room" onclick="openSampleRoomRemove('${p.sku}','default')">&minus;</button>
+        <button type="button" class="sr-add-version-btn" title="Track a second physical version of this SKU (e.g. old vs. new mold) with its own Sample Room on-hand count" onclick="openSampleRoomAddVersion('${p.sku}')">&#43; Version</button>
+      </div>
+    `;
+    return row;
+  }
+
+  // "On Hand" is a computed total across every bucket (the original/primary
+  // count plus each version) once versions exist — same relationship the
+  // US/CA MARKET rows already have between their On Hand total and the
+  // warehouse cells beside it. It's display-only (no +/-, no history of its
+  // own): add/remove still happens per-bucket, and the total just reflects
+  // whatever those sum to. The primary bucket itself doesn't get its own
+  // visible column — whatever was already in Sample Room before a version
+  // was ever added just stays folded into this total silently; only the
+  // named versions get their own box.
+  const total = _sudslabSrTotalOnHand(s);
+  const totalCellHtml = `
+    <div class="mkt-kpi-cell onhand" title="Total across every version below">
+      <div class="k">On Hand</div>
+      <div class="v">${total.toLocaleString()}</div>
+    </div>`;
+
+  const kpiCellsHtml = buckets.filter(bucket => !bucket.isPrimary).map(bucket => {
+    const flagText = _sudslabAuditFlagText(bucket.auditFlag);
+    const flagIsMatch = bucket.auditFlag && bucket.auditFlag.type === 'match';
+    const flagHtml = flagText ? `<div class="sr-audit-flag${flagIsMatch ? ' match' : ''}">${flagText}</div>` : '';
+    const removeBtn = `<button type="button" class="sr-mini-x" title="Remove this version" onclick="removeSampleRoomVersion('${p.sku}','${bucket.id}')">&times;</button>`;
+    return `
+      <div class="mkt-kpi-cell sr-onhand-cell" title="Double-click to view history" ondblclick="openSampleRoomHistory('${p.sku}','${bucket.id}')">
+        <div class="k">${bucket.label}${removeBtn}</div>
+        <div class="v">${bucket.onHand.toLocaleString()}</div>
+        ${flagHtml}
+        <div class="sr-mini-actions">
+          <button type="button" class="sr-mini-btn sr-add" title="Add" onclick="openSampleRoomAdd('${p.sku}','${bucket.id}')">&#43;</button>
+          <button type="button" class="sr-mini-btn sr-remove" title="Take out" onclick="openSampleRoomRemove('${p.sku}','${bucket.id}')">&minus;</button>
+        </div>
+      </div>`;
+  }).join('');
+
   row.innerHTML = `
     <div class="mkt-name-cell">Sample Room</div>
-    <div class="mkt-kpi-cell onhand sr-onhand-cell" title="Double-click to view history" ondblclick="openSampleRoomHistory('${p.sku}')">
-      <div class="k">On Hand</div>
-      <div class="v">${(s.sampleRoomOnHand || 0).toLocaleString()}</div>
-      ${flagHtml}
-    </div>
+    ${totalCellHtml}
+    ${kpiCellsHtml}
     <div class="mkt-spacer sr-actions">
-      <button type="button" class="sr-action-btn sr-add" title="Add to Sample Room" onclick="openSampleRoomAdd('${p.sku}')">&#43;</button>
-      <button type="button" class="sr-action-btn sr-remove" title="Take from Sample Room" onclick="openSampleRoomRemove('${p.sku}')">&minus;</button>
+      <button type="button" class="sr-add-version-btn" title="Track another physical version" onclick="openSampleRoomAddVersion('${p.sku}')">&#43; Version</button>
     </div>
   `;
   return row;
@@ -3220,20 +3343,22 @@ function _sudslabSrModalHtml(titleText, subText, bodyHtml, confirmLabel, confirm
 const _srInputStyle = 'width:100%;box-sizing:border-box;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.20);border-radius:8px;padding:8px 10px;color:#f0f0f8;font-size:14px;font-family:inherit;outline:none;';
 const _srLabelStyle = 'display:block;font-size:11px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.4px;margin:12px 0 4px;';
 
-function openSampleRoomAdd(sku) {
+function openSampleRoomAdd(sku, versionId) {
   const p = sudslabProducts.find(x => x.sku === sku);
-  const name = p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku;
+  const bucket = _sudslabSrBucket(sudslabState[sku], versionId);
+  if (!bucket) return;
+  const name = (p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku) + (bucket.isPrimary ? '' : ` (${bucket.label})`);
   const body = `
     <label style="${_srLabelStyle}">Quantity to add</label>
     <input type="text" inputmode="numeric" id="srAddQty" placeholder="0" style="${_srInputStyle}" />
     <label style="${_srLabelStyle}">Reason (optional)</label>
     <input type="text" id="srAddReason" placeholder="e.g. received from vendor" style="${_srInputStyle}" />
   `;
-  document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Add to Sample Room', name, body, 'Add', `confirmSampleRoomAdd('${sku}')`));
+  document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Add to Sample Room', name, body, 'Add', `confirmSampleRoomAdd('${sku}','${bucket.id}')`));
   setTimeout(() => { const el = document.getElementById('srAddQty'); if (el) el.focus(); }, 20);
 }
 
-function confirmSampleRoomAdd(sku) {
+function confirmSampleRoomAdd(sku, versionId) {
   const qtyEl = document.getElementById('srAddQty');
   const reasonEl = document.getElementById('srAddReason');
   const errEl = document.getElementById('srModalErr');
@@ -3244,38 +3369,40 @@ function confirmSampleRoomAdd(sku) {
     return;
   }
   const reason = reasonEl.value.trim() || null;
-  const s = sudslabState[sku];
-  s.sampleRoomOnHand = (s.sampleRoomOnHand || 0) + qty;
-  if (!s.sampleRoomHistory) s.sampleRoomHistory = [];
-  s.sampleRoomHistory.push({ date: new Date().toISOString(), type: 'in', qty, reason, balance: s.sampleRoomOnHand });
-  _sudslabCheckAuditFlagResolved(sku);
+  const bucket = _sudslabSrBucket(sudslabState[sku], versionId);
+  if (!bucket) { _sudslabCloseSrModal(); return; }
+  bucket.onHand = bucket.onHand + qty;
+  bucket.history.push({ date: new Date().toISOString(), type: 'in', qty, reason, balance: bucket.onHand });
+  _sudslabCheckAuditFlagResolved(sku, versionId);
   _sudslabCloseSrModal();
   _sudslabRerenderProduct(sku);
   applySudslabFilters(); // the Sample Room filter cares about this exact value changing
   if (!isTestMode) saveSudsLabSampleRoom();
 }
 
-function openSampleRoomRemove(sku) {
+function openSampleRoomRemove(sku, versionId) {
   const p = sudslabProducts.find(x => x.sku === sku);
-  const s = sudslabState[sku];
-  const name = p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku;
-  const avail = s.sampleRoomOnHand || 0;
+  const bucket = _sudslabSrBucket(sudslabState[sku], versionId);
+  if (!bucket) return;
+  const name = (p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku) + (bucket.isPrimary ? '' : ` (${bucket.label})`);
+  const avail = bucket.onHand;
   const body = `
     <label style="${_srLabelStyle}">Quantity to take out (${avail.toLocaleString()} available)</label>
     <input type="text" inputmode="numeric" id="srRemoveQty" placeholder="0" style="${_srInputStyle}" />
     <label style="${_srLabelStyle}">Reason</label>
     <input type="text" id="srRemoveReason" placeholder="e.g. sent to buyer, damaged" style="${_srInputStyle}" />
   `;
-  document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Take from Sample Room', name, body, 'Take Out', `confirmSampleRoomRemove('${sku}')`));
+  document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Take from Sample Room', name, body, 'Take Out', `confirmSampleRoomRemove('${sku}','${bucket.id}')`));
   setTimeout(() => { const el = document.getElementById('srRemoveQty'); if (el) el.focus(); }, 20);
 }
 
-function confirmSampleRoomRemove(sku) {
-  const s = sudslabState[sku];
+function confirmSampleRoomRemove(sku, versionId) {
+  const bucket = _sudslabSrBucket(sudslabState[sku], versionId);
+  if (!bucket) { _sudslabCloseSrModal(); return; }
   const qtyEl = document.getElementById('srRemoveQty');
   const reasonEl = document.getElementById('srRemoveReason');
   const errEl = document.getElementById('srModalErr');
-  const avail = s.sampleRoomOnHand || 0;
+  const avail = bucket.onHand;
   const qty = Math.round(parseFloat(qtyEl.value.replace(/,/g, '')));
   if (!qty || qty <= 0 || isNaN(qty)) {
     errEl.textContent = 'Enter a quantity greater than 0.';
@@ -3293,23 +3420,66 @@ function confirmSampleRoomRemove(sku) {
     errEl.style.display = 'block';
     return;
   }
-  s.sampleRoomOnHand = avail - qty;
-  if (!s.sampleRoomHistory) s.sampleRoomHistory = [];
-  s.sampleRoomHistory.push({ date: new Date().toISOString(), type: 'out', qty, reason, balance: s.sampleRoomOnHand });
-  _sudslabCheckAuditFlagResolved(sku);
+  bucket.onHand = avail - qty;
+  bucket.history.push({ date: new Date().toISOString(), type: 'out', qty, reason, balance: bucket.onHand });
+  _sudslabCheckAuditFlagResolved(sku, versionId);
   _sudslabCloseSrModal();
   _sudslabRerenderProduct(sku);
   applySudslabFilters(); // the Sample Room filter cares about this exact value changing
   if (!isTestMode) saveSudsLabSampleRoom();
 }
 
-function openSampleRoomHistory(sku) {
+function openSampleRoomAddVersion(sku) {
+  const p = sudslabProducts.find(x => x.sku === sku);
+  const name = p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku;
+  const body = `
+    <label style="${_srLabelStyle}">Version label</label>
+    <input type="text" id="srVersionLabel" placeholder="e.g. Old mold, New mold, V2" style="${_srInputStyle}" />
+  `;
+  document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Add Another Version', name, body, 'Add Version', `confirmSampleRoomAddVersion('${sku}')`));
+  setTimeout(() => { const el = document.getElementById('srVersionLabel'); if (el) el.focus(); }, 20);
+}
+
+function confirmSampleRoomAddVersion(sku) {
+  const labelEl = document.getElementById('srVersionLabel');
+  const errEl = document.getElementById('srModalErr');
+  const label = labelEl.value.trim();
+  if (!label) {
+    errEl.textContent = 'Enter a label for this version.';
+    errEl.style.display = 'block';
+    return;
+  }
+  const s = sudslabState[sku];
+  if (!s.sampleRoomVersions) s.sampleRoomVersions = [];
+  s.sampleRoomVersions.push({ id: 'v' + Date.now() + Math.floor(Math.random() * 1000), label, onHand: 0, history: [], auditFlag: null });
+  _sudslabCloseSrModal();
+  _sudslabRerenderProduct(sku);
+  if (!isTestMode) saveSudsLabSampleRoom();
+}
+
+function removeSampleRoomVersion(sku, versionId) {
+  const s = sudslabState[sku];
+  const v = (s.sampleRoomVersions || []).find(x => x.id === versionId);
+  if (!v) return;
+  const warn = (v.onHand || 0) > 0
+    ? `"${v.label}" still shows ${v.onHand.toLocaleString()} On Hand. Removing it discards that count and its whole history. Continue?`
+    : `Remove version "${v.label}" and its history?`;
+  if (!confirm(warn)) return;
+  s.sampleRoomVersions = s.sampleRoomVersions.filter(x => x.id !== versionId);
+  _sudslabRerenderProduct(sku);
+  applySudslabFilters();
+  if (!isTestMode) saveSudsLabSampleRoom();
+}
+
+function openSampleRoomHistory(sku, versionId) {
   const p = sudslabProducts.find(x => x.sku === sku);
   const s = sudslabState[sku];
-  const name = p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku;
+  const bucket = _sudslabSrBucket(s, versionId);
+  if (!bucket) return;
+  const name = (p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku) + (bucket.isPrimary ? '' : ` (${bucket.label})`);
   // Carry each entry's real index in the underlying array (before reversing
   // for newest-first display) so the delete button can splice the right one.
-  const history = (s.sampleRoomHistory || []).map((h, i) => Object.assign({ _idx: i }, h)).reverse();
+  const history = bucket.history.map((h, i) => Object.assign({ _idx: i }, h)).reverse();
   const rowsHtml = history.length === 0
     ? `<div style="text-align:center;color:rgba(255,255,255,.4);font-size:13px;padding:16px 0;">No history yet.</div>`
     : history.map(h => {
@@ -3335,7 +3505,7 @@ function openSampleRoomHistory(sku) {
           <div style="text-align:right;flex-shrink:0;">
             <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
               <div style="font-size:14px;font-weight:700;color:${color};">${label}${h.type === 'audit' ? ': ' + h.qty.toLocaleString() : ''}</div>
-              <button type="button" onclick="deleteSampleRoomHistoryEntry('${sku}', ${h._idx})" title="Delete this entry" style="background:transparent;border:none;color:rgba(255,255,255,.3);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;">&times;</button>
+              <button type="button" onclick="deleteSampleRoomHistoryEntry('${sku}', ${h._idx}, '${bucket.id}')" title="Delete this entry" style="background:transparent;border:none;color:rgba(255,255,255,.3);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;">&times;</button>
             </div>
             <div style="font-size:10px;color:rgba(255,255,255,.4);">balance ${h.balance.toLocaleString()}</div>
           </div>
@@ -3346,7 +3516,7 @@ function openSampleRoomHistory(sku) {
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div>
           <div style="font-size:15px;font-weight:700;color:#f0f0f8;">Sample Room History</div>
-          <div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:2px;">${name} · currently ${(s.sampleRoomOnHand || 0).toLocaleString()}</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:2px;">${name} · currently ${bucket.onHand.toLocaleString()}</div>
         </div>
         <button type="button" onclick="_sudslabCloseSrModal()" style="background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.20);border-radius:8px;padding:4px 12px;color:rgba(255,255,255,.7);cursor:pointer;font-size:13px;">&times;</button>
       </div>
@@ -3365,9 +3535,11 @@ function openSampleRoomHistory(sku) {
 // entry that's the source of the currently-shown discrepancy flag clears
 // that flag too, since its explanation would otherwise vanish while the
 // flag stayed stuck.
-function deleteSampleRoomHistoryEntry(sku, idx) {
+function deleteSampleRoomHistoryEntry(sku, idx, versionId) {
   const s = sudslabState[sku];
-  const history = s.sampleRoomHistory || [];
+  const bucket = _sudslabSrBucket(s, versionId);
+  if (!bucket) return;
+  const history = bucket.history;
   const entry = history[idx];
   if (!entry) return;
   const label = entry.type === 'audit' ? `Audit: ${entry.qty}` : `${entry.type === 'in' ? '+' : '-'}${entry.qty}`;
@@ -3375,7 +3547,7 @@ function deleteSampleRoomHistoryEntry(sku, idx) {
   const dateStr = isNaN(d) ? String(entry.date) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   if (!confirm(`Delete this history entry (${label} on ${dateStr})?\nOn Hand and later balances will be recalculated.`)) return;
 
-  const wasActiveAuditSource = entry.type === 'audit' && s.sampleRoomAuditFlag && s.sampleRoomAuditFlag.date === entry.date;
+  const wasActiveAuditSource = entry.type === 'audit' && bucket.auditFlag && bucket.auditFlag.date === entry.date;
 
   history.splice(idx, 1);
 
@@ -3385,13 +3557,13 @@ function deleteSampleRoomHistoryEntry(sku, idx) {
     else if (h.type === 'out') running = Math.max(0, running - h.qty);
     h.balance = running;
   });
-  s.sampleRoomOnHand = running;
+  bucket.onHand = running;
 
-  if (wasActiveAuditSource) s.sampleRoomAuditFlag = null;
-  _sudslabCheckAuditFlagResolved(sku);
+  if (wasActiveAuditSource) bucket.auditFlag = null;
+  _sudslabCheckAuditFlagResolved(sku, versionId);
 
   _sudslabCloseSrModal();
-  openSampleRoomHistory(sku);
+  openSampleRoomHistory(sku, versionId);
   _sudslabRerenderProduct(sku);
   applySudslabFilters();
   if (!isTestMode) saveSudsLabSampleRoom();
@@ -3403,8 +3575,8 @@ async function saveSudsLabSampleRoom() {
     const blob = {};
     sudslabProducts.forEach(p => {
       const s = sudslabState[p.sku];
-      if (s && ((s.sampleRoomOnHand || 0) !== 0 || (s.sampleRoomHistory && s.sampleRoomHistory.length) || s.sampleRoomAuditFlag)) {
-        blob[p.sku] = { onHand: s.sampleRoomOnHand || 0, history: s.sampleRoomHistory || [], auditFlag: s.sampleRoomAuditFlag || null };
+      if (s && ((s.sampleRoomOnHand || 0) !== 0 || (s.sampleRoomHistory && s.sampleRoomHistory.length) || s.sampleRoomAuditFlag || (s.sampleRoomVersions && s.sampleRoomVersions.length))) {
+        blob[p.sku] = { onHand: s.sampleRoomOnHand || 0, history: s.sampleRoomHistory || [], auditFlag: s.sampleRoomAuditFlag || null, versions: s.sampleRoomVersions || [] };
       }
     });
     await sbClient.from('app_cache').upsert({ key: 'sudslab_sample_room', data: blob }, { onConflict: 'key' });
@@ -4120,6 +4292,7 @@ async function loadSudsLabFromSupabase() {
         sudslabState[sku].sampleRoomOnHand = d.onHand || 0;
         sudslabState[sku].sampleRoomHistory = d.history || [];
         sudslabState[sku].sampleRoomAuditFlag = d.auditFlag || null;
+        sudslabState[sku].sampleRoomVersions = d.versions || [];
       });
     }
     const logProcessedRow = (cacheRows || []).find(r => r.key === 'sudslab_sample_room_log_processed');
@@ -4805,6 +4978,16 @@ function _sudslabEmptyState() {
     // it. Never auto-corrects sampleRoomOnHand; it's a discrepancy report,
     // not a movement.
     sampleRoomAuditFlag: null, // { type: 'missing'|'extra', amount, date } | null
+    // Extra Sample Room buckets for a SKU that physically has more than one
+    // version (e.g. an old and new mold under the same model number). Each
+    // entry is a fully independent on-hand/history/auditFlag bucket, same
+    // shape as the primary fields above: { id, label, onHand, history, auditFlag }.
+    // The primary fields stay the sole bucket for every SKU that has never
+    // had a version added — this array only ever grows opt-in, so it never
+    // migrates or changes behavior for existing SKUs. The automated Sample
+    // Room Log sync and phone-form events (no version concept) only ever
+    // touch the primary bucket, same as before this existed.
+    sampleRoomVersions: [],
     hidden: false
   };
 }
@@ -5311,6 +5494,39 @@ function _sudslabExtractSkuFromCell(raw) {
   return m ? m[0].toUpperCase() : null;
 }
 
+// Whatever text sits alongside the SKU in the same dropdown cell (before or
+// after, no fixed delimiter — "SL-DG001-600W Old" and "Old SL-DG001-600W"
+// both yield "Old") is the version label. Empty/whitespace-only leftover
+// means no version was specified on this row (the primary/default bucket).
+function _sudslabExtractVersionLabel(raw, sku) {
+  if (raw == null) return null;
+  const text = String(raw).trim();
+  const idx = text.toUpperCase().indexOf(sku);
+  if (idx < 0) return null;
+  const leftover = (text.slice(0, idx) + ' ' + text.slice(idx + sku.length)).replace(/\s+/g, ' ').trim();
+  return leftover || null;
+}
+
+// Finds (or creates, first time this exact label is seen for this SKU) the
+// Sample Room version bucket matching `label` — case-insensitive and
+// whitespace-trimmed, so "Old", "old", " Old " from different form
+// submissions all land on the same bucket instead of forking. Returns the
+// version id to use, or 'default' when no label was given.
+function _sudslabResolveLogVersion(sku, label, createdVersions) {
+  const cleanLabel = (label || '').trim();
+  if (!cleanLabel) return 'default';
+  const s = sudslabState[sku];
+  if (!s.sampleRoomVersions) s.sampleRoomVersions = [];
+  const norm = cleanLabel.toLowerCase();
+  let v = s.sampleRoomVersions.find(x => (x.label || '').trim().toLowerCase() === norm);
+  if (!v) {
+    v = { id: 'v' + Date.now() + Math.floor(Math.random() * 1000), label: cleanLabel, onHand: 0, history: [], auditFlag: null };
+    s.sampleRoomVersions.push(v);
+    if (createdVersions) createdVersions.add(`${sku} (${cleanLabel})`);
+  }
+  return v.id;
+}
+
 async function saveSudsLabSampleRoomLogProcessed() {
   if (isTestMode || !sbClient) return;
   try {
@@ -5374,7 +5590,7 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
     if (idCol < 0 || directionCol < 0 || qtyCol < 0) throw new Error('Missing expected columns (ID / Direction / Quantity).');
 
     const processed = sudslabSampleRoomLogProcessedIds;
-    let applied = 0, unmatchedSkus = new Set(), createdSkus = new Set();
+    let applied = 0, unmatchedSkus = new Set(), createdSkus = new Set(), createdVersions = new Set();
 
     for (let ri = hdrIdx + 1; ri < data.length; ri++) {
       const row = data[ri];
@@ -5382,14 +5598,14 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
       const rowId = String(row[idCol]).trim();
       if (!rowId || processed.has(rowId)) continue;
 
-      let sku = null, fromNewCol = false;
+      let sku = null, fromNewCol = false, matchedRaw = null;
       for (const ci of knownSkuCols) {
         sku = _sudslabExtractSkuFromCell(row[ci]);
-        if (sku) break;
+        if (sku) { matchedRaw = row[ci]; break; }
       }
       if (!sku && newSkuCol >= 0) {
         sku = _sudslabExtractSkuFromCell(row[newSkuCol]);
-        if (sku) fromNewCol = true;
+        if (sku) { fromNewCol = true; matchedRaw = row[newSkuCol]; }
       }
       if (!sku) { processed.add(rowId); continue; } // no SKU selected on this row — nothing to log
 
@@ -5400,24 +5616,30 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
         createdSkus.add(sku);
       }
 
+      // Any leftover text in the same cell alongside the SKU (e.g. "SL-DG001-600W Old")
+      // identifies which physical version this row is about — see
+      // _sudslabExtractVersionLabel. No leftover text means the primary bucket.
+      const versionLabel = _sudslabExtractVersionLabel(matchedRaw, sku);
+      const versionId = _sudslabResolveLogVersion(p.sku, versionLabel, createdVersions);
+      const bucket = _sudslabSrBucket(sudslabState[p.sku], versionId);
+      if (!bucket) { processed.add(rowId); continue; }
+
       const dirRaw = String(row[directionCol] || '').trim().toLowerCase();
       const qty = Math.round(Math.abs(Number(row[qtyCol]))) || 0;
       const when = (timeCol >= 0 ? _sudslabParseFormDateTime(row[timeCol]) : null) || new Date();
       const by = nameCol >= 0 && row[nameCol] ? String(row[nameCol]).trim() : null;
-      const s = sudslabState[p.sku];
-      if (!s.sampleRoomHistory) s.sampleRoomHistory = [];
 
       // Audit: qty is a physical count, not a movement — it never changes
-      // sampleRoomOnHand. A mismatch against the current balance sets a
+      // the bucket's on-hand. A mismatch against the current balance sets a
       // discrepancy flag (shown next to On Hand) instead of correcting it;
       // a matching audit clears any previous flag. 0 is a valid count here,
       // unlike In/Out where a 0 qty means nothing to log.
       if (dirRaw === 'audit') {
-        const onHandAtAudit = s.sampleRoomOnHand || 0;
+        const onHandAtAudit = bucket.onHand;
         const diff = onHandAtAudit - qty; // >0 site shows more than counted (missing); <0 counted more (extra); 0 = match
         const discrepancy = { type: diff > 0 ? 'missing' : (diff < 0 ? 'extra' : 'match'), amount: Math.abs(diff) };
-        s.sampleRoomAuditFlag = { ...discrepancy, date: when.toISOString(), auditedQty: qty };
-        s.sampleRoomHistory.push({ date: when.toISOString(), type: 'audit', qty, reason: null, by, balance: onHandAtAudit, discrepancy, source: 'form' });
+        bucket.auditFlag = { ...discrepancy, date: when.toISOString(), auditedQty: qty };
+        bucket.history.push({ date: when.toISOString(), type: 'audit', qty, reason: null, by, balance: onHandAtAudit, discrepancy, source: 'form' });
         processed.add(rowId);
         applied++;
         continue;
@@ -5425,19 +5647,19 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
 
       if (qty === 0) { processed.add(rowId); continue; }
       const type = dirRaw.startsWith('out') ? 'out' : 'in';
-      if (type === 'in') s.sampleRoomOnHand = (s.sampleRoomOnHand || 0) + qty;
-      else s.sampleRoomOnHand = Math.max(0, (s.sampleRoomOnHand || 0) - qty);
+      if (type === 'in') bucket.onHand = bucket.onHand + qty;
+      else bucket.onHand = Math.max(0, bucket.onHand - qty);
 
-      s.sampleRoomHistory.push({
+      bucket.history.push({
         date: when.toISOString(),
         type,
         qty,
         reason: reasonCol >= 0 && row[reasonCol] ? String(row[reasonCol]).trim() : null,
         by,
-        balance: s.sampleRoomOnHand,
+        balance: bucket.onHand,
         source: 'form'
       });
-      _sudslabCheckAuditFlagResolved(p.sku);
+      _sudslabCheckAuditFlagResolved(p.sku, versionId);
 
       processed.add(rowId);
       applied++;
@@ -5453,6 +5675,7 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
       const ts = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
       let msg = `✓ Connected — ${file.name} — last synced ${ts} (${applied} new)`;
       if (createdSkus.size > 0) msg += `, ${createdSkus.size} new SKU${createdSkus.size > 1 ? 's' : ''} added`;
+      if (createdVersions.size > 0) msg += `, ${createdVersions.size} new version${createdVersions.size > 1 ? 's' : ''} added`;
       if (unmatchedSkus.size > 0) msg += `, ${unmatchedSkus.size} skipped (unknown SKU)`;
       _sudslabSetStatus('sudslabSampleRoomLogStatus', msg, 'connected');
       const connectBtn = document.getElementById('btnSudslabSampleRoomLogConnect');
@@ -8959,7 +9182,7 @@ function applySudslabFilters() {
     }
     if (visible && sudslabSampleRoomFilterOn) {
       const s = sudslabState[p.sku];
-      visible = !!(s && (s.sampleRoomOnHand || 0) > 0);
+      visible = _sudslabSrTotalOnHand(s) > 0;
     }
     block.style.display = visible ? '' : 'none';
 
@@ -12441,25 +12664,30 @@ function exportSudsLabSampleRoomCountSheet() {
   const rows = [];
   sudslabProducts.forEach(p => {
     const s = sudslabState[p.sku];
-    const onHand = s ? (s.sampleRoomOnHand || 0) : 0;
-    if (onHand <= 0) return;
-    // Outcome reflects the last synced Audit for this SKU (sampleRoomAuditFlag),
-    // if any — lets you see which items already have a flagged discrepancy
-    // before you go recount, while Audit Quantity itself stays blank for the
-    // new physical count.
-    const flag = s && s.sampleRoomAuditFlag;
-    const outcome = flag ? (flag.type === 'match' ? 'Match' : `Mismatch - ${_sudslabAuditFlagText(flag)}`) : '';
-    rows.push([p.sku, p.desc || '', p.inner || '', p.master || '', onHand, '', outcome]);
+    if (!s) return;
+    // One row per bucket (primary + any extra versions) so items with more
+    // than one physical version still get counted separately.
+    _sudslabSrBuckets(s).forEach(bucket => {
+      const onHand = bucket.onHand;
+      if (onHand <= 0) return;
+      // Outcome reflects the last synced Audit for this bucket (auditFlag), if
+      // any — lets you see which items already have a flagged discrepancy
+      // before you go recount, while Audit Quantity itself stays blank for the
+      // new physical count.
+      const flag = bucket.auditFlag;
+      const outcome = flag ? (flag.type === 'match' ? 'Match' : `Mismatch - ${_sudslabAuditFlagText(flag)}`) : '';
+      rows.push([p.sku, p.desc || '', bucket.label || '', p.inner || '', p.master || '', onHand, '', outcome]);
+    });
   });
 
   if (rows.length === 0) { alert('No SKUs currently show Sample Room stock — nothing to count.'); return; }
 
   const aoa = [
-    ['Product ID', 'Description', 'Inner Pack', 'Master pack', 'Current On Hand Quantity', 'Audit Quantity', 'Outcome'],
+    ['Product ID', 'Description', 'Version', 'Inner Pack', 'Master pack', 'Current On Hand Quantity', 'Audit Quantity', 'Outcome'],
     ...rows
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 16 }, { wch: 34 }, { wch: 11 }, { wch: 12 }, { wch: 20 }, { wch: 14 }, { wch: 40 }];
+  ws['!cols'] = [{ wch: 16 }, { wch: 34 }, { wch: 16 }, { wch: 11 }, { wch: 12 }, { wch: 20 }, { wch: 14 }, { wch: 40 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sample Room Count');
   const dateStr = new Date().toISOString().slice(0, 10);
