@@ -5501,10 +5501,14 @@ function _sudslabExtractSkuFromCell(raw) {
 function _sudslabExtractVersionLabel(raw, sku) {
   if (raw == null) return null;
   const text = String(raw).trim();
-  const idx = text.toUpperCase().indexOf(sku);
-  if (idx < 0) return null;
-  const leftover = (text.slice(0, idx) + ' ' + text.slice(idx + sku.length)).replace(/\s+/g, ' ').trim();
-  return leftover || null;
+  // Only a trailing "( ... )" counts as a version marker — e.g.
+  // "SL-AP001-700W 32 Oz N2 Interior Cleaner ( New )" -> "New". Real dropdown
+  // choices carry the full product description alongside the SKU, so there's
+  // no safe way to guess a version from "whatever's left over" the way a
+  // bare-SKU cell would allow — that would mistake every plain item's own
+  // description for a bogus version name. No parens => primary bucket.
+  const parenMatch = text.match(/\(([^)]+)\)\s*$/);
+  return parenMatch ? (parenMatch[1].trim() || null) : null;
 }
 
 // Finds (or creates, first time this exact label is seen for this SKU) the
