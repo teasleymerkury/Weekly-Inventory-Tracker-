@@ -1821,6 +1821,7 @@
         <div style="flex:1;"></div>
         <button class="add-item-btn sr-filter-btn" id="sudslabSampleRoomFilterBtn" onclick="toggleSudslabSampleRoomFilter()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Show only SKUs currently holding Sample Room stock"><svg width="13" height="16" viewBox="0 0 13 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="2" y="6" width="7" height="9" rx="1.2"/><line x1="4.5" y1="6" x2="4.5" y2="3.5"/><line x1="6.5" y1="6" x2="6.5" y2="3.5"/><rect x="4" y="2" width="3.2" height="2" rx="0.4"/><line x1="7.2" y1="2.6" x2="11.5" y2="1.8"/><path d="M4.5 4.2 C3 5, 2.3 6.3, 3 7.5"/></svg> Sample Room</button>
         <button class="add-item-btn" onclick="sortSudsLabProductsAlphabetically()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Sort all items alphabetically by SKU — one-time action, not automatic ongoing sorting">A-Z Sort</button>
+        <button class="add-item-btn" onclick="openSudsLabUndoSync()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Undo the Sample Room Log sync from a chosen row onward so those rows can be synced again">Undo Sync</button>
         <button class="add-item-btn" onclick="openSudslabAddItemModal()" style="margin-right:4px;">&#43; Add Item</button>
       </div>
       <div id="sudslabProductsContainer"></div>
@@ -3205,34 +3206,14 @@ function _sudslabAuditFlagText(flag) {
 
 // Renders the whole Sample Room section as ONE box (one .mkt-row), same as
 // the US MARKET / CA MARKET rows do with their warehouse breakdown — a SKU
-// with no extra versions gets the original single On-Hand-cell layout
-// unchanged; a SKU with versions gets one compact KPI cell per version,
-// side by side in that same row, each with its own mini +/- and history.
+// always gets an On Hand total plus a "New/Current Label" cell for its
+// normal stock; a SKU with extra versions (e.g. Old) gets one more compact
+// KPI cell per version, side by side in that same row, each with its own
+// mini +/- and history.
 function buildSudsLabSampleRoomRow(p, s) {
   const buckets = _sudslabSrBuckets(s); // [primary, ...versions]
   const row = document.createElement('div');
   row.className = 'mkt-row sr-row';
-
-  if (buckets.length === 1) {
-    const bucket = buckets[0];
-    const flagText = _sudslabAuditFlagText(bucket.auditFlag);
-    const flagIsMatch = bucket.auditFlag && bucket.auditFlag.type === 'match';
-    const flagHtml = flagText ? `<div class="sr-audit-flag${flagIsMatch ? ' match' : ''}">${flagText}</div>` : '';
-    row.innerHTML = `
-      <div class="mkt-name-cell">Sample Room</div>
-      <div class="mkt-kpi-cell onhand sr-onhand-cell" title="Double-click to view history" ondblclick="openSampleRoomHistory('${p.sku}','default')">
-        <div class="k">On Hand</div>
-        <div class="v">${bucket.onHand.toLocaleString()}</div>
-        ${flagHtml}
-      </div>
-      <div class="mkt-spacer sr-actions">
-        <button type="button" class="sr-action-btn sr-add" title="Add to Sample Room" onclick="openSampleRoomAdd('${p.sku}','default')">&#43;</button>
-        <button type="button" class="sr-action-btn sr-remove" title="Take from Sample Room" onclick="openSampleRoomRemove('${p.sku}','default')">&minus;</button>
-        <button type="button" class="sr-add-version-btn" title="Track a second physical version of this SKU (e.g. old vs. new mold) with its own Sample Room on-hand count" onclick="openSampleRoomAddVersion('${p.sku}')">&#43; Version</button>
-      </div>
-    `;
-    return row;
-  }
 
   // "On Hand" is a computed total across every bucket (the original/primary
   // count plus each version) once versions exist — same relationship the
@@ -5562,6 +5543,131 @@ async function saveSudsLabSampleRoomLogProcessed() {
   } catch(e) { console.warn('saveSudsLabSampleRoomLogProcessed failed:', e.message); }
 }
 
+// ── suds.lab: undo a Sample Room Log sync from a given row ID onward ─────────
+// Re-reads the connected log file to see which rows are >= the chosen ID,
+// removes exactly the history entries those rows created (matched by row ID
+// when the entry has one, otherwise by date + name + qty + type), recomputes
+// each affected count, drops version buckets left empty, and forgets those
+// row IDs so a re-sync applies them fresh. Manual +/- and phone-form entries
+// never match, so they are left alone.
+function openSudsLabUndoSync() {
+  if (!sudslabSampleRoomLogFile) { alert('Connect the Sample Room Log file first (top of the page) — the undo reads that file to see which rows were synced.'); return; }
+  const body = `
+    <label style="${_srLabelStyle}">First row ID to undo</label>
+    <input type="text" inputmode="numeric" id="srUndoStartId" placeholder="e.g. 69" style="${_srInputStyle}" />
+    <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:10px;line-height:1.4;">Removes the Sample Room entries that came from the log file for this row and every later row, recalculates the counts, and lets those rows sync again. Manual +/− entries and phone-form entries are not touched.</div>`;
+  document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Undo Sample Room Log sync', 'Uses the connected log file', body, 'Review', 'reviewSudsLabUndoSync()'));
+  setTimeout(() => { const el = document.getElementById('srUndoStartId'); if (el) el.focus(); }, 20);
+}
+
+async function _sudslabPlanUndoSync(startId) {
+  const buffer = await sudslabSampleRoomLogFile.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: 'array', raw: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws) throw new Error('No sheet found in the workbook.');
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  let hdrIdx = -1;
+  for (let i = 0; i < Math.min(10, data.length); i++) {
+    const row = data[i];
+    if (row && row.some(c => String(c || '').trim().toLowerCase() === 'id')) { hdrIdx = i; break; }
+  }
+  if (hdrIdx < 0) throw new Error('Could not find an "ID" header row.');
+  const hdr = data[hdrIdx].map(c => c != null ? String(c).trim().toLowerCase() : '');
+  const findCol = (...terms) => { for (const t of terms) { const i = hdr.findIndex(h => h.includes(t.toLowerCase())); if (i !== -1) return i; } return -1; };
+  const idCol = findCol('id'), timeCol = findCol('completion time'), nameCol = findCol('name');
+  const directionCol = findCol('direction'), qtyCol = findCol('quantity');
+  const knownSkuCols = ['chemicals', 'auto accessories', 'combo'].map(t => findCol(t)).filter(i => i >= 0);
+  const newSkuCol = findCol('new');
+  if (idCol < 0 || directionCol < 0 || qtyCol < 0) throw new Error('Missing expected columns (ID / Direction / Quantity).');
+
+  const plan = { ids: [], entries: [], missing: 0 };
+  const taken = new Set();
+  for (let ri = hdrIdx + 1; ri < data.length; ri++) {
+    const row = data[ri];
+    if (!row || row[idCol] == null) continue;
+    const rowId = String(row[idCol]).trim();
+    if (!rowId || !(Number(rowId) >= startId)) continue;
+    plan.ids.push(rowId);
+
+    let sku = null;
+    for (const ci of knownSkuCols) { sku = _sudslabExtractSkuFromCell(row[ci]); if (sku) break; }
+    if (!sku && newSkuCol >= 0) sku = _sudslabExtractSkuFromCell(row[newSkuCol]);
+    const s = sku && sudslabState[sku];
+    if (!s) continue;
+
+    const dirRaw = String(row[directionCol] || '').trim().toLowerCase();
+    const qty = Math.round(Math.abs(Number(row[qtyCol]))) || 0;
+    const type = dirRaw === 'audit' ? 'audit' : (dirRaw.startsWith('out') ? 'out' : 'in');
+    if (type !== 'audit' && qty === 0) continue;
+    const when = (timeCol >= 0 ? _sudslabParseFormDateTime(row[timeCol]) : null) || null;
+    const whenIso = when ? when.toISOString() : null;
+    const by = nameCol >= 0 && row[nameCol] ? String(row[nameCol]).trim() : null;
+
+    let found = false;
+    for (const b of _sudslabSrBuckets(s)) {
+      const entry = b.history.find(e => !taken.has(e) && e.source === 'form' && e.type === type && e.qty === qty &&
+        (e.rowId != null ? String(e.rowId) === rowId : (e.date === whenIso && (e.by || null) === (by || null))));
+      if (entry) { taken.add(entry); plan.entries.push({ sku, bucketId: b.id, entry }); found = true; break; }
+    }
+    if (!found) plan.missing++;
+  }
+  return plan;
+}
+
+function _sudslabApplyUndoSync(plan) {
+  const touched = new Map(); // sku -> Set(bucketId)
+  plan.entries.forEach(({ sku, bucketId, entry }) => {
+    const bucket = _sudslabSrBucket(sudslabState[sku], bucketId);
+    const i = bucket ? bucket.history.indexOf(entry) : -1;
+    if (i < 0) return;
+    bucket.history.splice(i, 1);
+    if (entry.type === 'audit' && bucket.auditFlag && bucket.auditFlag.date === entry.date) bucket.auditFlag = null;
+    if (!touched.has(sku)) touched.set(sku, new Set());
+    touched.get(sku).add(bucketId);
+  });
+  touched.forEach((bucketIds, sku) => {
+    const s = sudslabState[sku];
+    bucketIds.forEach(bucketId => {
+      const bucket = _sudslabSrBucket(s, bucketId);
+      let running = 0;
+      bucket.history.forEach(h => {
+        if (h.type === 'in') running += h.qty;
+        else if (h.type === 'out') running = Math.max(0, running - h.qty);
+        h.balance = running;
+      });
+      bucket.onHand = running;
+      _sudslabCheckAuditFlagResolved(sku, bucketId);
+    });
+    // A version bucket the undone rows created and nothing else uses goes away.
+    s.sampleRoomVersions = (s.sampleRoomVersions || []).filter(v => !(bucketIds.has(v.id) && (v.history || []).length === 0 && (v.onHand || 0) === 0));
+  });
+  plan.ids.forEach(id => sudslabSampleRoomLogProcessedIds.delete(id));
+}
+
+async function reviewSudsLabUndoSync() {
+  const errEl = document.getElementById('srModalErr');
+  const showErr = msg => { errEl.textContent = msg; errEl.style.display = 'block'; };
+  const startId = parseInt(String(document.getElementById('srUndoStartId').value).trim(), 10);
+  if (!startId || startId < 1) { showErr('Enter the first row ID, e.g. 69.'); return; }
+  let plan;
+  try { plan = await _sudslabPlanUndoSync(startId); } catch (e) { showErr(e.message); return; }
+  if (plan.ids.length === 0) { showErr('No rows with ID ' + startId + ' or higher in the connected file.'); return; }
+  const units = plan.entries.reduce((sum, x) => sum + (x.entry.type === 'in' ? x.entry.qty : 0), 0);
+  const skuCount = new Set(plan.entries.map(x => x.sku)).size;
+  const msg = `Undo from row ${startId} onward?\n\n` +
+    `• ${plan.ids.length} rows will be marked as not synced yet\n` +
+    `• ${plan.entries.length} synced entries removed from ${skuCount} items (${units.toLocaleString()} units added by them)\n` +
+    (plan.missing ? `• ${plan.missing} rows had no matching entry (already removed or never applied)\n` : '') +
+    `\nManual +/− and phone-form entries are not touched.\nClose any other open copy of this app first, then Sync again afterward.`;
+  if (!confirm(msg)) return;
+  _sudslabApplyUndoSync(plan);
+  _sudslabCloseSrModal();
+  renderSudsLabProducts();
+  applySudslabFilters();
+  if (!isTestMode) { await saveSudsLabSampleRoom(); await saveSudsLabSampleRoomLogProcessed(); }
+  alert(`Undone: ${plan.entries.length} entries removed. Click Sync on the Sample Room Log card to apply rows ${startId} onward again.`);
+}
+
 // Syncs the Microsoft Forms → Excel Online "Sample Room Log" export (manual
 // download + Sync Now, same pattern as the other three sources — no
 // Power Automate/Premium licensing involved). Each row becomes a Sample Room
@@ -5674,7 +5780,7 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
         const diff = onHandAtAudit - qty; // >0 site shows more than counted (missing); <0 counted more (extra); 0 = match
         const discrepancy = { type: diff > 0 ? 'missing' : (diff < 0 ? 'extra' : 'match'), amount: Math.abs(diff) };
         bucket.auditFlag = { ...discrepancy, date: when.toISOString(), auditedQty: qty };
-        bucket.history.push({ date: when.toISOString(), type: 'audit', qty, reason: null, by, balance: onHandAtAudit, discrepancy, source: 'form' });
+        bucket.history.push({ date: when.toISOString(), type: 'audit', qty, reason: null, by, balance: onHandAtAudit, discrepancy, source: 'form', rowId });
         processed.add(rowId);
         applied++;
         continue;
@@ -5692,7 +5798,8 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
         reason: reasonCol >= 0 && row[reasonCol] ? String(row[reasonCol]).trim() : null,
         by,
         balance: bucket.onHand,
-        source: 'form'
+        source: 'form',
+        rowId
       });
       _sudslabCheckAuditFlagResolved(p.sku, versionId);
 
