@@ -220,6 +220,7 @@
   .sr-add-version-btn:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); border-color: rgba(255,255,255,0.4); }
   /* Compact per-version KPI cells when a SKU has more than one version —
      everything stays in the same box as the market rows, just more columns. */
+  .sr-ver-cell { flex-basis: 150px; }
   .sr-value-row { display: flex; align-items: center; gap: 6px; }
   .sr-mini-actions { display: flex; gap: 4px; }
   .sr-mini-btn {
@@ -3238,10 +3239,11 @@ function buildSudsLabSampleRoomRow(p, s) {
   // US/CA MARKET rows already have between their On Hand total and the
   // warehouse cells beside it. It's display-only (no +/-, no history of its
   // own): add/remove still happens per-bucket, and the total just reflects
-  // whatever those sum to. The primary bucket itself doesn't get its own
-  // visible column — whatever was already in Sample Room before a version
-  // was ever added just stays folded into this total silently; only the
-  // named versions get their own box.
+  // whatever those sum to. The primary bucket is the item's normal/current
+  // stock, so it gets its own "New" column ahead of the extra versions (e.g.
+  // Old) — unless the SKU already has an explicit version labeled "New",
+  // in which case that one is the New column and the primary stays folded
+  // silently into the total to avoid two New columns.
   const total = _sudslabSrTotalOnHand(s);
   const totalCellHtml = `
     <div class="mkt-kpi-cell onhand" title="Total across every version below">
@@ -3249,14 +3251,17 @@ function buildSudsLabSampleRoomRow(p, s) {
       <div class="v">${total.toLocaleString()}</div>
     </div>`;
 
-  const kpiCellsHtml = buckets.filter(bucket => !bucket.isPrimary).map(bucket => {
+  const hasExplicitNew = buckets.some(b => !b.isPrimary && (b.label || '').trim().toLowerCase() === 'new');
+  const kpiCellsHtml = buckets.filter(bucket => !bucket.isPrimary || !hasExplicitNew).map(bucket => {
     const flagText = _sudslabAuditFlagText(bucket.auditFlag);
     const flagIsMatch = bucket.auditFlag && bucket.auditFlag.type === 'match';
     const flagHtml = flagText ? `<div class="sr-audit-flag${flagIsMatch ? ' match' : ''}">${flagText}</div>` : '';
-    const removeBtn = `<button type="button" class="sr-mini-x" title="Remove this version" onclick="removeSampleRoomVersion('${p.sku}','${bucket.id}')">&times;</button>`;
+    const lowerLabel = (bucket.label || '').trim().toLowerCase();
+    const bucketLabel = bucket.isPrimary || lowerLabel === 'new' ? 'New/Current Label' : (lowerLabel === 'old' ? 'Old Label' : bucket.label);
+    const removeBtn = bucket.isPrimary ? '' : `<button type="button" class="sr-mini-x" title="Remove this version" onclick="removeSampleRoomVersion('${p.sku}','${bucket.id}')">&times;</button>`;
     return `
-      <div class="mkt-kpi-cell sr-onhand-cell" title="Double-click to view history" ondblclick="openSampleRoomHistory('${p.sku}','${bucket.id}')">
-        <div class="k">${bucket.label}${removeBtn}</div>
+      <div class="mkt-kpi-cell sr-onhand-cell sr-ver-cell" title="Double-click to view history" ondblclick="openSampleRoomHistory('${p.sku}','${bucket.id}')">
+        <div class="k">${bucketLabel}${removeBtn}</div>
         <div class="sr-value-row">
           <div class="v">${bucket.onHand.toLocaleString()}</div>
           <div class="sr-mini-actions">
@@ -5514,6 +5519,19 @@ function _sudslabExtractVersionLabel(raw, sku) {
   return parenMatch ? (parenMatch[1].trim() || null) : null;
 }
 
+// Reads the form's "Label Version" cell. Returns null when blank,
+// { current: true } for "New / Current Version" (normal stock — primary
+// bucket), { label: 'Old' } for an old-label row, or the cleaned cell text as
+// the label for any other value so a future third label still gets its own
+// bucket.
+function _sudslabParseLabelVersionCell(raw) {
+  const t = String(raw == null ? '' : raw).trim();
+  if (!t) return null;
+  if (/\bold\b/i.test(t)) return { current: false, label: 'Old' };
+  if (/\b(new|current)\b/i.test(t)) return { current: true, label: null };
+  return { current: false, label: t.replace(/\s*version\s*$/i, '').trim() || t };
+}
+
 // Finds (or creates, first time this exact label is seen for this SKU) the
 // Sample Room version bucket matching `label` — case-insensitive and
 // whitespace-trimmed, so "Old", "old", " Old " from different form
@@ -5585,6 +5603,7 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
     const directionCol  = findCol('direction');
     const qtyCol        = findCol('quantity');
     const reasonCol     = findCol('reason');
+    const versionCol    = findCol('label version', 'version');
     // Chemicals/Auto Accessories/Combo are dropdowns of the EXISTING catalog —
     // a value there that doesn't match a real SKU is a typo, so it's skipped.
     // The "New" column is the one branch meant for a genuinely new product
@@ -5623,11 +5642,20 @@ async function syncSudsLabSampleRoomLog(isAutoLoad) {
         createdSkus.add(sku);
       }
 
-      // Any leftover text in the same cell alongside the SKU (e.g. "SL-DG001-600W Old")
-      // identifies which physical version this row is about — see
-      // _sudslabExtractVersionLabel. No leftover text means the primary bucket.
-      const versionLabel = _sudslabExtractVersionLabel(matchedRaw, sku);
-      const versionId = _sudslabResolveLogVersion(p.sku, versionLabel, createdVersions);
+      // The form's "Label Version" column decides which physical version this
+      // row is about: "New / Current" is the item's normal stock (primary
+      // bucket, unless the SKU already has an explicit "New" version), "Old"
+      // goes to an "Old" version bucket. A row with that column blank falls
+      // back to a trailing "( ... )" in the SKU cell; neither => primary.
+      const colInfo = _sudslabParseLabelVersionCell(versionCol >= 0 ? row[versionCol] : null);
+      let versionId;
+      if (colInfo && colInfo.current) {
+        const explicitNew = (sudslabState[p.sku].sampleRoomVersions || []).find(v => (v.label || '').trim().toLowerCase() === 'new');
+        versionId = explicitNew ? explicitNew.id : 'default';
+      } else {
+        const versionLabel = colInfo ? colInfo.label : _sudslabExtractVersionLabel(matchedRaw, sku);
+        versionId = _sudslabResolveLogVersion(p.sku, versionLabel, createdVersions);
+      }
       const bucket = _sudslabSrBucket(sudslabState[p.sku], versionId);
       if (!bucket) { processed.add(rowId); continue; }
 
