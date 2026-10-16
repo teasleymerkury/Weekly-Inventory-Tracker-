@@ -3188,6 +3188,16 @@ function _sudslabSrBuckets(s) {
   return [primary, ...extras];
 }
 
+// Label shown for a Sample Room bucket on the card and in the count sheet:
+// the primary bucket and any version named "New" are the current label, a
+// version named "Old" is the old label, anything else shows its own name.
+function _sudslabSrDisplayLabel(bucket) {
+  const lower = (bucket.label || '').trim().toLowerCase();
+  if (bucket.isPrimary || lower === 'new') return 'New/Current Label';
+  if (lower === 'old') return 'Old Label';
+  return bucket.label;
+}
+
 // On Hand summed across the primary bucket and every extra version — used
 // wherever a SKU-level Sample Room total is needed (filter, count sheet).
 function _sudslabSrTotalOnHand(s) {
@@ -3237,8 +3247,7 @@ function buildSudsLabSampleRoomRow(p, s) {
     const flagText = _sudslabAuditFlagText(bucket.auditFlag);
     const flagIsMatch = bucket.auditFlag && bucket.auditFlag.type === 'match';
     const flagHtml = flagText ? `<div class="sr-audit-flag${flagIsMatch ? ' match' : ''}">${flagText}</div>` : '';
-    const lowerLabel = (bucket.label || '').trim().toLowerCase();
-    const bucketLabel = bucket.isPrimary || lowerLabel === 'new' ? 'New/Current Label' : (lowerLabel === 'old' ? 'Old Label' : bucket.label);
+    const bucketLabel = _sudslabSrDisplayLabel(bucket);
     const removeBtn = bucket.isPrimary ? '' : `<button type="button" class="sr-mini-x" title="Remove this version" onclick="removeSampleRoomVersion('${p.sku}','${bucket.id}')">&times;</button>`;
     return `
       <div class="mkt-kpi-cell sr-onhand-cell sr-ver-cell" title="Double-click to view history" ondblclick="openSampleRoomHistory('${p.sku}','${bucket.id}')">
@@ -12818,7 +12827,7 @@ function exportSudsLabSampleRoomCountSheet() {
       // new physical count.
       const flag = bucket.auditFlag;
       const outcome = flag ? (flag.type === 'match' ? 'Match' : `Mismatch - ${_sudslabAuditFlagText(flag)}`) : '';
-      rows.push([p.sku, p.desc || '', bucket.label || '', p.inner || '', p.master || '', onHand, '', outcome]);
+      rows.push([p.sku, p.desc || '', _sudslabSrDisplayLabel(bucket), p.inner || '', p.master || '', onHand, '', outcome]);
     });
   });
 
