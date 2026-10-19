@@ -205,6 +205,7 @@
   .sr-onhand-cell { cursor: pointer; }
   .sr-audit-flag { font-size: 10px; font-weight: 600; color: rgba(255,180,90,0.95); margin-top: 2px; white-space: nowrap; }
   .sr-audit-flag.match { color: rgba(120,220,150,0.9); }
+  .sr-cart-badge { display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: rgba(255,140,120,0.85); color: #1a1220; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
   .sr-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-right: 12px; }
   .sr-action-btn {
     width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.30);
@@ -1819,6 +1820,7 @@
         <span style="font-size:11px;color:var(--text-2);">to</span>
         <select class="fw-select" id="sudslabFwTo" onchange="applySudslabFilters()"></select>
         <div style="flex:1;"></div>
+        <button class="add-item-btn" id="sudslabCartBtn" onclick="openSampleRoomCart()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Sample Room take-outs not yet emailed"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.7 12.4a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 7H6"/></svg> Cart <span class="sr-cart-badge" id="sudslabCartBadge" style="display:none;">0</span></button>
         <button class="add-item-btn sr-filter-btn" id="sudslabSampleRoomFilterBtn" onclick="toggleSudslabSampleRoomFilter()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Show only SKUs currently holding Sample Room stock"><svg width="13" height="16" viewBox="0 0 13 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="2" y="6" width="7" height="9" rx="1.2"/><line x1="4.5" y1="6" x2="4.5" y2="3.5"/><line x1="6.5" y1="6" x2="6.5" y2="3.5"/><rect x="4" y="2" width="3.2" height="2" rx="0.4"/><line x1="7.2" y1="2.6" x2="11.5" y2="1.8"/><path d="M4.5 4.2 C3 5, 2.3 6.3, 3 7.5"/></svg> Sample Room</button>
         <button class="add-item-btn" onclick="sortSudsLabProductsAlphabetically()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Sort all items alphabetically by SKU — one-time action, not automatic ongoing sorting">A-Z Sort</button>
         <button class="add-item-btn" onclick="openSudsLabUndoSync()" style="margin-right:4px;background:rgba(255,255,255,0.1);" title="Undo the Sample Room Log sync from a chosen row onward so those rows can be synced again">Undo Sync</button>
@@ -3351,6 +3353,8 @@ function openSampleRoomAdd(sku, versionId) {
     <input type="text" inputmode="numeric" id="srAddQty" placeholder="0" style="${_srInputStyle}" />
     <label style="${_srLabelStyle}">Reason (optional)</label>
     <input type="text" id="srAddReason" placeholder="e.g. received from vendor" style="${_srInputStyle}" />
+    <label style="${_srLabelStyle}">Requested by (optional)</label>
+    <input type="text" id="srAddRequester" placeholder="Name of the person requesting" style="${_srInputStyle}" />
   `;
   document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Add to Sample Room', name, body, 'Add', `confirmSampleRoomAdd('${sku}','${bucket.id}')`));
   setTimeout(() => { const el = document.getElementById('srAddQty'); if (el) el.focus(); }, 20);
@@ -3367,15 +3371,16 @@ function confirmSampleRoomAdd(sku, versionId) {
     return;
   }
   const reason = reasonEl.value.trim() || null;
+  const requestedBy = document.getElementById('srAddRequester').value.trim() || null;
   const bucket = _sudslabSrBucket(sudslabState[sku], versionId);
   if (!bucket) { _sudslabCloseSrModal(); return; }
   bucket.onHand = bucket.onHand + qty;
-  bucket.history.push({ date: new Date().toISOString(), type: 'in', qty, reason, balance: bucket.onHand });
+  bucket.history.push({ date: new Date().toISOString(), type: 'in', qty, reason, requestedBy, balance: bucket.onHand });
   _sudslabCheckAuditFlagResolved(sku, versionId);
   _sudslabCloseSrModal();
   _sudslabRerenderProduct(sku);
   applySudslabFilters(); // the Sample Room filter cares about this exact value changing
-  if (!isTestMode) saveSudsLabSampleRoom();
+  saveSudsLabSampleRoom(); // self-guards: persists for real logins and the SLtest Sample Room operator only
 }
 
 function openSampleRoomRemove(sku, versionId) {
@@ -3389,6 +3394,8 @@ function openSampleRoomRemove(sku, versionId) {
     <input type="text" inputmode="numeric" id="srRemoveQty" placeholder="0" style="${_srInputStyle}" />
     <label style="${_srLabelStyle}">Reason</label>
     <input type="text" id="srRemoveReason" placeholder="e.g. sent to buyer, damaged" style="${_srInputStyle}" />
+    <label style="${_srLabelStyle}">Requested by (optional)</label>
+    <input type="text" id="srRemoveRequester" placeholder="Name of the person requesting" style="${_srInputStyle}" />
   `;
   document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Take from Sample Room', name, body, 'Take Out', `confirmSampleRoomRemove('${sku}','${bucket.id}')`));
   setTimeout(() => { const el = document.getElementById('srRemoveQty'); if (el) el.focus(); }, 20);
@@ -3418,16 +3425,242 @@ function confirmSampleRoomRemove(sku, versionId) {
     errEl.style.display = 'block';
     return;
   }
+  const requestedBy = document.getElementById('srRemoveRequester').value.trim() || null;
   bucket.onHand = avail - qty;
-  bucket.history.push({ date: new Date().toISOString(), type: 'out', qty, reason, balance: bucket.onHand });
+  // emailedAt: null = waiting in the Cart to be emailed (see openSampleRoomCart).
+  // Entries from before the Cart existed have no such field, so they never appear in it.
+  bucket.history.push({ date: new Date().toISOString(), type: 'out', qty, reason, requestedBy, balance: bucket.onHand, emailedAt: null });
   _sudslabCheckAuditFlagResolved(sku, versionId);
   _sudslabCloseSrModal();
   _sudslabRerenderProduct(sku);
   applySudslabFilters(); // the Sample Room filter cares about this exact value changing
-  if (!isTestMode) saveSudsLabSampleRoom();
+  saveSudsLabSampleRoom(); // self-guards: persists for real logins and the SLtest Sample Room operator only
+}
+
+// ── suds.lab: Sample Room Cart ────────────────────────────────────────────────
+// Every take-out made with the − button that hasn't been emailed yet, across
+// all SKUs and versions, even from earlier days. The site has no mail server,
+// so "Email list" opens a pre-filled draft in the clicking user's OWN mail app
+// (mailto:) and — in that same click — stamps those entries emailedAt, so they
+// leave the Cart for everyone (the stamp lives in the shared sample-room data).
+// The site can't tell whether the draft was actually sent, which is why the
+// Cart also offers "Undo last email" for the most recently emailed batch.
+function _sudslabOperatorBlocked() {
+  if (!sampleRoomOperator) return false;
+  alert('This login can add stock, take stock out, and email the Cart in the Sample Room, but not do this.');
+  return true;
+}
+
+function _sudslabGetCartItems() {
+  const items = [];
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    if (!s) return;
+    const buckets = _sudslabSrBuckets(s);
+    const hasVersions = buckets.length > 1;
+    buckets.forEach(b => {
+      b.history.forEach((h, idx) => {
+        if (h.type === 'out' && h.emailedAt === null) {
+          items.push({ sku: p.sku, desc: p.desc || '', label: hasVersions ? _sudslabSrDisplayLabel(b) : '', entry: h, versionId: b.id, idx });
+        }
+      });
+    });
+  });
+  items.sort((a, b) => new Date(a.entry.date) - new Date(b.entry.date));
+  return items;
+}
+
+function _sudslabLastEmailedBatch() {
+  let latest = null;
+  const all = [];
+  sudslabProducts.forEach(p => {
+    const s = sudslabState[p.sku];
+    if (!s) return;
+    _sudslabSrBuckets(s).forEach(b => b.history.forEach(h => {
+      if (h.type === 'out' && h.emailedAt) {
+        all.push(h);
+        if (!latest || h.emailedAt > latest) latest = h.emailedAt;
+      }
+    }));
+  });
+  return latest ? { at: latest, entries: all.filter(h => h.emailedAt === latest) } : null;
+}
+
+function _sudslabUpdateCartBadge() {
+  const el = document.getElementById('sudslabCartBadge');
+  if (!el) return;
+  const n = _sudslabGetCartItems().length;
+  el.textContent = n;
+  el.style.display = n ? '' : 'none';
+}
+
+function _sudslabCartEmailText(items) {
+  const lines = items.map(it => `${it.sku}${it.desc ? ' - ' + it.desc : ''}${it.label ? ' (' + it.label + ')' : ''} - Qty: ${it.entry.qty.toLocaleString()}${it.entry.requestedBy ? ' - Requested by: ' + it.entry.requestedBy : ''}`);
+  const total = items.reduce((sum, it) => sum + it.entry.qty, 0);
+  return `Sample Room take-outs:\n\n${lines.join('\n')}\n\nTotal: ${total.toLocaleString()} units`;
+}
+
+function openSampleRoomCart() {
+  _sudslabCloseSrModal();
+  const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const items = _sudslabGetCartItems();
+  const rowsHtml = items.length === 0
+    ? `<div style="text-align:center;color:rgba(255,255,255,.4);font-size:13px;padding:16px 0;">Nothing waiting to be emailed.</div>`
+    : items.map(it => {
+        const d = new Date(it.entry.date);
+        const dateStr = isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        const sub = [dateStr, it.label, it.entry.reason, it.entry.requestedBy ? 'requested by ' + it.entry.requestedBy : '', it.entry.originalQty != null ? 'edited (was ' + it.entry.originalQty + ')' : ''].filter(Boolean).map(esc).join(' · ');
+        return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+          <div style="min-width:0;">
+            <div style="font-size:12px;color:rgba(255,255,255,.85);">${esc(it.sku)}${it.desc ? ' · ' + esc(it.desc) : ''}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:2px;">${sub}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+            <input type="text" inputmode="numeric" value="${it.entry.qty}" title="Edit quantity" onchange="editSampleRoomCartQty('${it.sku}','${it.versionId}',${it.idx},this)" style="width:54px;box-sizing:border-box;text-align:right;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.20);border-radius:6px;padding:4px 6px;color:rgba(255,140,120,1);font-size:14px;font-weight:700;font-family:inherit;outline:none;" />
+            <button type="button" onclick="removeSampleRoomCartItem('${it.sku}','${it.versionId}',${it.idx})" title="Remove this take-out (units go back to On Hand)" style="background:transparent;border:none;color:rgba(255,255,255,.35);cursor:pointer;font-size:16px;line-height:1;padding:0 2px;">&times;</button>
+          </div>
+        </div>`;
+      }).join('');
+  const total = items.reduce((sum, it) => sum + it.entry.qty, 0);
+  const last = _sudslabLastEmailedBatch();
+  let undoHtml = '';
+  if (last) {
+    const d = new Date(last.at);
+    const when = isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    undoHtml = `<div style="margin-top:12px;font-size:11px;color:rgba(255,255,255,.45);">Last emailed ${esc(when)} (${last.entries.length} item${last.entries.length > 1 ? 's' : ''}) — <a href="#" onclick="undoLastSampleRoomEmail();return false;" style="color:rgba(160,190,255,.9);">Undo — put back in Cart</a></div>`;
+  }
+  const btnBase = 'border-radius:8px;padding:6px 14px;cursor:pointer;font-size:13px;';
+  const actionsHtml = items.length === 0 ? '' : `
+    <button type="button" id="srCartCopyBtn" onclick="copySampleRoomCartList()" style="${btnBase}background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.20);color:rgba(255,255,255,.7);">Copy list</button>
+    <button type="button" onclick="emailSampleRoomCart()" style="${btnBase}background:rgba(100,180,255,.85);border:none;color:#0c1420;font-weight:700;">Email list</button>`;
+  const html = `<div class="sr-modal-overlay" onclick="if(event.target===this) _sudslabCloseSrModal()">
+    <div style="background:#1e1e2e;border:1px solid rgba(255,255,255,.18);border-radius:16px;padding:22px 24px;width:min(460px,92vw);max-height:82vh;overflow:auto;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:#f0f0f8;">Sample Room Cart</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:2px;">${items.length} take-out${items.length === 1 ? '' : 's'} not yet emailed${items.length ? ' · ' + total.toLocaleString() + ' units' : ''}</div>
+        </div>
+        <button type="button" onclick="_sudslabCloseSrModal()" style="background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.20);border-radius:8px;padding:4px 12px;color:rgba(255,255,255,.7);cursor:pointer;font-size:13px;">&times;</button>
+      </div>
+      <div style="margin-top:10px;">${rowsHtml}</div>
+      ${items.length ? `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">${actionsHtml}</div>` : ''}
+      ${undoHtml}
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// Replays a bucket's history from zero (in adds, out subtracts and floors at 0,
+// audits don't move stock). apply=true also rewrites each entry's balance
+// snapshot. `clamps` counts take-outs that asked for more than was there, so an
+// edit can be rejected when it would newly cause one.
+function _sudslabReplayHistory(history, apply) {
+  let running = 0, clamps = 0;
+  history.forEach(h => {
+    if (h.type === 'in') running += h.qty;
+    else if (h.type === 'out') { if (running - h.qty < 0) clamps++; running = Math.max(0, running - h.qty); }
+    if (apply) h.balance = running;
+  });
+  return { running, clamps };
+}
+
+function _sudslabCartEntry(sku, versionId, idx) {
+  const s = sudslabState[sku];
+  const bucket = s && _sudslabSrBucket(s, versionId);
+  const entry = bucket && bucket.history[idx];
+  return entry && entry.type === 'out' && entry.emailedAt === null ? { bucket, entry } : null;
+}
+
+function _sudslabCartAfterChange(sku, versionId) {
+  _sudslabCheckAuditFlagResolved(sku, versionId);
+  _sudslabRerenderProduct(sku);
+  applySudslabFilters();
+  saveSudsLabSampleRoom(); // self-guards: persists for real logins and the SLtest Sample Room operator only
+  openSampleRoomCart();
+}
+
+// Changing a Cart line's qty changes a take-out that already lowered On Hand,
+// so the whole bucket is replayed afterwards: On Hand and every later balance
+// follow. Raising it is refused if the stock wasn't there at that point.
+function editSampleRoomCartQty(sku, versionId, idx, inputEl) {
+  const found = _sudslabCartEntry(sku, versionId, idx);
+  if (!found) { openSampleRoomCart(); return; }
+  const { bucket, entry } = found;
+  const oldQty = entry.qty;
+  const newQty = Math.round(parseFloat(String(inputEl.value).replace(/,/g, '')));
+  if (!newQty || newQty <= 0 || isNaN(newQty)) { alert('Enter a quantity greater than 0.'); inputEl.value = oldQty; return; }
+  if (newQty === oldQty) return;
+  const clampsBefore = _sudslabReplayHistory(bucket.history, false).clamps;
+  entry.qty = newQty;
+  if (_sudslabReplayHistory(bucket.history, false).clamps > clampsBefore) {
+    entry.qty = oldQty;
+    inputEl.value = oldQty;
+    alert('Not enough stock at that point in the history to take out that many.');
+    return;
+  }
+  if (entry.originalQty == null) entry.originalQty = oldQty;
+  bucket.onHand = _sudslabReplayHistory(bucket.history, true).running;
+  _sudslabCartAfterChange(sku, versionId);
+}
+
+function removeSampleRoomCartItem(sku, versionId, idx) {
+  const found = _sudslabCartEntry(sku, versionId, idx);
+  if (!found) { openSampleRoomCart(); return; }
+  const { bucket, entry } = found;
+  if (!confirm(`Remove this take-out of ${entry.qty.toLocaleString()}? Those units go back to On Hand.`)) return;
+  bucket.history.splice(idx, 1);
+  bucket.onHand = _sudslabReplayHistory(bucket.history, true).running;
+  _sudslabCartAfterChange(sku, versionId);
+}
+
+function copySampleRoomCartList() {
+  const items = _sudslabGetCartItems();
+  if (!items.length) return;
+  const btn = document.getElementById('srCartCopyBtn');
+  const done = ok => { if (btn) { btn.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(() => { if (btn) btn.textContent = 'Copy list'; }, 1500); } };
+  navigator.clipboard.writeText(_sudslabCartEmailText(items)).then(() => done(true), () => done(false));
+}
+
+async function emailSampleRoomCart() {
+  const items = _sudslabGetCartItems();
+  if (!items.length) return;
+  const text = _sudslabCartEmailText(items);
+  const d = new Date();
+  const subject = `Sample Room take-out request - ${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+  let body = text;
+  // Mail apps cut off very long mailto: links, which would silently drop items
+  // from the draft — so past a safe length, put the list on the clipboard and
+  // leave a one-line draft. If the clipboard is unavailable, stop BEFORE marking
+  // anything as emailed.
+  if (('mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body)).length > 1800) {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) { alert('This list is too long for an email draft and could not be copied automatically. Use "Copy list", paste it into a new email, then try again.'); return; }
+    body = 'The list of take-outs was copied to your clipboard — paste it here.';
+  }
+  const a = document.createElement('a');
+  a.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  const nowIso = new Date().toISOString();
+  items.forEach(it => { it.entry.emailedAt = nowIso; });
+  _sudslabCloseSrModal();
+  _sudslabUpdateCartBadge();
+  saveSudsLabSampleRoom(); // self-guards: persists for real logins and the SLtest Sample Room operator only
+}
+
+function undoLastSampleRoomEmail() {
+  const last = _sudslabLastEmailedBatch();
+  if (!last) return;
+  last.entries.forEach(h => { h.emailedAt = null; });
+  _sudslabUpdateCartBadge();
+  saveSudsLabSampleRoom(); // self-guards: persists for real logins and the SLtest Sample Room operator only
+  openSampleRoomCart();
 }
 
 function openSampleRoomAddVersion(sku) {
+  if (_sudslabOperatorBlocked()) return;
   const p = sudslabProducts.find(x => x.sku === sku);
   const name = p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku;
   const body = `
@@ -3456,6 +3689,7 @@ function confirmSampleRoomAddVersion(sku) {
 }
 
 function removeSampleRoomVersion(sku, versionId) {
+  if (_sudslabOperatorBlocked()) return;
   const s = sudslabState[sku];
   const v = (s.sampleRoomVersions || []).find(x => x.id === versionId);
   if (!v) return;
@@ -3487,6 +3721,8 @@ function openSampleRoomHistory(sku, versionId) {
         const color = h.type === 'in' ? 'rgba(120,220,150,1)' : (h.type === 'audit' ? 'rgba(160,190,255,1)' : 'rgba(255,140,120,1)');
         const reasonHtml = h.reason ? `<div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:2px;">${String(h.reason).replace(/</g, '&lt;')}</div>` : '';
         const byHtml = h.by ? `<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:2px;">by ${String(h.by).replace(/</g, '&lt;')}</div>` : '';
+        const requestedHtml = h.requestedBy ? `<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:2px;">requested by ${String(h.requestedBy).replace(/</g, '&lt;')}</div>` : '';
+        const editedHtml = h.originalQty != null ? `<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:2px;">edited — originally ${Number(h.originalQty).toLocaleString()}</div>` : '';
         const discrepancyHtml = h.type === 'audit' && h.discrepancy
           ? (h.discrepancy.type === 'match'
               ? `<div style="font-size:11px;color:rgba(120,220,150,.9);margin-top:2px;">No discrepancy found</div>`
@@ -3498,6 +3734,8 @@ function openSampleRoomHistory(sku, versionId) {
             <div style="font-size:12px;color:rgba(255,255,255,.85);">${dateStr}</div>
             ${reasonHtml}
             ${byHtml}
+            ${requestedHtml}
+            ${editedHtml}
             ${discrepancyHtml}
           </div>
           <div style="text-align:right;flex-shrink:0;">
@@ -3534,6 +3772,7 @@ function openSampleRoomHistory(sku, versionId) {
 // that flag too, since its explanation would otherwise vanish while the
 // flag stayed stuck.
 function deleteSampleRoomHistoryEntry(sku, idx, versionId) {
+  if (_sudslabOperatorBlocked()) return;
   const s = sudslabState[sku];
   const bucket = _sudslabSrBucket(s, versionId);
   if (!bucket) return;
@@ -3568,7 +3807,7 @@ function deleteSampleRoomHistoryEntry(sku, idx, versionId) {
 }
 
 async function saveSudsLabSampleRoom() {
-  if (isTestMode || !sbClient) return;
+  if ((isTestMode && !sampleRoomOperator) || !sbClient) return;
   try {
     const blob = {};
     sudslabProducts.forEach(p => {
@@ -3691,6 +3930,7 @@ function renderSudsLabProducts() {
     frag.appendChild(buildSudsLabProduct(p));
   });
   container.appendChild(frag);
+  _sudslabUpdateCartBadge();
 }
 
 // One-time action, not an ongoing behavior — re-sorts the whole list by SKU
@@ -5560,6 +5800,7 @@ async function saveSudsLabSampleRoomLogProcessed() {
 // row IDs so a re-sync applies them fresh. Manual +/- and phone-form entries
 // never match, so they are left alone.
 function openSudsLabUndoSync() {
+  if (_sudslabOperatorBlocked()) return;
   if (!sudslabSampleRoomLogFile) { alert('Connect the Sample Room Log file first (top of the page) — the undo reads that file to see which rows were synced.'); return; }
   const body = `
     <label style="${_srLabelStyle}">First row ID to undo</label>
@@ -5690,6 +5931,7 @@ async function reviewSudsLabUndoSync() {
 async function syncSudsLabSampleRoomLog(isAutoLoad) {
   const file = sudslabSampleRoomLogFile;
   if (!file) return;
+  if (!isAutoLoad && _sudslabOperatorBlocked()) return;
   await _sudslabAwaitLoad();
   const btnSync = document.getElementById('btnSudslabSampleRoomLogSync');
   if (!isAutoLoad) {
@@ -6206,6 +6448,15 @@ const SENT_REORDERS_KEY = 'merkury_sent_reorders_v1';
 let sentReorders = {};
 try { sentReorders = JSON.parse(localStorage.getItem(SENT_REORDERS_KEY) || '{}'); } catch(e) {}
 let isTestMode = false;
+// The suds.lab test login (SLtest) is a sandbox for everything EXCEPT three
+// Sample Room actions, which it may really perform and persist: adding stock,
+// taking stock out, and emailing the Cart. Every other write stays suppressed
+// by isTestMode, and the other Sample Room edits (delete history, versions,
+// Log sync/undo) are blocked outright for this login — see
+// _sudslabOperatorBlocked — because saveSudsLabSampleRoom writes the whole
+// Sample Room blob, so an unsaved in-memory edit would otherwise get saved
+// along with the next permitted action.
+let sampleRoomOperator = false;
 let deletedSkus = new Set();
 
 // ── Account switcher (The Home Depot US / suds.lab) ────────────────────────────
@@ -9310,6 +9561,7 @@ document.addEventListener('click', function(e) {
 });
 
 function applySudslabFilters() {
+  _sudslabUpdateCartBadge();
   const fromEl = document.getElementById('sudslabFwFrom');
   const toEl   = document.getElementById('sudslabFwTo');
   const retailerEl = document.getElementById('sudslabRetailerFilter');
@@ -9664,6 +9916,7 @@ function resetInactivityTimer() {
 function autoLogout() {
   if (!isTestMode) saveState();
   isTestMode = false;
+  sampleRoomOperator = false;
   const box = document.getElementById('loginBox');
   box.classList.remove('expanding');
   box.style.animation = 'none';
@@ -10144,6 +10397,7 @@ function doLogin() {
 
   if (isReal || isTest || isSlTest) {
     isTestMode = isTest || isSlTest;
+    sampleRoomOperator = isSlTest;
     accountRestriction = isTest ? 'thd' : (isSlTest ? 'sudslab' : null);
     if (errEl) errEl.style.display = 'none';
     const box = document.getElementById('loginBox');
@@ -13062,6 +13316,7 @@ function doLogin() {
 
   if (isReal || isTest || isSlTest) {
     isTestMode = isTest || isSlTest;
+    sampleRoomOperator = isSlTest;
     accountRestriction = isTest ? 'thd' : (isSlTest ? 'sudslab' : null);
     if (errEl) errEl.style.display = 'none';
     const box = document.getElementById('loginBox');
