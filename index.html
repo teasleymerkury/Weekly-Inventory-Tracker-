@@ -788,6 +788,13 @@
     background: rgba(255,255,255,0.10); color: var(--text-1);
     transition: background 0.15s; white-space: nowrap;
   }
+  .demand-toggle { display: inline-flex; }
+  .demand-toggle .filter-btn { border-radius: 0; padding: 5px 12px; }
+  .demand-toggle .filter-btn:first-child { border-radius: 8px 0 0 8px; }
+  .demand-toggle .filter-btn:last-child  { border-radius: 0 8px 8px 0; border-left: none; }
+  .demand-toggle .filter-btn.active { background: rgba(120,180,255,0.55); border-color: rgba(120,180,255,0.9); font-weight: 700; }
+  /* With the Demand source on SUOF the Sales rate row is still editable but isn't what Ending INV / WOS use */
+  #page-inventory.demand-suof tr[data-row="salesRate"] td:not(.row-lbl) { opacity: 0.5; }
   .filter-btn:hover  { background: rgba(255,255,255,0.20); }
   .filter-btn.active { background: rgba(255,255,255,0.22); border-color: rgba(255,255,255,0.50); }
   .fw-select {
@@ -1572,6 +1579,12 @@
     <select class="fw-select" id="fwFrom" onchange="applyFilters()"></select>
     <span style="font-size:11px;color:var(--text-2);">to</span>
     <select class="fw-select" id="fwTo" onchange="applyFilters()"></select>
+    <div class="filter-sep"></div>
+    <span class="filter-lbl">Demand</span>
+    <div class="demand-toggle" title="Which weekly number Ending INV, WOS and the Forecast page's reorder suggestions are built from. Applies to everyone.">
+      <button type="button" class="filter-btn active" id="demandBtnSalesRate" onclick="setDemandSource('salesrate')">Sales rate</button>
+      <button type="button" class="filter-btn" id="demandBtnSuof" onclick="setDemandSource('suof')">SUOF</button>
+    </div>
     <div style="flex:1;"></div>
     <button class="add-item-btn" onclick="openAddItemModal()" style="margin-right:4px;">&#43; Add Item</button>
   </div>
@@ -1914,6 +1927,10 @@
       <span class="date-badge" id="forecastDate"></span>
       <span class="date-badge" id="forecastAgentRun" style="display:none;"></span>
     </div>
+  </div>
+
+  <div id="fcDemandNote" style="display:none;margin:0 0 10px;padding:8px 14px;border-radius:10px;background:rgba(120,180,255,0.18);border:1px solid rgba(120,180,255,0.5);font-size:12px;color:var(--text-1);">
+    <b>Demand source: SUOF.</b> Reorder suggestions and the reorder schedule below use the SUOF numbers exactly as given (0 stays 0). Switch back to Sales rate on the Weekly Recap page to return to the usual forecast.
   </div>
 
   <!-- Period Selector -->
@@ -2675,6 +2692,54 @@ function getCurrentWeekIdx() {
   return idx;
 }
 
+// ── Demand source (Home Depot Weekly Recap) ───────────────────────────────────
+// Which weekly number drives Ending INV, WOS and the reorder suggestions:
+//   'salesrate' — how it has always worked (the Sales rate row)
+//   'suof'      — THD's SUOF row exactly as given: a 0 stays 0 and a blank counts as
+//                 0 (no fallback to the Sales rate). The Sales rate row stays visible
+//                 and editable but isn't used while this is on.
+// One page-wide setting, saved once in app_cache ('demand_source') so everyone sees
+// the same choice; see setDemandSource().
+let demandSource = 'salesrate';
+function suofDemandAt(s, i) { return (s.suofFromExcel && s.suofFromExcel[i] != null) ? s.suofFromExcel[i] : 0; }
+
+function _syncDemandSourceUi() {
+  const sr = document.getElementById('demandBtnSalesRate'), su = document.getElementById('demandBtnSuof');
+  if (sr) sr.classList.toggle('active', demandSource !== 'suof');
+  if (su) su.classList.toggle('active', demandSource === 'suof');
+  const inv = document.getElementById('page-inventory');
+  if (inv) inv.classList.toggle('demand-suof', demandSource === 'suof');
+  const note = document.getElementById('fcDemandNote');
+  if (note) note.style.display = demandSource === 'suof' ? '' : 'none';
+}
+
+// Applies the switch everywhere it matters (every item's Ending INV / WOS, and the
+// Forecast page if it's open) and, unless it came FROM the server, saves it so it
+// holds for everyone. Test logins apply it in memory only, like every other save.
+function setDemandSource(mode, fromServer) {
+  mode = mode === 'suof' ? 'suof' : 'salesrate';
+  const changed = mode !== demandSource;
+  demandSource = mode;
+  _syncDemandSourceUi();
+  if (changed) {
+    products.forEach(p => updateCalcs(p.sku));
+    const fcPage = document.getElementById('page-forecast');
+    if (fcPage && fcPage.classList.contains('active')) renderForecastPage();
+  }
+  if (changed && !fromServer && !isTestMode && sbClient) {
+    sbClient.from('app_cache').upsert({ key: 'demand_source', data: { mode } }, { onConflict: 'key' })
+      .then(({ error }) => { if (error) console.warn('demand_source save failed:', error.message); });
+  }
+}
+
+async function loadDemandSource() {
+  if (!sbClient) return;
+  try {
+    const { data } = await sbClient.from('app_cache').select('*').eq('key', 'demand_source');
+    if (data && data[0] && data[0].data && data[0].data.mode) setDemandSource(data[0].data.mode, true);
+  } catch (e) { console.warn('loadDemandSource failed:', e.message); }
+}
+
 function calcRows(p) {
   const s = state[p.sku];
   const curIdx = getCurrentWeekIdx();
@@ -2713,6 +2778,10 @@ function calcRows(p) {
     return s.salesRates[i] || 0;
   });
 
+  // The weekly numbers Ending INV and WOS are built from. The Sales rate loop above
+  // still runs in both modes (it also saves manual edits typed into the row).
+  const demand = demandSource === 'suof' ? weeks.map((_, i) => suofDemandAt(s, i)) : liveSR;
+
   // Auto-detect "new" items: if no sales rate or firm receipt data exists before
   // the current week, treat the item as newly tracked (don't backfill past weeks).
   // This is migration-safe: works even if trackingStartIdx wasn't saved.
@@ -2725,41 +2794,43 @@ function calcRows(p) {
   const trackStart = explicitStart != null ? explicitStart
                    : (hasHistoricalData ? 0 : curIdx);
   const endInv = new Array(weeks.length).fill(0);
-  const suof = [], wos = [];
+  const suof = [], wos = [], zeroDemand = [];
 
   if (s.atsConnected) {
     // Pivot: current week Ending INV = ON HAND (Merkury) exactly
     endInv[curIdx] = s.onHandMerkury;
     // Forward: each week builds off previous ending INV + that week's receipts/reorders - sales
     for (let i = curIdx + 1; i < weeks.length; i++) {
-      endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - liveSR[i-1]);
+      endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - demand[i-1]);
     }
     // Backward calculation for past weeks — only back to trackingStartIdx
     for (let i = curIdx - 1; i >= trackStart; i--) {
-      endInv[i] = endInv[i+1] - (s.reorders[i] || 0) - (s.firmReceipts[i] || 0) + liveSR[i];
+      endInv[i] = endInv[i+1] - (s.reorders[i] || 0) - (s.firmReceipts[i] || 0) + demand[i];
     }
     // Weeks before trackingStartIdx stay 0 (item wasn't tracked yet)
   } else {
     // Non-ATS: same logic — current week Ending INV = ON HAND exactly
     endInv[curIdx] = s.onHandMerkury;
     for (let i = curIdx + 1; i < weeks.length; i++) {
-      endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - liveSR[i-1]);
+      endInv[i] = Math.max(0, endInv[i-1] + (s.reorders[i-1] || 0) + (s.firmReceipts[i-1] || 0) - demand[i-1]);
     }
     for (let i = curIdx - 1; i >= trackStart; i--) {
-      endInv[i] = endInv[i+1] - (s.reorders[i] || 0) - (s.firmReceipts[i] || 0) + liveSR[i];
+      endInv[i] = endInv[i+1] - (s.reorders[i] || 0) - (s.firmReceipts[i] || 0) + demand[i];
     }
     // Weeks before trackStart stay 0
   }
 
   for (let i = 0; i < weeks.length; i++) {
-    const sr = liveSR[i];
+    const sr = demand[i];
     const suofVal = (s.suofFromExcel && s.suofFromExcel[i] != null) ? s.suofFromExcel[i] : null;
     suof.push(suofVal);
-    // WOS = Ending INV / Sales Rate; show — when no sales rate (avoids false 0.0 red on new items)
-    wos.push(sr > 0 ? Math.max(endInv[i] / sr, 0) : null);
+    // WOS = Ending INV / weekly demand; show — when there is none (avoids false 0.0 red on new items).
+    // In SUOF mode a week with no demand shows 0 instead (zeroDemand flags it for display).
+    wos.push(sr > 0 ? Math.max(endInv[i] / sr, 0) : (demandSource === 'suof' ? 0 : null));
+    zeroDemand.push(demandSource === 'suof' && !(sr > 0));
   }
 
-  return { endInv, suof, wos, curIdx };
+  return { endInv, suof, wos, zeroDemand, curIdx };
 }
 
 function fmt(n) {
@@ -2876,6 +2947,7 @@ function buildProduct(p) {
 
   rowDefs.forEach(rd => {
     const tr = document.createElement('tr');
+    tr.dataset.row = rd.key;
     const tdLabel = document.createElement('td');
     tdLabel.className = 'row-lbl' + (rd.isEnding ? ' ending' : '');
     if (rd.isSuof) {
@@ -2985,11 +3057,12 @@ function buildProduct(p) {
           td.addEventListener('dblclick', function() { openThdSoPopup(p.sku, i); });
         } else if (rd.isWos) {
           const v = rows.wos[i];
-          td.textContent = fmtWos(v);
+          const zd = rows.zeroDemand && rows.zeroDemand[i]; // SUOF mode, no demand that week: show 0, no color
+          td.textContent = zd ? '0' : fmtWos(v);
           // Exclude col-cur: td.col-cur has !important background that overrides wosColor()
           const wosColCls = isCur ? '' : colCls;
           td.className = 'wos-cell' + (wosColCls ? ' ' + wosColCls : '');
-          td.style.cssText = wosColor(v);
+          td.style.cssText = wosColor(zd ? null : v);
         } else {
           const v = rows.endInv[i];
           td.textContent = rd.key === 'endInv' ? fmt(v) : (rows.suof[i] != null ? fmt(rows.suof[i]) : '—');
@@ -5241,7 +5314,7 @@ function handleChange(input) {
     // guaranteed to be correct regardless of state/Supabase sync lag.
     var eiCell = document.getElementById('cell-' + sku + '-endInv-' + idx);
     var woCell = document.getElementById('cell-' + sku + '-wos-'    + idx);
-    if (eiCell && woCell) {
+    if (demandSource !== 'suof' && eiCell && woCell) { // in SUOF mode the Sales rate row isn't what WOS uses
       var endInv = parseFloat(eiCell.textContent.replace(/,/g, '')) || 0;
       var wosVal = val > 0 ? Math.max(endInv / val, 0) : (endInv > 0 ? null : 0);
       woCell.textContent = fmtWos(wosVal);
@@ -5334,11 +5407,12 @@ function updateCalcs(sku) {
       so.textContent = fmt((state[sku].thdSalesOrders || [])[i] || 0);
     }
     if (wo) {
-      wo.textContent = fmtWos(rows.wos[i]);
+      const zdWo = rows.zeroDemand && rows.zeroDemand[i]; // SUOF mode, no demand that week: show 0, no color
+      wo.textContent = zdWo ? '0' : fmtWos(rows.wos[i]);
       // Exclude col-cur: wosColor() background must show; col-cur CSS has !important and would override it
       const wosColCls = (i === rows.curIdx) ? '' : colCls;
       setColClass(wo, 'wos-cell' + (wosColCls ? ' ' + wosColCls : ''));
-      setWosStyle(wo, rows.wos[i]);
+      setWosStyle(wo, zdWo ? null : rows.wos[i]);
     }
   });
   // Refresh the live right panel if this SKU is open in the try-on overlay,
@@ -9375,11 +9449,19 @@ function subscribeRealtimeSync() {
       renderSummary();
     })
     .subscribe();
+  // The shared Demand source switch: if someone else flips it, this tab follows.
+  sbClient.channel('demand_source_live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'app_cache', filter: 'key=eq.demand_source' }, payload => {
+      const mode = payload.new && payload.new.data && payload.new.data.mode;
+      if (mode) setDemandSource(mode, true);
+    })
+    .subscribe();
 }
 
 // Load from Supabase and apply on top of in-memory state; re-render everything
 async function loadFromSupabase() {
   if (!sbClient) return;
+  loadDemandSource(); // the shared Demand source switch (SUOF vs Sales rate) — everyone sees the same choice
   try {
     const [{ data: metaRows, error: metaErr }, { data: weeklyRows, error: weeklyErr }, { data: cacheRows }, { data: addlModelsRows }, { data: thdSoRows }, { data: thdSoDetailRows }, { data: fcSuggRows }, { data: fcPlaybookRows }, { data: vdRatesRows }, { data: fcAccuracyRows }, { data: fcSnapshotRows }, { data: agentAccuracyRows }, { data: sentReordersRows }, { data: inboundEditsRows }, { data: firmReceiptDetailRows }, { data: atsStatusRows }, { data: suofStatusRows }, { data: vdStatusRows }, { data: reportTemplatesRows }, { data: d27lRowsRows }, { data: onHandBucketsRows }] =
       await Promise.all([
@@ -11202,6 +11284,16 @@ function computeFcRates(sku, startIdx, endIdx) {
   };
 }
 
+// The weekly demand the single-order suggestion on each Forecast card is built from:
+// the M3 forecast rates it was always given, or — with the Demand source switch on
+// SUOF — the SUOF numbers exactly as given for the same weeks.
+function planningRates(sku, startIdx, endIdx, defaultRates) {
+  if (demandSource !== 'suof') return defaultRates;
+  const s = state[sku], out = [];
+  for (let i = startIdx; i <= endIdx; i++) out.push(suofDemandAt(s, i));
+  return out;
+}
+
 // Reorder suggestion: returns {qty, masterCases, arrivalDate, placePOBy, riskFlag}
 function computeReorderSuggestion(sku, startIdx, endIdx, forecastRates) {
   const s = state[sku];
@@ -11262,6 +11354,7 @@ function computeReorderSuggestion(sku, startIdx, endIdx, forecastRates) {
 // per-week rate; otherwise the page's own M3 forecast; raw state as a last resort.
 function resolveDemandRate(sku, i, fcRatesByIdx, agentWeeklyRates) {
   const s = state[sku];
+  if (demandSource === 'suof') return suofDemandAt(s, i); // Demand source switch: SUOF exactly as given (0 stays 0, blank = 0)
   if (s.salesRatesManual && s.salesRatesManual[i] && s.salesRates[i] > 0) return s.salesRates[i];
   if (s.suofFromExcel && s.suofFromExcel[i] != null) return s.suofFromExcel[i];
   if (agentWeeklyRates) {
@@ -11706,7 +11799,7 @@ function renderForecastPage() {
     if (!p) return;
 
     const fc = computeFcRates(sku, startIdx, endIdx);
-    const reorder = fc.baseRate > 0 ? computeReorderSuggestion(sku, startIdx, endIdx, fc.rates) : null;
+    const reorder = fc.baseRate > 0 ? computeReorderSuggestion(sku, startIdx, endIdx, planningRates(sku, startIdx, endIdx, fc.rates)) : null;
     const fcState = s.fcStatus || 'none';
     const isNew   = !fc.hasRealData;
 
@@ -12775,7 +12868,8 @@ function fcApproveReorder(sku, startIdx) {
 
   const ro = s.fcReorder || {};
   const fc = computeFcRates(sku, startIdx, startIdx);
-  const reorder = computeReorderSuggestion(sku, startIdx, (s.fcRange||{}).endIdx||startIdx, s.fcRates||fc.rates);
+  const approveEnd = (s.fcRange||{}).endIdx||startIdx;
+  const reorder = computeReorderSuggestion(sku, startIdx, approveEnd, planningRates(sku, startIdx, approveEnd, s.fcRates||fc.rates));
 
   const qty      = ro.qty || (reorder ? reorder.qty : 0);
   const targetIdx = startIdx; // place reorder at the start of the period
