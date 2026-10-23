@@ -1460,6 +1460,10 @@
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
       Templates
     </div>
+    <div class="nav-item" id="nav-sudslab-shipping" onclick="showPage('sudslab-shipping')" style="display:none;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+      Shipping History
+    </div>
   </nav>
 </aside>
 <div class="main-content">
@@ -1829,6 +1833,18 @@
       <div id="sudslabProductsContainer"></div>
       </div>
     </div>
+    <!-- Page: suds.lab Shipping History (Sample Room batches that were emailed) -->
+    <div class="page-section" id="page-sudslab-shipping">
+      <div class="page-wrap">
+        <div class="inbound-tab-header">
+          <div>
+            <h1>Shipping History</h1>
+            <p>Sample Room batches you emailed from the Cart &mdash; newest first</p>
+          </div>
+        </div>
+        <div id="sudslabShippingList"></div>
+      </div>
+    </div>
     <!-- Page: Reorder -->
     <div class="page-section" id="page-reorder">
       <div class="reorder-tab-wrap">
@@ -2039,7 +2055,6 @@
 <input type="file" id="inputSudslabCanada"    accept=".xlsx,.xlsm,.xls" style="display:none" />
 <input type="file" id="inputSudslabStock"     accept=".xlsx,.xlsm,.xls" style="display:none" />
 <input type="file" id="inputSudslabSampleRoomLog" accept=".xlsx,.xlsm,.xls" style="display:none" />
-
 <!-- Reorder Cell Popup -->
 <div class="rp-overlay" id="rpOverlay">
   <div class="rp-box">
@@ -3494,10 +3509,11 @@ function _sudslabUpdateCartBadge() {
   el.style.display = n ? '' : 'none';
 }
 
-function _sudslabCartEmailText(items) {
+function _sudslabCartEmailText(items, shipTo) {
   const lines = items.map(it => `${it.sku}${it.desc ? ' - ' + it.desc : ''}${it.label ? ' (' + it.label + ')' : ''} - Qty: ${it.entry.qty.toLocaleString()}${it.entry.requestedBy ? ' - Requested by: ' + it.entry.requestedBy : ''}`);
   const total = items.reduce((sum, it) => sum + it.entry.qty, 0);
-  return `Sample Room take-outs:\n\n${lines.join('\n')}\n\nTotal: ${total.toLocaleString()} units`;
+  const head = shipTo ? `Please ship these samples to:\n${shipTo.name}\n${shipTo.address}\n\n` : '';
+  return `${head}Sample Room take-outs:\n\n${lines.join('\n')}\n\nTotal: ${total.toLocaleString()} units`;
 }
 
 function openSampleRoomCart() {
@@ -3543,11 +3559,17 @@ function openSampleRoomCart() {
         <button type="button" onclick="_sudslabCloseSrModal()" style="background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.20);border-radius:8px;padding:4px 12px;color:rgba(255,255,255,.7);cursor:pointer;font-size:13px;">&times;</button>
       </div>
       <div style="margin-top:10px;">${rowsHtml}</div>
+      ${items.length ? _sudslabShipToSectionHtml() : ''}
       ${items.length ? `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">${actionsHtml}</div>` : ''}
       ${undoHtml}
     </div>
   </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
+  if (items.length) {
+    _sudslabRenderShipDetail();
+    // Pick up addresses a coworker added since this page loaded.
+    _sudslabLoadShipData().then(_sudslabRefreshShipToSection);
+  }
 }
 
 // Replays a bucket's history from zero (in adds, out subtracts and floors at 0,
@@ -3618,13 +3640,16 @@ function copySampleRoomCartList() {
   if (!items.length) return;
   const btn = document.getElementById('srCartCopyBtn');
   const done = ok => { if (btn) { btn.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(() => { if (btn) btn.textContent = 'Copy list'; }, 1500); } };
-  navigator.clipboard.writeText(_sudslabCartEmailText(items)).then(() => done(true), () => done(false));
+  const shipTo = sudslabShipAddresses.find(a => a.id === _sudslabCartShipToId);
+  navigator.clipboard.writeText(_sudslabCartEmailText(items, shipTo)).then(() => done(true), () => done(false));
 }
 
 async function emailSampleRoomCart() {
   const items = _sudslabGetCartItems();
   if (!items.length) return;
-  const text = _sudslabCartEmailText(items);
+  const shipTo = sudslabShipAddresses.find(a => a.id === _sudslabCartShipToId);
+  if (!shipTo) { _sudslabShowShipMsg('Choose where to ship these samples before emailing.', true); return; }
+  const text = _sudslabCartEmailText(items, shipTo);
   const d = new Date();
   const subject = `Sample Room take-out request - ${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
   let body = text;
@@ -3645,18 +3670,244 @@ async function emailSampleRoomCart() {
 
   const nowIso = new Date().toISOString();
   items.forEach(it => { it.entry.emailedAt = nowIso; });
+  // The batch's `at` is the same timestamp stamped on its entries, which is how
+  // "Undo last email" finds the matching Shipping History record again.
+  const batch = {
+    id: 'b' + Date.now().toString(36) + Math.floor(Math.random() * 1000),
+    at: nowIso,
+    shipTo: { id: shipTo.id, name: shipTo.name, address: shipTo.address },
+    items: items.map(it => ({ sku: it.sku, desc: it.desc, label: it.label, qty: it.entry.qty, requestedBy: it.entry.requestedBy || null, reason: it.entry.reason || null })),
+    total: items.reduce((sum, it) => sum + it.entry.qty, 0)
+  };
+  sudslabShipBatches.push(batch);
+  shipTo.lastUsed = nowIso;
+  _sudslabCartShipToId = ''; // the next batch has to pick its own destination
   _sudslabCloseSrModal();
   _sudslabUpdateCartBadge();
   saveSudsLabSampleRoom(); // self-guards: persists for real logins and the SLtest Sample Room operator only
+  await _sudslabSaveShipRows(SUDSLAB_SHIPHIST_PREFIX, [batch]);
+  await _sudslabSaveShipRows(SUDSLAB_SHIPADDR_PREFIX, [shipTo]);
 }
 
-function undoLastSampleRoomEmail() {
+async function undoLastSampleRoomEmail() {
   const last = _sudslabLastEmailedBatch();
   if (!last) return;
   last.entries.forEach(h => { h.emailedAt = null; });
   _sudslabUpdateCartBadge();
   saveSudsLabSampleRoom(); // self-guards: persists for real logins and the SLtest Sample Room operator only
+  // Remove the matching Shipping History record too (batches emailed before
+  // that page existed have none, which is fine).
+  await _sudslabLoadShipData();
+  const batch = sudslabShipBatches.find(b => b.at === last.at);
+  if (batch) {
+    sudslabShipBatches = sudslabShipBatches.filter(b => b.id !== batch.id);
+    await _sudslabDeleteShipRow(SUDSLAB_SHIPHIST_PREFIX, batch.id);
+  }
   openSampleRoomCart();
+}
+
+// ── suds.lab: Sample Room shipping (ship-to addresses + Shipping History) ─────
+// Every saved address and every emailed batch is its OWN app_cache row
+// (sudslab_shipaddr_<id> / sudslab_shiphist_<id>) instead of one shared blob, so
+// two people adding addresses or emailing at the same time can't overwrite each
+// other, and a delete is just a row delete. They hold real people's home
+// addresses, so they live only in the database — never in the page source.
+let sudslabShipAddresses = [];  // [{ id, name, address, lastUsed }]
+let sudslabShipBatches = [];    // [{ id, at, shipTo:{id,name,address}, items:[{sku,desc,label,qty,requestedBy,reason}], total }]
+let _sudslabCartShipToId = '';
+let _sudslabShipEditId = null;
+const SUDSLAB_SHIPADDR_PREFIX = 'sudslab_shipaddr_';
+const SUDSLAB_SHIPHIST_PREFIX = 'sudslab_shiphist_';
+
+const _sudslabEsc = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+const _sudslabShipKey = (name, address) => (String(name) + '|' + String(address)).replace(/\s+/g, ' ').trim().toLowerCase();
+const _sudslabOneLine = address => String(address).replace(/\s*\n\s*/g, ', ');
+
+function _sudslabCanWriteShipData() { return !!sbClient && (!isTestMode || sampleRoomOperator); }
+
+async function _sudslabLoadShipData() {
+  if (!sbClient) return;
+  try {
+    const [a, b] = await Promise.all([
+      sbClient.from('app_cache').select('*').like('key', SUDSLAB_SHIPADDR_PREFIX + '%'),
+      sbClient.from('app_cache').select('*').like('key', SUDSLAB_SHIPHIST_PREFIX + '%')
+    ]);
+    sudslabShipAddresses = (a.data || []).map(r => r.data).filter(x => x && x.id);
+    sudslabShipBatches = (b.data || []).map(r => r.data).filter(x => x && x.id);
+  } catch (e) { console.warn('_sudslabLoadShipData failed:', e.message); }
+}
+
+async function _sudslabSaveShipRows(prefix, records) {
+  if (!_sudslabCanWriteShipData() || !records.length) return;
+  try {
+    const { error } = await sbClient.from('app_cache').upsert(records.map(r => ({ key: prefix + r.id, data: r })), { onConflict: 'key' });
+    if (error) console.warn('ship data save failed:', error.message);
+  } catch (e) { console.warn('ship data save failed:', e.message); }
+}
+
+async function _sudslabDeleteShipRow(prefix, id) {
+  if (!_sudslabCanWriteShipData()) return;
+  try { await sbClient.from('app_cache').delete().eq('key', prefix + id); }
+  catch (e) { console.warn('ship data delete failed:', e.message); }
+}
+
+function _sudslabSortedShipAddresses() {
+  return sudslabShipAddresses.slice().sort((a, b) =>
+    (b.lastUsed || '').localeCompare(a.lastUsed || '') || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+}
+
+function _sudslabShipToSectionHtml() {
+  const optStyle = 'background:#1e1e2e;color:#f0f0f8;';
+  const opts = _sudslabSortedShipAddresses().map(a =>
+    `<option value="${_sudslabEsc(a.id)}" ${a.id === _sudslabCartShipToId ? 'selected' : ''} style="${optStyle}">${_sudslabEsc(a.name)} — ${_sudslabEsc(_sudslabOneLine(a.address))}</option>`).join('');
+  const btn = 'border-radius:8px;padding:5px 12px;cursor:pointer;font-size:12px;';
+  return `<div id="srCartShipTo" style="margin-top:14px;">
+    <label style="${_srLabelStyle}">Ship to</label>
+    <select id="srCartShipSelect" onchange="onSampleRoomShipToChange(this.value)" style="${_srInputStyle}">
+      <option value="" style="${optStyle}">Select an address…</option>
+      ${opts}
+      <option value="__new__" style="${optStyle}">+ Add new address…</option>
+    </select>
+    <div id="srCartShipDetail" style="font-size:11px;color:rgba(255,255,255,.55);margin-top:6px;"></div>
+    <div id="srCartShipForm" style="display:none;margin-top:8px;">
+      <label style="${_srLabelStyle}">Receiver (name or company)</label>
+      <input type="text" id="srShipName" style="${_srInputStyle}" />
+      <label style="${_srLabelStyle}">Address</label>
+      <textarea id="srShipAddr" rows="3" style="${_srInputStyle}resize:vertical;"></textarea>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">
+        <button type="button" onclick="cancelShipAddressForm()" style="${btn}background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.20);color:rgba(255,255,255,.7);">Cancel</button>
+        <button type="button" onclick="saveShipAddressForm()" style="${btn}background:rgba(100,180,255,.85);border:none;color:#0c1420;font-weight:700;">Save address</button>
+      </div>
+    </div>
+    <div id="srCartShipMsg" style="display:none;margin-top:8px;font-size:12px;"></div>
+  </div>`;
+}
+
+function _sudslabShowShipMsg(text, isError) {
+  const el = document.getElementById('srCartShipMsg');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = isError ? 'rgba(255,140,120,1)' : 'rgba(120,220,150,.95)';
+  el.style.display = text ? 'block' : 'none';
+}
+
+function _sudslabRenderShipDetail() {
+  const el = document.getElementById('srCartShipDetail');
+  if (!el) return;
+  const rec = sudslabShipAddresses.find(a => a.id === _sudslabCartShipToId);
+  const link = 'color:rgba(160,190,255,.9);cursor:pointer;text-decoration:none;';
+  const addLink = `<a style="${link}" onclick="openShipAddressForm(null)">+ Add new address</a>`;
+  el.innerHTML = rec
+    ? `<div style="color:rgba(255,255,255,.85);">${_sudslabEsc(rec.name)}</div><div style="white-space:pre-line;">${_sudslabEsc(rec.address)}</div><div style="margin-top:4px;"><a style="${link}" onclick="openShipAddressForm('${_sudslabEsc(rec.id)}')">Edit</a> · <a style="${link}" onclick="deleteShipAddress()">Delete</a> · ${addLink}</div>`
+    : `<div>${addLink}</div>`;
+}
+
+// Re-draws the Ship to section (e.g. after a load/save) unless the add/edit form
+// is open, so typing is never wiped.
+function _sudslabRefreshShipToSection() {
+  const section = document.getElementById('srCartShipTo');
+  const form = document.getElementById('srCartShipForm');
+  if (!section || (form && form.style.display !== 'none')) return;
+  section.outerHTML = _sudslabShipToSectionHtml();
+  _sudslabRenderShipDetail();
+}
+
+function onSampleRoomShipToChange(val) {
+  if (val === '__new__') { openShipAddressForm(null); return; }
+  _sudslabCartShipToId = val;
+  _sudslabShowShipMsg('');
+  _sudslabRenderShipDetail();
+}
+
+function openShipAddressForm(id) {
+  _sudslabShipEditId = id || null;
+  const rec = id ? sudslabShipAddresses.find(a => a.id === id) : null;
+  document.getElementById('srCartShipForm').style.display = '';
+  document.getElementById('srShipName').value = rec ? rec.name : '';
+  document.getElementById('srShipAddr').value = rec ? rec.address : '';
+  const sel = document.getElementById('srCartShipSelect');
+  if (sel) sel.value = _sudslabCartShipToId; // keep showing the current choice while the form is open
+  _sudslabShowShipMsg('');
+  setTimeout(() => { const el = document.getElementById('srShipName'); if (el) el.focus(); }, 20);
+}
+
+function cancelShipAddressForm() {
+  _sudslabShipEditId = null;
+  const form = document.getElementById('srCartShipForm');
+  if (form) form.style.display = 'none';
+}
+
+async function saveShipAddressForm() {
+  const name = document.getElementById('srShipName').value.replace(/\s+/g, ' ').trim();
+  const address = document.getElementById('srShipAddr').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean).join('\n');
+  if (!name || !address) { _sudslabShowShipMsg('Enter both a receiver and an address.', true); return; }
+  const editId = _sudslabShipEditId;
+  const dup = sudslabShipAddresses.find(a => a.id !== editId && _sudslabShipKey(a.name, a.address) === _sudslabShipKey(name, address));
+  let rec;
+  if (dup) {
+    rec = dup;
+  } else if (editId) {
+    rec = sudslabShipAddresses.find(a => a.id === editId);
+    if (rec) { rec.name = name; rec.address = address; }
+  }
+  if (!rec) {
+    rec = { id: 'a' + Date.now().toString(36) + Math.floor(Math.random() * 1000), name, address, lastUsed: '' };
+    sudslabShipAddresses.push(rec);
+  }
+  _sudslabCartShipToId = rec.id;
+  _sudslabShipEditId = null;
+  cancelShipAddressForm();
+  _sudslabRefreshShipToSection();
+  _sudslabShowShipMsg(dup ? 'That address was already saved, so it was selected.' : 'Address saved.');
+  if (!dup) await _sudslabSaveShipRows(SUDSLAB_SHIPADDR_PREFIX, [rec]);
+}
+
+async function deleteShipAddress() {
+  const rec = sudslabShipAddresses.find(a => a.id === _sudslabCartShipToId);
+  if (!rec) return;
+  if (!confirm(`Delete "${rec.name}" from the saved addresses?\nBatches already emailed keep their own record of it.`)) return;
+  sudslabShipAddresses = sudslabShipAddresses.filter(a => a.id !== rec.id);
+  _sudslabCartShipToId = '';
+  _sudslabRefreshShipToSection();
+  await _sudslabDeleteShipRow(SUDSLAB_SHIPADDR_PREFIX, rec.id);
+}
+
+// ── suds.lab: Shipping History page — one card per emailed batch ──────────────
+async function renderSudsLabShippingPage() {
+  const el = document.getElementById('sudslabShippingList');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--text-2);font-size:13px;padding:12px 2px;">Loading…</div>';
+  await _sudslabLoadShipData();
+  const batches = sudslabShipBatches.slice().sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  if (!batches.length) {
+    el.innerHTML = '<div style="color:var(--text-2);font-size:13px;padding:12px 2px;">No batches have been emailed yet. When you click Email list in the Cart, the batch shows up here.</div>';
+    return;
+  }
+  const cell = 'padding:6px 8px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;';
+  el.innerHTML = batches.map(b => {
+    const d = new Date(b.at);
+    const when = isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const rows = (b.items || []).map(it => `<tr>
+      <td style="${cell}white-space:nowrap;">${_sudslabEsc(it.sku)}</td>
+      <td style="${cell}">${_sudslabEsc(it.desc || '')}${it.label ? ` <span style="color:var(--text-3);">(${_sudslabEsc(it.label)})</span>` : ''}</td>
+      <td style="${cell}color:var(--text-2);">${_sudslabEsc(it.requestedBy || '')}</td>
+      <td style="${cell}text-align:right;font-weight:700;">${Number(it.qty).toLocaleString()}</td>
+    </tr>`).join('');
+    return `<div style="background:var(--glass-bg);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:16px 18px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:12px;color:var(--text-2);">${_sudslabEsc(when)}</div>
+          <div style="font-size:14px;font-weight:700;margin-top:4px;">Ship to: ${_sudslabEsc(b.shipTo ? b.shipTo.name : '')}</div>
+          <div style="font-size:12px;color:var(--text-2);margin-top:2px;white-space:pre-line;">${_sudslabEsc(b.shipTo ? b.shipTo.address : '')}</div>
+        </div>
+        <div style="font-size:12px;color:var(--text-2);text-align:right;">${(b.items || []).length} item${(b.items || []).length === 1 ? '' : 's'}<br><span style="font-size:14px;font-weight:700;color:var(--text-1);">${Number(b.total || 0).toLocaleString()} units</span></div>
+      </div>
+      <div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;">
+        <thead><tr style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:.4px;"><th style="text-align:left;padding:4px 8px;">SKU</th><th style="text-align:left;padding:4px 8px;">Description</th><th style="text-align:left;padding:4px 8px;">Requested by</th><th style="text-align:right;padding:4px 8px;">Qty</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
 }
 
 function openSampleRoomAddVersion(sku) {
@@ -6495,6 +6746,8 @@ function switchAccount(name) {
     const el = document.getElementById(id);
     if (el) el.style.display = name === 'sudslab' ? 'none' : '';
   });
+  const shippingNav = document.getElementById('nav-sudslab-shipping');
+  if (shippingNav) shippingNav.style.display = name === 'sudslab' ? '' : 'none';
   updateSheetsAccountVisibility();
   // Test-mode logins can still view real synced data (read-only) — same as the
   // existing THD test account, which loads real data but blocks writes via isTestMode.
@@ -12378,6 +12631,7 @@ function showPage(page) {
     else renderForecastPage();
   }
   if (page === 'sheets') initSheetsPage();
+  if (page === 'sudslab-shipping') renderSudsLabShippingPage();
 }
 
 // ── Sheets: report builder ────────────────────────────────────────────────────
