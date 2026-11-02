@@ -205,6 +205,8 @@
   .sr-onhand-cell { cursor: pointer; }
   .sr-audit-flag { font-size: 10px; font-weight: 600; color: rgba(255,180,90,0.95); margin-top: 2px; white-space: nowrap; }
   .sr-audit-flag.match { color: rgba(120,220,150,0.9); }
+  .sr-audit-flag.clickable { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+  .sr-audit-flag.clickable:hover { color: rgba(255,210,140,1); }
   .sr-cart-badge { display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: rgba(255,140,120,0.85); color: #1a1220; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
   .sr-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-right: 12px; }
   .sr-action-btn {
@@ -3484,6 +3486,7 @@ function _sudslabAuditFlagText(flag) {
   const dateStr = isNaN(d) ? String(flag.date) : (d.getMonth()+1) + '/' + d.getDate() + '/' + d.getFullYear();
   if (flag.type === 'missing') return `Missing ${flag.amount.toLocaleString()} in Audit on ${dateStr}`;
   if (flag.type === 'extra') return `Found ${flag.amount.toLocaleString()} extra in audit on ${dateStr}`;
+  if (flag.type === 'confirmed') return `Count confirmed (${(flag.qty || 0).toLocaleString()}) on ${dateStr}`;
   return `No discrepancy found in audit on ${dateStr}`;
 }
 
@@ -3518,8 +3521,13 @@ function buildSudsLabSampleRoomRow(p, s) {
   const hasExplicitNew = buckets.some(b => !b.isPrimary && (b.label || '').trim().toLowerCase() === 'new');
   const kpiCellsHtml = buckets.filter(bucket => !bucket.isPrimary || !hasExplicitNew).map(bucket => {
     const flagText = _sudslabAuditFlagText(bucket.auditFlag);
-    const flagIsMatch = bucket.auditFlag && bucket.auditFlag.type === 'match';
-    const flagHtml = flagText ? `<div class="sr-audit-flag${flagIsMatch ? ' match' : ''}">${flagText}</div>` : '';
+    const flagType = bucket.auditFlag && bucket.auditFlag.type;
+    const flagIsMatch = flagType === 'match' || flagType === 'confirmed';
+    // A mismatch warning can be clicked to confirm the real count (the audit itself may be wrong).
+    const flagClickable = flagType === 'missing' || flagType === 'extra';
+    const flagHtml = flagText
+      ? `<div class="sr-audit-flag${flagIsMatch ? ' match' : ''}${flagClickable ? ' clickable' : ''}"${flagClickable ? ` title="Click to confirm the correct count and clear this warning" onclick="openSampleRoomConfirm('${p.sku}','${bucket.id}')" ondblclick="event.stopPropagation()"` : ''}>${flagText}</div>`
+      : '';
     const bucketLabel = _sudslabSrDisplayLabel(bucket);
     const removeBtn = bucket.isPrimary ? '' : `<button type="button" class="sr-mini-x" title="Remove this version" onclick="removeSampleRoomVersion('${p.sku}','${bucket.id}')">&times;</button>`;
     return `
@@ -3651,6 +3659,58 @@ function confirmSampleRoomAdd(sku, versionId) {
   _sudslabCloseSrModal();
   _sudslabRerenderProduct(sku);
   applySudslabFilters(); // the Sample Room filter cares about this exact value changing
+  saveSudsLabSampleRoom(); // self-guards: persists for real logins and the SLtest Sample Room operator only
+}
+
+// ── Confirm the real count after an Audit ─────────────────────────────────────
+// An Audit can itself be wrong (a miscount), so a mismatch warning can't only be
+// cleared by making On Hand match the audit. Clicking the warning opens this: the
+// real, verified quantity (and an optional note) sets On Hand to that number and
+// replaces the warning with "Count confirmed". If the confirmed number differs
+// from what the site had, the difference is logged as an ordinary In/Out entry —
+// so every history recalculation still adds up — followed by a zero-effect
+// "Confirmed" marker entry (an audit-type entry flagged confirmed:true).
+function openSampleRoomConfirm(sku, versionId) {
+  const p = sudslabProducts.find(x => x.sku === sku);
+  const bucket = _sudslabSrBucket(sudslabState[sku], versionId);
+  if (!bucket) return;
+  const name = (p ? (p.desc ? `${p.sku} · ${p.desc}` : p.sku) : sku) + (bucket.isPrimary ? '' : ` (${bucket.label})`);
+  const flag = bucket.auditFlag;
+  const counted = flag && flag.auditedQty != null ? flag.auditedQty : null;
+  const body = `
+    <div style="margin-top:12px;font-size:12px;color:rgba(255,255,255,.7);">The site shows <b style="color:#f0f0f8;">${bucket.onHand.toLocaleString()}</b>${counted != null ? ` and the audit counted <b style="color:#f0f0f8;">${Number(counted).toLocaleString()}</b>` : ''}. Enter the count you verified.</div>
+    <label style="${_srLabelStyle}">Confirmed quantity</label>
+    <input type="text" inputmode="numeric" id="srConfirmQty" placeholder="0" style="${_srInputStyle}" />
+    <label style="${_srLabelStyle}">Note (optional)</label>
+    <input type="text" id="srConfirmNote" placeholder="e.g. recounted — 5 is correct" style="${_srInputStyle}" />
+  `;
+  document.body.insertAdjacentHTML('beforeend', _sudslabSrModalHtml('Confirm count', name, body, 'Confirm', `confirmSampleRoomCount('${sku}','${bucket.id}')`));
+  setTimeout(() => { const el = document.getElementById('srConfirmQty'); if (el) el.focus(); }, 20);
+}
+
+function confirmSampleRoomCount(sku, versionId) {
+  const bucket = _sudslabSrBucket(sudslabState[sku], versionId);
+  if (!bucket) { _sudslabCloseSrModal(); return; }
+  const errEl = document.getElementById('srModalErr');
+  const raw = document.getElementById('srConfirmQty').value.replace(/,/g, '').trim();
+  const qty = Math.round(parseFloat(raw));
+  if (raw === '' || isNaN(qty) || qty < 0) {
+    errEl.textContent = 'Enter the confirmed quantity (0 or more).';
+    errEl.style.display = 'block';
+    return;
+  }
+  const note = document.getElementById('srConfirmNote').value.trim() || null;
+  const wasOnHand = bucket.onHand;
+  const nowIso = new Date().toISOString();
+  if (qty !== wasOnHand) {
+    bucket.onHand = qty;
+    bucket.history.push({ date: nowIso, type: qty > wasOnHand ? 'in' : 'out', qty: Math.abs(qty - wasOnHand), reason: note || 'Count confirmed after audit', balance: qty });
+  }
+  bucket.history.push({ date: nowIso, type: 'audit', qty, reason: note, confirmed: true, wasOnHand, balance: qty, discrepancy: null });
+  bucket.auditFlag = { type: 'confirmed', amount: 0, date: nowIso, qty };
+  _sudslabCloseSrModal();
+  _sudslabRerenderProduct(sku);
+  applySudslabFilters();
   saveSudsLabSampleRoom(); // self-guards: persists for real logins and the SLtest Sample Room operator only
 }
 
@@ -4235,7 +4295,10 @@ function openSampleRoomHistory(sku, versionId) {
               ? `<div style="font-size:11px;color:rgba(120,220,150,.9);margin-top:2px;">No discrepancy found</div>`
               : `<div style="font-size:11px;color:rgba(255,180,90,.95);margin-top:2px;">${h.discrepancy.type === 'missing' ? 'Missing' : 'Found'} ${h.discrepancy.amount.toLocaleString()}${h.discrepancy.type === 'missing' ? '' : ' extra'}</div>`)
           : '';
-        const label = h.type === 'audit' ? 'Audit' : (sign + h.qty.toLocaleString());
+        const confirmedHtml = h.confirmed
+          ? `<div style="font-size:11px;color:rgba(120,220,150,.9);margin-top:2px;">Count confirmed after audit${h.wasOnHand != null ? ' (site had ' + Number(h.wasOnHand).toLocaleString() + ')' : ''}</div>`
+          : '';
+        const label = h.type === 'audit' ? (h.confirmed ? 'Confirmed' : 'Audit') : (sign + h.qty.toLocaleString());
         return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08);">
           <div style="min-width:0;">
             <div style="font-size:12px;color:rgba(255,255,255,.85);">${dateStr}</div>
@@ -4244,6 +4307,7 @@ function openSampleRoomHistory(sku, versionId) {
             ${requestedHtml}
             ${editedHtml}
             ${discrepancyHtml}
+            ${confirmedHtml}
           </div>
           <div style="text-align:right;flex-shrink:0;">
             <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
@@ -13631,39 +13695,64 @@ function exportSudsLabTemplate() {
   XLSX.writeFile(wb, `Weekly_Inventory_Recap_SudsLab_${dateStr}.xlsx`);
 }
 
-// ── suds.lab: blank Sample Room count sheet for a physical inventory ─────────
-// Product ID/Description/Inner/Master Pack + the site's current Sample Room
-// On Hand, with an Actual Count column left blank to fill in by hand during
-// a physical count. Only SKUs currently showing Sample Room stock — same
-// scope as the Sample Room filter on the Weekly Recap page.
+// ── suds.lab: Sample Room count / audit-verification sheet ────────────────────
+// One row per Sample Room bucket (a SKU's New/Current Label stock and each extra
+// version such as Old Label) for every bucket holding stock OR carrying an
+// unresolved audit warning. Product IDs run A to Z inside two blocks: all
+// New/Current Label rows first, then all Old Label rows (any other version label
+// comes after those).
+//   Historical On-Hand Qty. - what the site shows right now
+//   Audit Quantity          - the count from that bucket's most recent Audit (blank if never audited)
+//   Confirmed On-Hand Qty. and Post-Audit Notes - left blank, to fill in
+//   Audit Result            - Match / Mismatch ... / Verified ... for that Audit
+// A confirmed count is then entered on the site by clicking the warning on the
+// item card (see openSampleRoomConfirm).
+function _sudslabLastAudit(bucket) {
+  for (let i = bucket.history.length - 1; i >= 0; i--) {
+    const h = bucket.history[i];
+    if (h.type === 'audit' && !h.confirmed) return h;
+  }
+  return null;
+}
+
 function exportSudsLabSampleRoomCountSheet() {
   const rows = [];
   sudslabProducts.forEach(p => {
     const s = sudslabState[p.sku];
     if (!s) return;
-    // One row per bucket (primary + any extra versions) so items with more
-    // than one physical version still get counted separately.
     _sudslabSrBuckets(s).forEach(bucket => {
-      const onHand = bucket.onHand;
-      if (onHand <= 0) return;
-      // Outcome reflects the last synced Audit for this bucket (auditFlag), if
-      // any — lets you see which items already have a flagged discrepancy
-      // before you go recount, while Audit Quantity itself stays blank for the
-      // new physical count.
       const flag = bucket.auditFlag;
-      const outcome = flag ? (flag.type === 'match' ? 'Match' : `Mismatch - ${_sudslabAuditFlagText(flag)}`) : '';
-      rows.push([p.sku, p.desc || '', _sudslabSrDisplayLabel(bucket), p.inner || '', p.master || '', onHand, '', outcome]);
+      const warning = flag && (flag.type === 'missing' || flag.type === 'extra');
+      if (bucket.onHand <= 0 && !warning) return;
+      const audit = _sudslabLastAudit(bucket);
+      let result = '';
+      if (flag) {
+        if (flag.type === 'match') result = 'Match';
+        else if (flag.type === 'confirmed') result = `Verified - ${_sudslabAuditFlagText(flag)}`;
+        else result = `Mismatch - ${_sudslabAuditFlagText(flag)}`;
+      } else if (audit) {
+        result = 'Resolved';
+      }
+      const label = _sudslabSrDisplayLabel(bucket);
+      rows.push({ sku: p.sku, label, cells: [p.sku, p.desc || '', label, p.inner || '', p.master || '', bucket.onHand, audit ? audit.qty : '', '', result, ''] });
     });
   });
 
-  if (rows.length === 0) { alert('No SKUs currently show Sample Room stock — nothing to count.'); return; }
+  if (rows.length === 0) { alert('No SKUs currently show Sample Room stock or an audit warning — nothing to count.'); return; }
+
+  const rank = l => l === 'New/Current Label' ? 0 : (l === 'Old Label' ? 1 : 2);
+  const key = r => r.sku.toUpperCase();
+  rows.sort((a, b) =>
+    (rank(a.label) - rank(b.label)) ||
+    (rank(a.label) === 2 ? a.label.localeCompare(b.label) : 0) ||
+    (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 
   const aoa = [
-    ['Product ID', 'Description', 'Version', 'Inner Pack', 'Master pack', 'Current On Hand Quantity', 'Audit Quantity', 'Outcome'],
-    ...rows
+    ['Product ID', 'Description', 'Version', 'Inner Pack', 'Master pack', 'Historical On-Hand Qty.', 'Audit Quantity', 'Confirmed On-Hand Qty.', 'Audit Result', 'Post-Audit Notes'],
+    ...rows.map(r => r.cells)
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 16 }, { wch: 34 }, { wch: 16 }, { wch: 11 }, { wch: 12 }, { wch: 20 }, { wch: 14 }, { wch: 40 }];
+  ws['!cols'] = [{ wch: 16 }, { wch: 36 }, { wch: 17 }, { wch: 10 }, { wch: 11 }, { wch: 22 }, { wch: 15 }, { wch: 22 }, { wch: 46 }, { wch: 34 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sample Room Count');
   const dateStr = new Date().toISOString().slice(0, 10);
