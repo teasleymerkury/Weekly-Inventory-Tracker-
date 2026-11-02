@@ -2024,9 +2024,12 @@
           <button class="add-item-btn" onclick="exportSudsLabRetailerList()">&#128229; Export Retailer List</button>
         </div>
         <div id="recapCardSudslabSampleRoom" style="flex:1;min-width:260px;background:rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;">
-          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">suds.lab — Sample Room Count Sheet</div>
-          <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;">Blank count sheet for a physical Sample Room inventory — Product ID, Description, Inner/Master Pack, and the site's Current On Hand Quantity, with an Actual Count column left blank to fill in by hand.</div>
-          <button class="add-item-btn" onclick="exportSudsLabSampleRoomCountSheet()">&#128229; Export Count Sheet</button>
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">suds.lab — Sample Room</div>
+          <div style="font-size:11px;color:var(--text-2);margin-bottom:12px;"><b>Current On-Hand:</b> Product ID, Description, Version, Inner/Master Pack and the quantity the site shows now. <b>Audit Report:</b> the same, plus each Audit's count and result, with verified counts filled in and the rest left blank for you to confirm.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="add-item-btn" onclick="exportSudsLabSampleRoomOnHand()">&#128229; Export Current On-Hand</button>
+            <button class="add-item-btn" onclick="exportSudsLabSampleRoomAuditReport()">&#128229; Export Audit Report</button>
+          </div>
         </div>
       </div>
     </div>
@@ -13695,18 +13698,11 @@ function exportSudsLabTemplate() {
   XLSX.writeFile(wb, `Weekly_Inventory_Recap_SudsLab_${dateStr}.xlsx`);
 }
 
-// ── suds.lab: Sample Room count / audit-verification sheet ────────────────────
-// One row per Sample Room bucket (a SKU's New/Current Label stock and each extra
-// version such as Old Label) for every bucket holding stock OR carrying an
-// unresolved audit warning. Product IDs run A to Z inside two blocks: all
-// New/Current Label rows first, then all Old Label rows (any other version label
+// ── suds.lab: Sample Room reports (Current On-Hand + Audit Report) ────────────
+// Both list one row per Sample Room bucket - a SKU's New/Current Label stock and
+// each extra version such as Old Label - with Product IDs A to Z inside two blocks:
+// all New/Current Label rows first, then all Old Label rows (any other version label
 // comes after those).
-//   Historical On-Hand Qty. - what the site shows right now
-//   Audit Quantity          - the count from that bucket's most recent Audit (blank if never audited)
-//   Confirmed On-Hand Qty. and Post-Audit Notes - left blank, to fill in
-//   Audit Result            - Match / Mismatch ... / Verified ... for that Audit
-// A confirmed count is then entered on the site by clicking the warning on the
-// item card (see openSampleRoomConfirm).
 function _sudslabLastAudit(bucket) {
   for (let i = bucket.history.length - 1; i >= 0; i--) {
     const h = bucket.history[i];
@@ -13715,48 +13711,88 @@ function _sudslabLastAudit(bucket) {
   return null;
 }
 
-function exportSudsLabSampleRoomCountSheet() {
+function _sudslabSrReportRows(include) {
   const rows = [];
   sudslabProducts.forEach(p => {
     const s = sudslabState[p.sku];
     if (!s) return;
     _sudslabSrBuckets(s).forEach(bucket => {
-      const flag = bucket.auditFlag;
-      const warning = flag && (flag.type === 'missing' || flag.type === 'extra');
-      if (bucket.onHand <= 0 && !warning) return;
-      const audit = _sudslabLastAudit(bucket);
-      let result = '';
-      if (flag) {
-        if (flag.type === 'match') result = 'Match';
-        else if (flag.type === 'confirmed') result = `Verified - ${_sudslabAuditFlagText(flag)}`;
-        else result = `Mismatch - ${_sudslabAuditFlagText(flag)}`;
-      } else if (audit) {
-        result = 'Resolved';
-      }
-      const label = _sudslabSrDisplayLabel(bucket);
-      rows.push({ sku: p.sku, label, cells: [p.sku, p.desc || '', label, p.inner || '', p.master || '', bucket.onHand, audit ? audit.qty : '', '', result, ''] });
+      if (include(bucket)) rows.push({ p, bucket, label: _sudslabSrDisplayLabel(bucket) });
     });
   });
-
-  if (rows.length === 0) { alert('No SKUs currently show Sample Room stock or an audit warning — nothing to count.'); return; }
-
   const rank = l => l === 'New/Current Label' ? 0 : (l === 'Old Label' ? 1 : 2);
-  const key = r => r.sku.toUpperCase();
+  const key = r => r.p.sku.toUpperCase();
   rows.sort((a, b) =>
     (rank(a.label) - rank(b.label)) ||
     (rank(a.label) === 2 ? a.label.localeCompare(b.label) : 0) ||
     (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+  return rows;
+}
 
-  const aoa = [
-    ['Product ID', 'Description', 'Version', 'Inner Pack', 'Master pack', 'Historical On-Hand Qty.', 'Audit Quantity', 'Confirmed On-Hand Qty.', 'Audit Result', 'Post-Audit Notes'],
-    ...rows.map(r => r.cells)
-  ];
+function _sudslabSrWriteReport(aoa, widths, sheetName, filePrefix) {
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 16 }, { wch: 36 }, { wch: 17 }, { wch: 10 }, { wch: 11 }, { wch: 22 }, { wch: 15 }, { wch: 22 }, { wch: 46 }, { wch: 34 }];
+  ws['!cols'] = widths.map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Sample Room Count');
-  const dateStr = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `SudsLab_Sample_Room_Count_${dateStr}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, `${filePrefix}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+// Current On-Hand: just what the site shows right now (columns A to F).
+function exportSudsLabSampleRoomOnHand() {
+  const rows = _sudslabSrReportRows(b => b.onHand > 0);
+  if (rows.length === 0) { alert('No SKUs currently show Sample Room stock.'); return; }
+  const aoa = [
+    ['Product ID', 'Description', 'Version', 'Inner Pack', 'Master pack', 'Current On-Hand Qty.'],
+    ...rows.map(r => [r.p.sku, r.p.desc || '', r.label, r.p.inner || '', r.p.master || '', r.bucket.onHand])
+  ];
+  _sudslabSrWriteReport(aoa, [16, 36, 17, 10, 11, 22], 'Current On-Hand', 'SudsLab_Sample_Room_On_Hand');
+}
+
+// Audit Report - for checking audits against what the site shows. Includes every
+// bucket holding stock OR carrying an unresolved audit warning.
+//   Historical On-Hand Qty. - what the site shows right now
+//   Audit Quantity          - the count from that bucket's most recent Audit (blank if never audited)
+//   Confirmed On-Hand Qty.  - filled in only when it is verified: the current count and
+//                             the audit agree, or a count was confirmed on the site
+//                             (Confirm count); otherwise blank, for you to fill in
+//   Audit Result            - Match / Mismatch ... / Verified ...
+//   Post-Audit Notes        - the note typed when a count was confirmed on the site
+// A confirmed count is entered on the site by clicking the warning on the item card
+// (see openSampleRoomConfirm).
+function exportSudsLabSampleRoomAuditReport() {
+  const rows = _sudslabSrReportRows(b => {
+    const f = b.auditFlag;
+    return b.onHand > 0 || (f && (f.type === 'missing' || f.type === 'extra'));
+  });
+  if (rows.length === 0) { alert('No SKUs currently show Sample Room stock or an audit warning.'); return; }
+  const aoa = [
+    ['Product ID', 'Description', 'Version', 'Inner Pack', 'Master pack', 'Historical On-Hand Qty.', 'Audit Quantity', 'Confirmed On-Hand Qty.', 'Audit Result', 'Post-Audit Notes']
+  ];
+  rows.forEach(r => {
+    const { p, bucket } = r;
+    const flag = bucket.auditFlag;
+    const audit = _sudslabLastAudit(bucket);
+    let result = '';
+    if (flag) {
+      if (flag.type === 'match') result = 'Match';
+      else if (flag.type === 'confirmed') result = `Verified - ${_sudslabAuditFlagText(flag)}`;
+      else result = `Mismatch - ${_sudslabAuditFlagText(flag)}`;
+    } else if (audit) {
+      result = 'Resolved';
+    } else {
+      result = 'Not audited'; // no Audit entry on the site for this item
+    }
+    let confirmed = '', notes = '';
+    if (flag && flag.type === 'confirmed') {
+      confirmed = flag.qty;
+      const marker = bucket.history.slice().reverse().find(h => h.confirmed && h.date === flag.date);
+      notes = (marker && marker.reason) || '';
+    } else if (audit && audit.qty === bucket.onHand) {
+      confirmed = bucket.onHand;
+    }
+    aoa.push([p.sku, p.desc || '', r.label, p.inner || '', p.master || '', bucket.onHand, audit ? audit.qty : '', confirmed, result, notes]);
+  });
+  _sudslabSrWriteReport(aoa, [16, 36, 17, 10, 11, 22, 15, 22, 46, 34], 'Audit Report', 'SudsLab_Sample_Room_Audit_Report');
 }
 
 // ── suds.lab: export the item list for ONE retailer ──────────────────────────
