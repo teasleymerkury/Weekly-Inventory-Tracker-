@@ -3971,21 +3971,26 @@ async function emailSampleRoomCart() {
   const text = _sudslabCartEmailText(items, shipTo);
   const d = new Date();
   const subject = `Sample Room take-out request - ${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-  let body = text;
-  // Mail apps cut off very long mailto: links, which would silently drop items
-  // from the draft — so past a safe length, put the list on the clipboard and
-  // leave a one-line draft. If the clipboard is unavailable, stop BEFORE marking
-  // anything as emailed.
-  if (('mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body)).length > 1800) {
-    try { await navigator.clipboard.writeText(text); }
-    catch (e) { alert('This list is too long for an email draft and could not be copied automatically. Use "Copy list", paste it into a new email, then try again.'); return; }
-    body = 'The list of take-outs was copied to your clipboard — paste it here.';
-  }
+  const mailto = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text);
   const a = document.createElement('a');
-  a.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
   document.body.appendChild(a);
+  // Mail apps cut off very long mailto: links, which would silently drop items
+  // from the draft — so past a safe length, hand over an unsent .eml draft
+  // instead: opening it gives a compose window with the WHOLE list (and the
+  // Ship to address) in the body, however long it is.
+  const asFile = mailto.length > 1800;
+  if (asFile) {
+    const utf8 = unescape(encodeURIComponent(text.replace(/\r?\n/g, '\r\n')));
+    const b64 = btoa(utf8).replace(/(.{76})/g, '$1\r\n');
+    const eml = `X-Unsent: 1\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${b64}\r\n`;
+    a.href = URL.createObjectURL(new Blob([eml], { type: 'message/rfc822' }));
+    a.download = `Sample_Room_take-out_request_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.eml`;
+  } else {
+    a.href = mailto;
+  }
   a.click();
   a.remove();
+  if (asFile) setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 
   const nowIso = new Date().toISOString();
   items.forEach(it => { it.entry.emailedAt = nowIso; });
@@ -4006,6 +4011,7 @@ async function emailSampleRoomCart() {
   saveSudsLabSampleRoom(); // self-guards: persists for real logins and the SLtest Sample Room operator only
   await _sudslabSaveShipRows(SUDSLAB_SHIPHIST_PREFIX, [batch]);
   await _sudslabSaveShipRows(SUDSLAB_SHIPADDR_PREFIX, [shipTo]);
+  if (asFile) alert('This list is too long for a one-click email link, so it was saved as an email draft file.\n\nOpen the downloaded file "' + a.download + '" (from your browser\'s downloads) — it opens as a new email with the full list and Ship to address. Add the recipient and send.');
 }
 
 async function undoLastSampleRoomEmail() {
