@@ -3829,7 +3829,7 @@ function _sudslabUpdateCartBadge() {
 }
 
 function _sudslabCartEmailText(items, shipTo) {
-  const lines = items.map(it => `${it.sku}${it.desc ? ' - ' + it.desc : ''}${it.label ? ' (' + it.label + ')' : ''} - Qty: ${it.entry.qty.toLocaleString()}${it.entry.requestedBy ? ' - Requested by: ' + it.entry.requestedBy : ''}`);
+  const lines = items.map(it => `${it.sku}${it.desc ? ' - ' + it.desc : ''}${it.label ? ' (' + it.label + ')' : ''} - Qty: ${it.entry.qty.toLocaleString()}`);
   const total = items.reduce((sum, it) => sum + it.entry.qty, 0);
   const head = shipTo ? `Please ship these samples to:\n${shipTo.name}\n${shipTo.address}\n\n` : '';
   return `${head}Sample Room take-outs:\n\n${lines.join('\n')}\n\nTotal: ${total.toLocaleString()} units`;
