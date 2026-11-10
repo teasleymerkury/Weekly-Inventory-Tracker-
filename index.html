@@ -4038,7 +4038,7 @@ async function undoLastSampleRoomEmail() {
 // other, and a delete is just a row delete. They hold real people's home
 // addresses, so they live only in the database — never in the page source.
 let sudslabShipAddresses = [];  // [{ id, name, address, lastUsed }]
-let sudslabShipBatches = [];    // [{ id, at, shipTo:{id,name,address}, items:[{sku,desc,label,qty,requestedBy,reason}], total, trackingNumber?, carrier?, deliveredAt? }]
+let sudslabShipBatches = [];    // [{ id, at, shipTo:{id,name,address}, items:[{sku,desc,label,qty,requestedBy,reason}], total, trackingNumber?, carrier? }]
 let _sudslabCartShipToId = '';
 let _sudslabShipEditId = null;
 const SUDSLAB_SHIPADDR_PREFIX = 'sudslab_shipaddr_';
@@ -4198,9 +4198,9 @@ async function deleteShipAddress() {
 }
 
 // ── suds.lab: Shipping History tracking — a tracking number per batch ─────────
-// Stored on the batch itself (trackingNumber, carrier, deliveredAt), so it rides
-// along in the same app_cache row. The site can't query carriers directly, so
-// "Track" opens the carrier's own tracking page; Delivered is ticked by hand.
+// Stored on the batch itself (trackingNumber, carrier), so it rides along in the
+// same app_cache row. The site can't query carriers directly, so "Track" opens
+// the carrier's own tracking page.
 const _SUDSLAB_CARRIERS = ['UPS', 'FedEx', 'USPS', 'DHL', 'Other'];
 
 function _sudslabCleanTracking(num) { return String(num || '').replace(/[\s-]/g, '').toUpperCase(); }
@@ -4231,16 +4231,12 @@ function _sudslabShipTrackHtml(b) {
   const opts = ['', ..._SUDSLAB_CARRIERS].map(c =>
     `<option value="${c}" ${c === (b.carrier || '') ? 'selected' : ''} style="background:#1e1e2e;color:#f0f0f8;">${c || 'Auto-detect carrier'}</option>`).join('');
   const dis = can ? '' : 'disabled title="This login can\'t save tracking"';
-  const delDate = b.deliveredAt ? new Date(b.deliveredAt) : null;
-  const delText = delDate && !isNaN(delDate) ? 'Delivered ' + delDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Delivered';
-  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08);">
+  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
     <span style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-3);">Tracking</span>
     <input type="text" id="shipTrkNum_${b.id}" value="${_sudslabEsc(num)}" placeholder="Tracking number" ${dis}
       onchange="saveShipTracking('${b.id}')" onkeydown="if(event.key==='Enter')this.blur()" style="${inp}width:210px;" />
     <select id="shipTrkCar_${b.id}" ${dis} onchange="saveShipTracking('${b.id}')" style="${inp}">${opts}</select>
     ${num ? `<a href="${_sudslabEsc(_sudslabTrackUrl(carrier, _sudslabCleanTracking(num)))}" target="_blank" rel="noopener" style="font-size:12px;color:rgba(160,200,255,.95);">Track ${carrier && carrier !== 'Other' ? 'on ' + carrier : 'package'} &#8599;</a>` : ''}
-    <label style="display:flex;align-items:center;gap:5px;font-size:12px;margin-left:auto;cursor:${can ? 'pointer' : 'default'};${b.deliveredAt ? 'color:rgba(120,220,150,.95);font-weight:700;' : 'color:var(--text-2);'}">
-      <input type="checkbox" ${b.deliveredAt ? 'checked' : ''} ${dis} onchange="toggleShipDelivered('${b.id}')" />${_sudslabEsc(delText)}</label>
   </div>`;
 }
 
@@ -4255,14 +4251,6 @@ async function saveShipTracking(id) {
   if (!b || !numEl || !carEl) return;
   b.trackingNumber = _sudslabCleanTracking(numEl.value);
   b.carrier = carEl.value;
-  _sudslabRefreshShipTrack(b);
-  await _sudslabSaveShipRows(SUDSLAB_SHIPHIST_PREFIX, [b]);
-}
-
-async function toggleShipDelivered(id) {
-  const b = sudslabShipBatches.find(x => x.id === id);
-  if (!b) return;
-  b.deliveredAt = b.deliveredAt ? null : new Date().toISOString();
   _sudslabRefreshShipTrack(b);
   await _sudslabSaveShipRows(SUDSLAB_SHIPHIST_PREFIX, [b]);
 }
@@ -4295,13 +4283,13 @@ async function renderSudsLabShippingPage() {
           <div style="font-size:14px;font-weight:700;margin-top:4px;">Ship to: ${_sudslabEsc(b.shipTo ? b.shipTo.name : '')}</div>
           <div style="font-size:12px;color:var(--text-2);margin-top:2px;white-space:pre-line;">${_sudslabEsc(b.shipTo ? b.shipTo.address : '')}</div>
         </div>
+        <div id="shipTrk_${b.id}" style="flex:1 1 340px;display:flex;justify-content:center;align-self:center;">${_sudslabShipTrackHtml(b)}</div>
         <div style="font-size:12px;color:var(--text-2);text-align:right;">${(b.items || []).length} item${(b.items || []).length === 1 ? '' : 's'}<br><span style="font-size:14px;font-weight:700;color:var(--text-1);">${Number(b.total || 0).toLocaleString()} units</span></div>
       </div>
       <div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;">
         <thead><tr style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:.4px;"><th style="text-align:left;padding:4px 8px;">SKU</th><th style="text-align:left;padding:4px 8px;">Description</th><th style="text-align:left;padding:4px 8px;">Requested by</th><th style="text-align:right;padding:4px 8px;">Qty</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
-      <div id="shipTrk_${b.id}">${_sudslabShipTrackHtml(b)}</div>
     </div>`;
   }).join('');
 }
