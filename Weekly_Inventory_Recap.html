@@ -4038,7 +4038,7 @@ async function undoLastSampleRoomEmail() {
 // other, and a delete is just a row delete. They hold real people's home
 // addresses, so they live only in the database — never in the page source.
 let sudslabShipAddresses = [];  // [{ id, name, address, lastUsed }]
-let sudslabShipBatches = [];    // [{ id, at, shipTo:{id,name,address}, items:[{sku,desc,label,qty,requestedBy,reason}], total }]
+let sudslabShipBatches = [];    // [{ id, at, shipTo:{id,name,address}, items:[{sku,desc,label,qty,requestedBy,reason}], total, trackingNumber?, carrier?, deliveredAt? }]
 let _sudslabCartShipToId = '';
 let _sudslabShipEditId = null;
 const SUDSLAB_SHIPADDR_PREFIX = 'sudslab_shipaddr_';
@@ -4197,6 +4197,76 @@ async function deleteShipAddress() {
   await _sudslabDeleteShipRow(SUDSLAB_SHIPADDR_PREFIX, rec.id);
 }
 
+// ── suds.lab: Shipping History tracking — a tracking number per batch ─────────
+// Stored on the batch itself (trackingNumber, carrier, deliveredAt), so it rides
+// along in the same app_cache row. The site can't query carriers directly, so
+// "Track" opens the carrier's own tracking page; Delivered is ticked by hand.
+const _SUDSLAB_CARRIERS = ['UPS', 'FedEx', 'USPS', 'DHL', 'Other'];
+
+function _sudslabCleanTracking(num) { return String(num || '').replace(/[\s-]/g, '').toUpperCase(); }
+
+function _sudslabDetectCarrier(num) {
+  const n = _sudslabCleanTracking(num);
+  if (/^1Z[0-9A-Z]{16}$/.test(n)) return 'UPS';
+  if (/^(92|93|94|95)\d{18,20}$/.test(n) || /^[A-Z]{2}\d{9}US$/.test(n)) return 'USPS';
+  if (/^(96\d{20}|\d{12}|\d{15})$/.test(n)) return 'FedEx';
+  if (/^\d{10}$/.test(n)) return 'DHL';
+  return '';
+}
+
+function _sudslabTrackUrl(carrier, num) {
+  const q = encodeURIComponent(num);
+  if (carrier === 'UPS') return 'https://www.ups.com/track?tracknum=' + q;
+  if (carrier === 'FedEx') return 'https://www.fedex.com/fedextrack/?trknbr=' + q;
+  if (carrier === 'USPS') return 'https://tools.usps.com/go/TrackConfirmAction?tLabels=' + q;
+  if (carrier === 'DHL') return 'https://www.dhl.com/us-en/home/tracking/tracking-express.html?submit=1&tracking-id=' + q;
+  return 'https://www.google.com/search?q=' + q; // unknown carrier: Google recognizes most tracking numbers
+}
+
+function _sudslabShipTrackHtml(b) {
+  const can = _sudslabCanWriteShipData();
+  const num = b.trackingNumber || '';
+  const carrier = b.carrier || _sudslabDetectCarrier(num);
+  const inp = 'background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:8px;color:var(--text-1);padding:5px 9px;font-size:12px;';
+  const opts = ['', ..._SUDSLAB_CARRIERS].map(c =>
+    `<option value="${c}" ${c === (b.carrier || '') ? 'selected' : ''} style="background:#1e1e2e;color:#f0f0f8;">${c || 'Auto-detect carrier'}</option>`).join('');
+  const dis = can ? '' : 'disabled title="This login can\'t save tracking"';
+  const delDate = b.deliveredAt ? new Date(b.deliveredAt) : null;
+  const delText = delDate && !isNaN(delDate) ? 'Delivered ' + delDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Delivered';
+  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08);">
+    <span style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-3);">Tracking</span>
+    <input type="text" id="shipTrkNum_${b.id}" value="${_sudslabEsc(num)}" placeholder="Tracking number" ${dis}
+      onchange="saveShipTracking('${b.id}')" onkeydown="if(event.key==='Enter')this.blur()" style="${inp}width:210px;" />
+    <select id="shipTrkCar_${b.id}" ${dis} onchange="saveShipTracking('${b.id}')" style="${inp}">${opts}</select>
+    ${num ? `<a href="${_sudslabEsc(_sudslabTrackUrl(carrier, _sudslabCleanTracking(num)))}" target="_blank" rel="noopener" style="font-size:12px;color:rgba(160,200,255,.95);">Track ${carrier && carrier !== 'Other' ? 'on ' + carrier : 'package'} &#8599;</a>` : ''}
+    <label style="display:flex;align-items:center;gap:5px;font-size:12px;margin-left:auto;cursor:${can ? 'pointer' : 'default'};${b.deliveredAt ? 'color:rgba(120,220,150,.95);font-weight:700;' : 'color:var(--text-2);'}">
+      <input type="checkbox" ${b.deliveredAt ? 'checked' : ''} ${dis} onchange="toggleShipDelivered('${b.id}')" />${_sudslabEsc(delText)}</label>
+  </div>`;
+}
+
+function _sudslabRefreshShipTrack(b) {
+  const el = document.getElementById('shipTrk_' + b.id);
+  if (el) el.innerHTML = _sudslabShipTrackHtml(b);
+}
+
+async function saveShipTracking(id) {
+  const b = sudslabShipBatches.find(x => x.id === id);
+  const numEl = document.getElementById('shipTrkNum_' + id), carEl = document.getElementById('shipTrkCar_' + id);
+  if (!b || !numEl || !carEl) return;
+  b.trackingNumber = _sudslabCleanTracking(numEl.value);
+  b.carrier = carEl.value;
+  _sudslabRefreshShipTrack(b);
+  await _sudslabSaveShipRows(SUDSLAB_SHIPHIST_PREFIX, [b]);
+}
+
+async function toggleShipDelivered(id) {
+  const b = sudslabShipBatches.find(x => x.id === id);
+  if (!b) return;
+  b.deliveredAt = b.deliveredAt ? null : new Date().toISOString();
+  _sudslabRefreshShipTrack(b);
+  await _sudslabSaveShipRows(SUDSLAB_SHIPHIST_PREFIX, [b]);
+}
+
 // ── suds.lab: Shipping History page — one card per emailed batch ──────────────
 async function renderSudsLabShippingPage() {
   const el = document.getElementById('sudslabShippingList');
@@ -4231,6 +4301,7 @@ async function renderSudsLabShippingPage() {
         <thead><tr style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:.4px;"><th style="text-align:left;padding:4px 8px;">SKU</th><th style="text-align:left;padding:4px 8px;">Description</th><th style="text-align:left;padding:4px 8px;">Requested by</th><th style="text-align:right;padding:4px 8px;">Qty</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
+      <div id="shipTrk_${b.id}">${_sudslabShipTrackHtml(b)}</div>
     </div>`;
   }).join('');
 }
