@@ -10,6 +10,7 @@
 <title>Weekly Inventory Recap — Merkury Forecast</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -13933,11 +13934,12 @@ function exportSudsLabRetailerList() {
 // Autozone requires their own item-setup file back in their own format (photos,
 // specs, FOB/Delivered/Retail cost, UPCs, LDP — all Autozone-owned data this
 // app doesn't track), not a generic list. Autozone_Template.xlsx is a snapshot
-// of that real file; ExcelJS (unlike the SheetJS build used for every other
-// export on this page) can write into an existing styled workbook, so the
-// embedded product photos, specs, pricing, and formatting all carry through
-// untouched — only columns N/O/P/Q (Toll E-Comm, 200-300 Ultra-Look, 200-310
-// Star Distribution, San Pedro) get overwritten with live on-hand values.
+// of that real file. The photos are Excel "Place in Cell" pictures, which neither
+// SheetJS nor ExcelJS keeps when they re-save a workbook, so the xlsx is opened as
+// the zip it is (JSZip) and ONLY the numbers in columns N/O/P/Q (Toll E-Comm,
+// 200-300 Ultra-Look, 200-310 Star Distribution, San Pedro) are rewritten in the
+// sheet's XML with live on-hand values — every other part (pictures, specs,
+// pricing, formatting) is carried through byte for byte.
 // Rows are matched by column A (Old VPN, our own sku) first; if that doesn't
 // hit, by column B (MDM SKU#) against the retailer's own catalog number for
 // that product (customSRSku) — some rows in the real file don't carry a
@@ -13954,10 +13956,33 @@ async function exportSudsLabAutozoneTemplate(retailerId) {
     return;
   }
 
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buf);
-  const ws = workbook.getWorksheet('AZ Store');
-  if (!ws) { alert('Autozone_Template.xlsx is missing the "AZ Store" sheet.'); return; }
+  if (typeof JSZip === 'undefined') { alert('The file-reading library did not load — check your internet connection and refresh the page.'); return; }
+  const zip = await JSZip.loadAsync(buf);
+  const readXml = async path => new DOMParser().parseFromString(await zip.file(path).async('string'), 'application/xml');
+  const RELNS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+  // Find the "AZ Store" sheet's part: workbook.xml names it, workbook.xml.rels locates it.
+  const sheetEl = [...(await readXml('xl/workbook.xml')).getElementsByTagName('sheet')].find(e => e.getAttribute('name') === 'AZ Store');
+  const rel = sheetEl && [...(await readXml('xl/_rels/workbook.xml.rels')).getElementsByTagName('Relationship')].find(e => e.getAttribute('Id') === sheetEl.getAttributeNS(RELNS, 'id'));
+  if (!rel) { alert('Autozone_Template.xlsx is missing the "AZ Store" sheet.'); return; }
+  const sheetPath = 'xl/' + rel.getAttribute('Target').replace(/^\/?(xl\/)?/, '');
+  const sharedDoc = zip.file('xl/sharedStrings.xml') ? await readXml('xl/sharedStrings.xml') : null;
+  const shared = sharedDoc ? [...sharedDoc.getElementsByTagName('si')].map(si => [...si.getElementsByTagName('t')].map(t => t.textContent).join('')) : [];
+  let sheetXml = await zip.file(sheetPath).async('string');
+
+  const cellText = c => {
+    if (!c) return null;
+    if (c.getAttribute('t') === 'inlineStr') return [...c.getElementsByTagName('t')].map(t => t.textContent).join('');
+    const v = c.getElementsByTagName('v')[0];
+    if (!v) return null;
+    return c.getAttribute('t') === 's' ? shared[Number(v.textContent)] : v.textContent;
+  };
+  // Replace one existing cell's value with a number, keeping its style (s=).
+  const setNumber = (ref, n) => {
+    const re = new RegExp(`<c r="${ref}"([^>]*?)(?:/>|>[\\s\\S]*?</c>)`);
+    if (!re.test(sheetXml)) return;
+    sheetXml = sheetXml.replace(re, (m, attrs) => `<c r="${ref}"${attrs.replace(/\s+t="[^"]*"/, '')}><v>${n}</v></c>`);
+  };
 
   const byOldVpn = {};
   const byMdmSku = {};
@@ -13970,24 +13995,26 @@ async function exportSudsLabAutozoneTemplate(retailerId) {
   });
 
   let matched = 0;
-  ws.eachRow((row, rowNumber) => {
+  [...new DOMParser().parseFromString(sheetXml, 'application/xml').getElementsByTagName('row')].forEach(row => {
+    const rowNumber = Number(row.getAttribute('r'));
     if (rowNumber === 1) return; // header row
-    const oldVpn = row.getCell(1).value;
-    const mdmSku = row.getCell(2).value;
+    const cells = [...row.getElementsByTagName('c')];
+    const oldVpn = cellText(cells.find(c => c.getAttribute('r') === 'A' + rowNumber));
+    const mdmSku = cellText(cells.find(c => c.getAttribute('r') === 'B' + rowNumber));
     const s = (oldVpn && byOldVpn[String(oldVpn).trim().toUpperCase()])
       || (mdmSku != null && byMdmSku[String(mdmSku).trim()]);
     if (!s) return;
     matched++;
-    row.getCell(14).value = s.onHandTollEcomm || 0; // N — Toll E-Comm
-    row.getCell(15).value = s.onHandUltra || 0;     // O — 200-300 Ultra-Look
-    row.getCell(16).value = s.onHandStar || 0;      // P — 200-310 Star Distribution
-    row.getCell(17).value = s.onHandSanPedro || 0;  // Q — San Pedro
+    setNumber('N' + rowNumber, s.onHandTollEcomm || 0); // N — Toll E-Comm
+    setNumber('O' + rowNumber, s.onHandUltra || 0);     // O — 200-300 Ultra-Look
+    setNumber('P' + rowNumber, s.onHandStar || 0);      // P — 200-310 Star Distribution
+    setNumber('Q' + rowNumber, s.onHandSanPedro || 0);  // Q — San Pedro
   });
 
   if (matched === 0) { alert("None of this file's SKUs matched a product in the app — nothing was updated."); return; }
 
-  const outBuf = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  zip.file(sheetPath, sheetXml);
+  const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
